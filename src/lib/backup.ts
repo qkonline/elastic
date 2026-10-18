@@ -1,23 +1,25 @@
-// Export / import. Version 2 holds everything (settings, repeating series, every day).
-// Version 1 files hold a single day ({ items, dayStart, wrap }) and import into the day
-// being viewed.
+// Export / import. Version 3 holds everything (settings, repeating series, every day, goals
+// and reviews); version 2 is the same without goals and reviews. Version 1 files hold a single
+// day ({ items, dayStart, wrap }) and import into the day being viewed.
 
 import { newItem, uid } from './actions';
 import { dkey } from './time';
-import type { Day, Habit, Item, Kind, Series, Settings, Status } from './types';
+import type { Day, Goal, Habit, Hue, Item, Kind, Review, ReviewNumbers, Series, Settings, Status } from './types';
 import { DEFAULT_SETTINGS, FIXED_LEADS, isHue, untimed } from './types';
 
-export interface BackupV2 {
+export interface Backup {
   app: 'elastic-day';
-  version: 2;
+  version: 3;
   exportedAt: string;
   settings: Settings;
   series: Series[];
   days: Day[];
+  goals: Goal[];
+  reviews: Review[];
 }
 
 export type Parsed =
-  | { kind: 'full'; settings: Settings; series: Series[]; days: Day[] }
+  | { kind: 'full'; settings: Settings; series: Series[]; days: Day[]; goals: Goal[]; reviews: Review[] }
   | { kind: 'day'; items: Item[]; dayStart: number; wrap: number };
 
 const KINDS: Kind[] = ['task', 'buffer', 'fixed', 'check', 'habit'];
@@ -100,6 +102,7 @@ export function normalizeItem(raw: unknown): Item {
     movedId: typeof r.movedId === 'string' ? r.movedId : null,
     ...(kind === 'habit' ? { habit, progress: Math.max(0, num(r.progress, 0)!) } : {}),
     ...(typeof r.habitId === 'string' && r.habitId ? { habitId: r.habitId } : {}),
+    ...(typeof r.goalId === 'string' && r.goalId ? { goalId: r.goalId } : {}),
   });
 }
 
@@ -147,6 +150,7 @@ export function normalizeSeries(raw: unknown, index: number): Series | null {
     order: num(r.order, index)!,
     ...(kind === 'habit' ? { habit } : {}),
     ...(typeof r.habitId === 'string' && r.habitId ? { habitId: r.habitId } : {}),
+    ...(typeof r.goalId === 'string' && r.goalId ? { goalId: r.goalId } : {}),
   };
 }
 
@@ -170,6 +174,106 @@ export function normalizeSettings(raw: unknown): Settings {
     // A backup comes from someone who has used the app, so don't show them the welcome again.
     onboarded: true,
     habitsPlace: r.habitsPlace === 'separate' ? 'separate' : 'checklist',
+    hueNames: Object.fromEntries(
+      Object.entries(obj(r.hueNames))
+        .filter(([k, v]) => isHue(k) && typeof v === 'string')
+        .map(([k, v]) => [k, (v as string).slice(0, 40)]),
+    ),
+    reviewDay:
+      Number.isInteger(r.reviewDay) && (r.reviewDay as number) >= 0 && (r.reviewDay as number) <= 6
+        ? (r.reviewDay as number)
+        : d.reviewDay,
+    reviewAt: Math.max(0, Math.min(1439, Math.round(num(r.reviewAt, d.reviewAt)!))),
+  };
+}
+
+const QUARTER = /^\d{4}-Q[1-4]$/;
+const STATUSES_G: Goal['status'][] = ['open', 'hit', 'partly', 'missed'];
+
+function normalizeTarget(raw: unknown): Goal['target'] {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = obj(raw);
+  return { now: num(r.now, 0)!, goal: num(r.goal, 1)!, unit: str(r.unit, '').slice(0, 30) };
+}
+
+export function normalizeGoal(raw: unknown, index = 0): Goal | null {
+  const r = obj(raw);
+  if (typeof r.id !== 'string' || !r.id || typeof r.quarter !== 'string' || !QUARTER.test(r.quarter)) return null;
+  return {
+    id: r.id,
+    quarter: r.quarter,
+    title: str(r.title, 'Untitled').slice(0, 300),
+    why: str(r.why, '').slice(0, 2000),
+    target: normalizeTarget(r.target),
+    milestones: (Array.isArray(r.milestones) ? r.milestones : []).slice(0, 50).map((m) => {
+      const x = obj(m);
+      return { id: str(x.id, '') || uid(), t: str(x.t, '').slice(0, 300), done: !!x.done };
+    }),
+    status: STATUSES_G.includes(r.status as Goal['status']) ? (r.status as Goal['status']) : 'open',
+    order: num(r.order, index)!,
+  };
+}
+
+const n0 = (v: unknown) => Math.max(0, num(v, 0)!);
+
+function normalizeNumbers(raw: unknown): ReviewNumbers | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = obj(raw);
+  return {
+    days: n0(r.days),
+    daysStarted: n0(r.daysStarted),
+    tasks: n0(r.tasks),
+    tasksDone: n0(r.tasksDone),
+    logged: n0(r.logged),
+    byHue: (Array.isArray(r.byHue) ? r.byHue : [])
+      .map(obj)
+      .filter((x) => isHue(x.hue))
+      .map((x) => ({ hue: x.hue as Hue, min: n0(x.min) })),
+    checks: n0(r.checks),
+    checksDone: n0(r.checksDone),
+    habitsDue: n0(r.habitsDue),
+    habitsKept: n0(r.habitsKept),
+    postponed: (Array.isArray(r.postponed) ? r.postponed : [])
+      .slice(0, 10)
+      .map(obj)
+      .map((x) => ({ title: str(x.title, ''), times: n0(x.times) })),
+    longDays: n0(r.longDays),
+    ...(Array.isArray(r.weeks)
+      ? {
+          weeks: r.weeks
+            .map(obj)
+            .filter((x) => typeof x.from === 'string' && KEY.test(x.from))
+            .map((x) => ({ from: x.from as string, logged: n0(x.logged) })),
+        }
+      : {}),
+  };
+}
+
+export function normalizeReview(raw: unknown): Review | null {
+  const r = obj(raw);
+  const kind = r.kind === 'quarter' ? 'quarter' : r.kind === 'week' ? 'week' : null;
+  if (typeof r.id !== 'string' || !kind || typeof r.from !== 'string' || !KEY.test(r.from)) return null;
+  if (typeof r.to !== 'string' || !KEY.test(r.to)) return null;
+  return {
+    id: r.id,
+    kind,
+    from: r.from,
+    to: r.to,
+    done: num(r.done, null),
+    numbers: normalizeNumbers(r.numbers),
+    goals: (Array.isArray(r.goals) ? r.goals : []).slice(0, 100).map((g) => {
+      const x = obj(g);
+      const ms = Array.isArray(x.milestones) ? x.milestones : [0, 0];
+      return {
+        id: str(x.id, ''),
+        title: str(x.title, ''),
+        target: normalizeTarget(x.target),
+        milestones: [n0(ms[0]), n0(ms[1])] as [number, number],
+        minutes: n0(x.minutes),
+        habitDays: n0(x.habitDays),
+        status: STATUSES_G.includes(x.status as Goal['status']) ? (x.status as Goal['status']) : 'open',
+      };
+    }),
   };
 }
 
@@ -181,12 +285,14 @@ export function parseBackup(text: string): Parsed | { error: string } {
     return { error: 'Could not read that file.' };
   }
   if (d.app !== 'elastic-day') return { error: 'That file is not an Elastic Day backup.' };
-  if (d.version === 2 && Array.isArray(d.days)) {
+  if ((d.version === 2 || d.version === 3) && Array.isArray(d.days)) {
     return {
       kind: 'full',
       settings: normalizeSettings(d.settings),
       series: Array.isArray(d.series) ? d.series.map(normalizeSeries).filter((x): x is Series => !!x) : [],
       days: d.days.map(normalizeDay).filter((x): x is Day => !!x),
+      goals: Array.isArray(d.goals) ? d.goals.map(normalizeGoal).filter((x): x is Goal => !!x) : [],
+      reviews: Array.isArray(d.reviews) ? d.reviews.map(normalizeReview).filter((x): x is Review => !!x) : [],
     };
   }
   if (Array.isArray(d.items)) {
@@ -201,7 +307,7 @@ export function parseBackup(text: string): Parsed | { error: string } {
   return { error: 'That file is not an Elastic Day backup.' };
 }
 
-export function download(data: BackupV2): void {
+export function download(data: Backup): void {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
   a.download = `elastic-day-${dkey(new Date())}.json`;

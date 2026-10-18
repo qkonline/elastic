@@ -42,6 +42,7 @@ export function freshCopy(it: Item, extra: Partial<Item> = {}): Item {
     subtasks: it.subtasks.map((x) => ({ ...x, id: uid(), d: false })),
     ...(it.habit ? { habit: it.habit } : {}),
     ...(it.habitId ? { habitId: it.habitId } : {}),
+    ...(it.goalId ? { goalId: it.goalId } : {}),
     ...extra,
   });
 }

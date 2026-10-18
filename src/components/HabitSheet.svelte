@@ -10,6 +10,7 @@
   import HabitHistory from './HabitHistory.svelte';
   import HabitRing from './HabitRing.svelte';
   import KindMark from './KindMark.svelte';
+  import SwitchRow from './SwitchRow.svelte';
 
   // A habit's sheet: today's progress, its record, and its settings. Settings changes reach later
   // days like any repeating task's; deleting asks about later days too.
@@ -37,6 +38,9 @@
   const delArmed = $derived(P.armed('delete', id));
   const repeatsLater = $derived(!!series && (series.until == null || series.until > P.viewKey));
   const waits = $derived(P.waiting);
+  const quarterGoals = $derived(
+    P.goals.filter((g) => g.quarter === P.quarterOf(P.viewKey) && g.title.trim()).sort((a, b) => a.order - b.order),
+  );
 </script>
 
 {#if it && h}
@@ -121,6 +125,26 @@
       <div class="card">
         <Fields field="colour" hue={it.hue} onHue={(c) => P.edit(id, { hue: c })} />
         <HabitFields habit={h} repeat={it.repeat} typeLocked onchange={(nh, r) => P.editHabit(id, nh, r)} />
+        {#if quarterGoals.length}
+          <div class="props">
+            <SwitchRow
+              label="Counts towards a goal"
+              note={it.goalId
+                ? `Each day it's kept adds to ${quarterGoals.find((g) => g.id === it.goalId)?.title ?? 'a goal'}`
+                : "Days it's kept add to one of this quarter's goals"}
+              on={!!it.goalId}
+              ontoggle={() => P.edit(id, { goalId: it.goalId ? null : quarterGoals[0].id })}
+            >
+              <div class="row">
+                {#each quarterGoals as g (g.id)}
+                  <button class="chip" aria-pressed={it.goalId === g.id} onclick={() => P.edit(id, { goalId: g.id })}
+                    >{g.title}</button
+                  >
+                {/each}
+              </div>
+            </SwitchRow>
+          </div>
+        {/if}
       </div>
 
       <div class="card notes">
@@ -297,6 +321,16 @@
   }
   .card.notes {
     gap: 8px;
+  }
+  .props {
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
   }
   textarea {
     width: 100%;

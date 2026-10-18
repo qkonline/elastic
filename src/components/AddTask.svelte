@@ -16,9 +16,10 @@
   // a switch that opens its choices in place. Timing starts off: without it, a task is a check,
   // ticked off on the checklist instead of timed.
   // Added from the week grid at a time: a fixed time at that time.
-  let { at }: { at?: number } = $props();
+  // Added from the Habits screen: a habit to start with.
+  let { at, kind: startKind }: { at?: number; kind?: Kind } = $props();
   let title = $state('');
-  let kind = $state<Kind>(untrack(() => (at != null ? 'fixed' : 'task')));
+  let kind = $state<Kind>(untrack(() => startKind ?? (at != null ? 'fixed' : 'task')));
   let hue = $state<Hue | null>(null);
   // Buffers and fixed times always take time. For a task it's the Timed switch, so trying
   // Buffer and going back to Task leaves the switch as it was.

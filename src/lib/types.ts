@@ -73,6 +73,8 @@ export interface Item {
   progress?: number;
   /** A task whose time counts towards this time habit (its series id). */
   habitId?: string | null;
+  /** A task or habit that counts towards this goal. */
+  goalId?: string | null;
 }
 
 export interface Day {
@@ -111,6 +113,11 @@ export interface Settings {
   onboarded: boolean;
   /** Habits in the Checklist, mixed with checks, or in a section of their own. */
   habitsPlace: 'checklist' | 'separate';
+  /** Names for colours ('orange' or '#rrggbb' → "Cadora"), used by reviews and the month view. */
+  hueNames: Record<string, string>;
+  /** When the weekly review comes up: a weekday (0 = Sunday) and minutes into that day. */
+  reviewDay: number;
+  reviewAt: number;
 }
 
 /** Template for a repeating item. Day items point at it through `seriesId`. */
@@ -132,6 +139,69 @@ export interface Series {
   order: number;
   habit?: Habit;
   habitId?: string | null;
+  goalId?: string | null;
+}
+
+/**
+ * A goal for a calendar quarter ('2026-Q4'). Any mix of: a number to reach, milestones to tick
+ * off, tasks and habits that count towards it (`Item.goalId`), or just the words and why.
+ */
+export interface Goal {
+  id: string;
+  quarter: string;
+  title: string;
+  why: string;
+  target: { now: number; goal: number; unit: string } | null;
+  milestones: { id: string; t: string; done: boolean }[];
+  /** How it went, set at the quarter's review. */
+  status: 'open' | 'hit' | 'partly' | 'missed';
+  order: number;
+}
+
+/** A goal as it stood when a review was finished. */
+export interface GoalSnapshot {
+  id: string;
+  title: string;
+  target: { now: number; goal: number; unit: string } | null;
+  milestones: [number, number];
+  minutes: number;
+  habitDays: number;
+  status: Goal['status'];
+}
+
+/** The numbers a review looks at, for a week or a quarter. */
+export interface ReviewNumbers {
+  days: number;
+  daysStarted: number;
+  tasks: number;
+  tasksDone: number;
+  /** Minutes logged. */
+  logged: number;
+  /** Minutes logged per colour, most first. */
+  byHue: { hue: Hue; min: number }[];
+  checks: number;
+  checksDone: number;
+  habitsDue: number;
+  habitsKept: number;
+  /** Tasks moved to another day most often. */
+  postponed: { title: string; times: number }[];
+  /** Days that ran past their planned wrap-up. */
+  longDays: number;
+  /** A quarter's weeks: minutes logged in each, Monday first. */
+  weeks?: { from: string; logged: number }[];
+}
+
+/** A finished (or skipped) weekly or quarterly review, kept to read back. */
+export interface Review {
+  /** '2026-W42' or '2026-Q4'. */
+  id: string;
+  kind: 'week' | 'quarter';
+  from: string;
+  to: string;
+  /** When it was finished (ms), or null if it was skipped. */
+  done: number | null;
+  numbers: ReviewNumbers | null;
+  goals: GoalSnapshot[];
 }
 
 export const HUES: Record<HueName, string> = {
@@ -175,4 +245,14 @@ export const DEFAULT_SETTINGS: Settings = {
   flexStart: false,
   onboarded: false,
   habitsPlace: 'checklist',
+  hueNames: {},
+  reviewDay: 0,
+  reviewAt: 18 * 60,
 };
+
+/** A colour's name: what the user called it, or its own name. */
+export function hueName(h: Hue, names: Record<string, string>): string {
+  const own = names[h]?.trim();
+  if (own) return own;
+  return isHex(h) ? 'Custom colour' : h.charAt(0).toUpperCase() + h.slice(1);
+}

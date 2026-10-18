@@ -9,7 +9,9 @@ import { download, parseBackup } from './backup';
 import * as db from './db';
 import { hasNotifications, needsInstallForNotifications } from './platform';
 import { cancelPush, preparePush, pushEndpoint, schedulePush, unsubscribePush } from './push';
+import { addQuarters, goalProgress, quarterOf, quarterRange, snapshot, suggestStatus } from './goals';
 import { habitMet, isHabit, progressText } from './habits';
+import { type DueReview, dueQuarterly, dueWeekly, reviewNumbers, weekId, weekRange } from './review';
 import { type HeadsUp, headsUps, type Note, pushPlan } from './reminders';
 import {
   materialize,
@@ -42,7 +44,7 @@ import {
 import { Sync, type SyncStatus } from './sync';
 import { activeDayKey } from './today';
 import { newBuildOut, reloadToUpdate } from './update';
-import type { Day, Habit, Hue, Item, Kind, Series, Settings } from './types';
+import type { Day, Goal, Habit, Hue, Item, Kind, Review, Series, Settings } from './types';
 import { DEFAULT_SETTINGS, untimed } from './types';
 
 /** The full-screen moment after Start my day or End my day. */
@@ -53,12 +55,16 @@ export type Sheet =
   | { type: 'task'; id: string }
   | { type: 'settings' }
   | { type: 'hours' }
-  | { type: 'add'; at?: number }
+  | { type: 'add'; at?: number; kind?: Kind }
   | { type: 'install' }
   | { type: 'wrapup' }
   | { type: 'account' }
+  | { type: 'habits' }
+  | { type: 'goals'; quarter?: string }
+  | { type: 'review'; id?: string }
   | { type: 'reorder'; id: string; anchor: string; dir: 'up' | 'down' };
-export type ConfirmType = 'postpone' | 'delete' | 'clear' | 'erase' | 'sample' | 'finish' | 'signout' | 'unaccount';
+export type ConfirmType =
+  'postpone' | 'delete' | 'clear' | 'erase' | 'sample' | 'finish' | 'signout' | 'unaccount' | 'goal';
 /** Running this far over before Done asks when it was really finished (minutes). */
 export const ASK_FINISH_OVER = 5;
 export interface Confirm {
@@ -106,7 +112,14 @@ function readView(): View {
   return 'day';
 }
 
-type Msg = { t: 'days'; keys: string[] } | { t: 'settings' } | { t: 'series' } | { t: 'all' } | { t: 'account' };
+type Msg =
+  | { t: 'days'; keys: string[] }
+  | { t: 'settings' }
+  | { t: 'series' }
+  | { t: 'goals' }
+  | { t: 'reviews' }
+  | { t: 'all' }
+  | { t: 'account' };
 /** How often to check whether the alerts the account sends have changed. */
 const ALERTS_EVERY_MS = 5000;
 
@@ -120,7 +133,18 @@ function readThemeMirror(): Settings['themePref'] {
   return DEFAULT_SETTINGS.themePref;
 }
 
-const SERIES_FIELDS: (keyof Item)[] = ['title', 'min', 'kind', 'hue', 'fixedAt', 'note', 'repeat', 'habit', 'habitId'];
+const SERIES_FIELDS: (keyof Item)[] = [
+  'title',
+  'min',
+  'kind',
+  'hue',
+  'fixedAt',
+  'note',
+  'repeat',
+  'habit',
+  'habitId',
+  'goalId',
+];
 /** How far back stored days are kept at hand for habit streaks and history. */
 const PAST_DAYS = 400;
 
@@ -132,6 +156,8 @@ export class Planner {
   days = $state.raw<Record<string, Day>>({});
   /** Stored days before the ones loaded for the screen: for habit streaks and history. */
   past = $state.raw<Record<string, Day>>({});
+  goals = $state.raw<Goal[]>([]);
+  reviews = $state.raw<Review[]>([]);
   today = $state(todayKey());
   /** The day on screen; in the week and month views, the day they're anchored on. */
   viewKey = $state(todayKey());
@@ -238,7 +264,14 @@ export class Planner {
 
   async init(): Promise<void> {
     try {
-      const [s, series] = await Promise.all([db.getSettings(), db.getAllSeries()]);
+      const [s, series, goals, reviews] = await Promise.all([
+        db.getSettings(),
+        db.getAllSeries(),
+        db.getGoals(),
+        db.getReviews(),
+      ]);
+      this.goals = goals;
+      this.reviews = reviews;
       this.settings = { ...DEFAULT_SETTINGS, ...(s ?? {}), ...(s ? {} : { themePref: this.settings.themePref }) };
       // Settings saved before day length and the welcome existed: derive the one, skip the other.
       if (s && s.dayLength == null)
@@ -349,7 +382,21 @@ export class Planner {
     }
     for (const h of this.headsUps()) out.push({ at: h.at, note: this.headsUpNote(h) });
     for (const r of this.habitReminders()) if (r.at > now) out.push(r);
+    const rv = this.reviewReminder();
+    if (rv && rv.at > now) out.push(rv);
     return out;
+  }
+
+  /** This week's review, at its day and time, if it hasn't been done. */
+  private reviewReminder(): { at: number; note: Note } | null {
+    const { reviewDay, reviewAt } = this.settings;
+    const key = addDays(mondayOf(this.today), (reviewDay + 6) % 7);
+    const id = weekId(key);
+    if (this.reviews.some((r) => r.id === id)) return null;
+    return {
+      at: atMinutes(key, reviewAt),
+      note: { title: 'Your week in review', body: 'A few minutes to look back at your week', tag: 'review-' + id },
+    };
   }
 
   /** Today's habits with a reminder that aren't done yet. */
@@ -451,7 +498,8 @@ export class Planner {
       }
       if (this.settings.notify) notifyHidden(note.title, note.body, note.tag);
     }
-    for (const r of this.habitReminders()) {
+    const rv = this.reviewReminder();
+    for (const r of [...this.habitReminders(), ...(rv ? [rv] : [])]) {
       if (r.at <= from || r.at > this.clock) continue;
       this.say(`${r.note.title}: ${r.note.body}`);
       if (this.settings.alertOn) {
@@ -555,6 +603,14 @@ export class Planner {
     this.sync.kick();
     if (m.t === 'account') return this.loadSession();
     if (m.t === 'all') return this.reloadAll();
+    if (m.t === 'goals') {
+      this.goals = await db.getGoals();
+      return;
+    }
+    if (m.t === 'reviews') {
+      this.reviews = await db.getReviews();
+      return;
+    }
     if (m.t === 'settings') {
       const s = await db.getSettings();
       if (!s) return;
@@ -590,6 +646,8 @@ export class Planner {
     const msgs: Msg[] = [];
     if (ids.some((id) => id.startsWith('settings:'))) msgs.push({ t: 'settings' });
     if (ids.some((id) => id.startsWith('series:'))) msgs.push({ t: 'series' });
+    if (ids.some((id) => id.startsWith('goal:'))) msgs.push({ t: 'goals' });
+    if (ids.some((id) => id.startsWith('review:'))) msgs.push({ t: 'reviews' });
     if (keys.length) msgs.push({ t: 'days', keys });
     if (keys.some((k) => !(k in this.days) && k < this.today)) void this.loadPast();
     void (async () => {
@@ -627,7 +685,14 @@ export class Planner {
     this.days = {};
     this.stored.clear();
     this.pending.clear();
-    const [s, series] = await Promise.all([db.getSettings(), db.getAllSeries()]);
+    const [s, series, goals, reviews] = await Promise.all([
+      db.getSettings(),
+      db.getAllSeries(),
+      db.getGoals(),
+      db.getReviews(),
+    ]);
+    this.goals = goals;
+    this.reviews = reviews;
     this.settings = { ...DEFAULT_SETTINGS, ...(s ?? {}) };
     this.series = series;
     this.sheet = null;
@@ -1439,14 +1504,21 @@ export class Planner {
 
   async exportData(): Promise<void> {
     await this.flush();
-    const [days, series] = await Promise.all([db.getAllDays(), db.getAllSeries()]);
+    const [days, series, goals, reviews] = await Promise.all([
+      db.getAllDays(),
+      db.getAllSeries(),
+      db.getGoals(),
+      db.getReviews(),
+    ]);
     download({
       app: 'elastic-day',
-      version: 2,
+      version: 3,
       exportedAt: new Date().toISOString(),
       settings: this.settings,
       series,
       days,
+      goals,
+      reviews,
     });
   }
 
@@ -1461,7 +1533,13 @@ export class Planner {
       this.importMsg = { err: false, t: 'Imported. Your plan has been replaced with the backup.' };
       return;
     }
-    await db.replaceAll({ days: res.days, series: res.series, settings: res.settings });
+    await db.replaceAll({
+      days: res.days,
+      series: res.series,
+      settings: res.settings,
+      goals: res.goals,
+      reviews: res.reviews,
+    });
     try {
       localStorage.setItem(THEME_KEY, res.settings.themePref);
     } catch {
@@ -1487,6 +1565,132 @@ export class Planner {
     this.post({ t: 'all' });
     this.say('Everything erased');
   }
+
+  // ---------- goals ----------
+
+  /** The quarter a day falls in, as '2026-Q4'. */
+  quarterOf = quarterOf;
+
+  private async saveGoal(g: Goal): Promise<void> {
+    this.goals = [...this.goals.filter((x) => x.id !== g.id), g];
+    await db.putGoal(g);
+    this.post({ t: 'goals' });
+  }
+
+  addGoal(o: Pick<Goal, 'title' | 'why' | 'target' | 'milestones'> & { quarter: string }): Goal {
+    const order = Math.max(-1, ...this.goals.filter((g) => g.quarter === o.quarter).map((g) => g.order)) + 1;
+    const g: Goal = { id: A.uid(), status: 'open', order, ...o };
+    void this.saveGoal(g);
+    this.say(`Goal added: ${g.title}`);
+    return g;
+  }
+
+  editGoal(id: string, patch: Partial<Omit<Goal, 'id'>>): void {
+    const g = this.goals.find((x) => x.id === id);
+    if (g) void this.saveGoal({ ...g, ...patch });
+  }
+
+  toggleMilestone(id: string, mid: string): void {
+    const g = this.goals.find((x) => x.id === id);
+    if (g) this.editGoal(id, { milestones: g.milestones.map((m) => (m.id === mid ? { ...m, done: !m.done } : m)) });
+  }
+
+  async removeGoal(id: string): Promise<void> {
+    this.confirm = null;
+    const g = this.goals.find((x) => x.id === id);
+    this.goals = this.goals.filter((x) => x.id !== id);
+    await db.deleteGoal(id);
+    this.post({ t: 'goals' });
+    if (g) this.say(`Goal deleted: ${g.title}`);
+  }
+
+  /** An unfinished goal carried into the next quarter: the same goal, starting again as open. */
+  carryGoal(id: string): void {
+    const g = this.goals.find((x) => x.id === id);
+    if (!g) return;
+    const next = addQuarters(g.quarter, 1);
+    if (this.goals.some((x) => x.quarter === next && x.title === g.title)) return;
+    this.addGoal({ quarter: next, title: g.title, why: g.why, target: g.target, milestones: g.milestones });
+  }
+
+  progressOf(g: Goal) {
+    return goalProgress(g, this.dayAt, this.today, this.nowToday());
+  }
+
+  // ---------- reviews ----------
+
+  /** The review that's due now: the quarter's at its turn, otherwise the week's. */
+  dueReview: DueReview | null = $derived.by(() => {
+    const n = minutesInto(this.today, this.clock);
+    const done = this.reviews;
+    // Only for stretches the app was used in: a day was started.
+    const used = (from: string, to: string) => {
+      for (let k = from; k <= to && k <= this.today; k = addDays(k, 1))
+        if (this.dayAt(k)?.dayStarted != null) return true;
+      return false;
+    };
+    return (
+      dueQuarterly(this.today, done, used) ??
+      dueWeekly(this.today, n, this.settings.reviewDay, this.settings.reviewAt, done, used)
+    );
+  });
+
+  /** The numbers for this week so far, or any stretch of days. */
+  numbersFor(from: string, to: string) {
+    return reviewNumbers(this.dayAt, from, to, this.today, this.nowToday());
+  }
+
+  thisWeek(): [string, string] {
+    return weekRange(this.today);
+  }
+
+  /** The goals a review looks at: the quarter's (for a week, the quarter it ends in). */
+  goalsFor(due: { kind: 'week' | 'quarter'; id: string; to: string }): Goal[] {
+    const q = due.kind === 'quarter' ? due.id : quarterOf(due.to);
+    return this.goals.filter((g) => g.quarter === q).sort((a, b) => a.order - b.order);
+  }
+
+  /** Finish a review: keep its numbers and where each goal stood, to read back later. */
+  async finishReview(due: DueReview): Promise<void> {
+    // A quarter's goals not marked take the result the review suggested.
+    if (due.kind === 'quarter')
+      for (const g of this.goalsFor(due))
+        if (g.status === 'open') this.editGoal(g.id, { status: suggestStatus(this.progressOf(g)) });
+    const goals = this.goalsFor(due).map((g) => snapshot(g, this.progressOf(g)));
+    const r: Review = {
+      id: due.id,
+      kind: due.kind,
+      from: due.from,
+      to: due.to,
+      done: Date.now(),
+      numbers: this.numbersFor(due.from, due.to),
+      goals,
+    };
+    await this.saveReview(r);
+    this.say(due.kind === 'week' ? 'Weekly review done' : 'Quarterly review done');
+  }
+
+  /** Not this time: the review goes away until the next one. */
+  async skipReview(due: DueReview): Promise<void> {
+    await this.saveReview({
+      id: due.id,
+      kind: due.kind,
+      from: due.from,
+      to: due.to,
+      done: null,
+      numbers: null,
+      goals: [],
+    });
+  }
+
+  private async saveReview(r: Review): Promise<void> {
+    this.reviews = [...this.reviews.filter((x) => x.id !== r.id), r];
+    await db.putReview(r);
+    this.post({ t: 'reviews' });
+  }
+
+  /** A quarter's first and last day. */
+  quarterRange = quarterRange;
 
   // ---------- account ----------
 

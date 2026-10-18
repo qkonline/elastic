@@ -31,6 +31,8 @@
   --btn: 44px;
   /* Two rows on a phone: the title, then Day / Week / Month. */
   --header-h: 106px;
+  /* The bar at the bottom: Habits, Goals, Review. */
+  --bar-h: 58px;
 
   --font: 'Geist Sans', 'Geist', system-ui, -apple-system, sans-serif;
 }

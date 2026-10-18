@@ -12,7 +12,7 @@
 // to each device.
 
 import type { Session } from './account';
-import { normalizeDay, normalizeSeries, normalizeSettings } from './backup';
+import { normalizeDay, normalizeGoal, normalizeReview, normalizeSeries, normalizeSettings } from './backup';
 import * as db from './db';
 import { type RecordKind, recId } from './db';
 import { mergeDay, mergeSeries, mergeSettings } from './merge';
@@ -30,6 +30,9 @@ export const SHARED_SETTINGS = [
   'defWrap',
   'dayLength',
   'flexStart',
+  'hueNames',
+  'reviewDay',
+  'reviewAt',
 ] as const;
 type Shared = Pick<Settings, (typeof SHARED_SETTINGS)[number]>;
 
@@ -84,6 +87,14 @@ function clean(kind: RecordKind, key: string, data: unknown): unknown {
     const s = normalizeSeries(data, 0);
     return s && s.id === key ? s : null;
   }
+  if (kind === 'goal') {
+    const g = normalizeGoal(data);
+    return g && g.id === key ? g : null;
+  }
+  if (kind === 'review') {
+    const r = normalizeReview(data);
+    return r && r.id === key ? r : null;
+  }
   const s = normalizeSettings(data);
   return shared('settings', s);
 }
@@ -94,6 +105,8 @@ function merge(kind: RecordKind, base: unknown, mine: unknown, theirs: unknown):
   if (theirs == null) return mine;
   if (kind === 'day') return mergeDay(base as Day | null, mine as Day, theirs as Day);
   if (kind === 'series') return mergeSeries(base as Series | null, mine as Series, theirs as Series);
+  if (kind === 'goal' || kind === 'review')
+    return mergeSettings(base as object | null, mine as object, theirs as object);
   return mergeSettings(base as Shared | null, mine as Shared, theirs as Shared);
 }
 

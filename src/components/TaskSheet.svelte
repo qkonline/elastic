@@ -46,6 +46,10 @@
     return list;
   });
   const repeating = $derived(!!it && it.repeat !== 'Once');
+  // This quarter's goals a task can count towards.
+  const quarterGoals = $derived(
+    P.goals.filter((g) => g.quarter === P.quarterOf(P.viewKey) && g.title.trim()).sort((a, b) => a.order - b.order),
+  );
   // Time habits a timed task can count towards.
   const timeHabits = $derived(
     P.series.filter((s) => s.kind === 'habit' && s.habit?.type === 'time' && (s.until == null || s.until >= P.viewKey)),
@@ -241,6 +245,24 @@
             {/each}
           </div>
         </SwitchRow>
+        {#if quarterGoals.length && it.kind !== 'buffer'}
+          <SwitchRow
+            label="Counts towards a goal"
+            note={it.goalId
+              ? `Adds to ${quarterGoals.find((g) => g.id === it.goalId)?.title ?? 'a goal'}`
+              : "Its time adds to one of this quarter's goals"}
+            on={!!it.goalId}
+            ontoggle={() => P.edit(id, { goalId: it.goalId ? null : quarterGoals[0].id })}
+          >
+            <div class="row">
+              {#each quarterGoals as g (g.id)}
+                <button class="chip" aria-pressed={it.goalId === g.id} onclick={() => P.edit(id, { goalId: g.id })}
+                  >{g.title}</button
+                >
+              {/each}
+            </div>
+          </SwitchRow>
+        {/if}
         {#if timeHabits.length && !isCheck && it.kind !== 'buffer'}
           <SwitchRow
             label="Counts towards a habit"

@@ -4,13 +4,16 @@
 // sync.ts), and `meta` the account and how far syncing got.
 
 import type { AlertGroup } from './reminders';
-import type { Day, Series, Settings } from './types';
+import type { Day, Goal, Review, Series, Settings } from './types';
 
 const DB_NAME = 'elastic-day';
-const VERSION = 2;
+const VERSION = 3;
 
-/** A record as the account knows it: a day (by key), a repeating series (by id), or the settings ('main'). */
-export type RecordKind = 'day' | 'series' | 'settings';
+/**
+ * A record as the account knows it: a day (by key), a repeating series, a goal or a review (by
+ * id), or the settings ('main').
+ */
+export type RecordKind = 'day' | 'series' | 'settings' | 'goal' | 'review';
 export const recId = (kind: RecordKind, key: string) => `${kind}:${key}`;
 
 /**
@@ -37,6 +40,8 @@ function open(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
       if (!db.objectStoreNames.contains('synced')) db.createObjectStore('synced');
       if (!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox');
+      if (!db.objectStoreNames.contains('goals')) db.createObjectStore('goals', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('reviews')) db.createObjectStore('reviews', { keyPath: 'id' });
     };
     req.onsuccess = () => {
       const db = req.result;
@@ -67,7 +72,8 @@ const txDone = (tx: IDBTransaction) =>
     tx.onabort = () => reject(tx.error ?? new Error('Transaction aborted'));
   });
 
-type StoreName = 'days' | 'series' | 'meta' | 'synced' | 'outbox';
+type StoreName = 'days' | 'series' | 'meta' | 'synced' | 'outbox' | 'goals' | 'reviews';
+type DataStore = 'days' | 'series' | 'meta' | 'goals' | 'reviews';
 
 async function store(name: StoreName, mode: IDBTransactionMode) {
   const db = await open();
@@ -90,7 +96,7 @@ export async function getAllDays(): Promise<Day[]> {
 }
 
 /** A write to one store, noted in the outbox when signed in. */
-async function write(name: 'days' | 'series' | 'meta', fn: (st: IDBObjectStore, note: (id: string) => void) => void) {
+async function write(name: DataStore, fn: (st: IDBObjectStore, note: (id: string) => void) => void) {
   const db = await open();
   const tx = db.transaction(tracking ? [name, 'outbox'] : [name], 'readwrite');
   const noted = tracking;
@@ -129,6 +135,35 @@ export async function putSeries(s: Series): Promise<void> {
   });
 }
 
+export async function getGoals(): Promise<Goal[]> {
+  return done((await store('goals', 'readonly')).getAll());
+}
+
+export async function putGoal(g: Goal): Promise<void> {
+  return write('goals', (st, note) => {
+    st.put(plain(g));
+    note(recId('goal', g.id));
+  });
+}
+
+export async function deleteGoal(id: string): Promise<void> {
+  return write('goals', (st, note) => {
+    st.delete(id);
+    note(recId('goal', id));
+  });
+}
+
+export async function getReviews(): Promise<Review[]> {
+  return done((await store('reviews', 'readonly')).getAll());
+}
+
+export async function putReview(r: Review): Promise<void> {
+  return write('reviews', (st, note) => {
+    st.put(plain(r));
+    note(recId('review', r.id));
+  });
+}
+
 export async function getSettings(): Promise<Partial<Settings> | undefined> {
   return done((await store('meta', 'readonly')).get('settings'));
 }
@@ -150,34 +185,41 @@ export async function putAlerts(groups: AlertGroup[]): Promise<void> {
  * account follows: every day and series there was or is now goes in the outbox, so the ones
  * gone are deleted from it too. The account and sync state in `meta` stay.
  */
-export async function replaceAll(data: { days: Day[]; series: Series[]; settings: Settings | null }): Promise<void> {
+export async function replaceAll(data: {
+  days: Day[];
+  series: Series[];
+  settings: Settings | null;
+  goals?: Goal[];
+  reviews?: Review[];
+}): Promise<void> {
   const db = await open();
-  const names: StoreName[] = ['days', 'series', 'meta', 'outbox'];
+  const names: StoreName[] = ['days', 'series', 'meta', 'outbox', 'goals', 'reviews'];
   const tx = db.transaction(names, 'readwrite');
-  const days = tx.objectStore('days');
-  const series = tx.objectStore('series');
   const meta = tx.objectStore('meta');
   const outbox = tx.objectStore('outbox');
-  if (tracking) {
-    days.getAllKeys().onsuccess = (e) => {
-      for (const k of (e.target as IDBRequest<IDBValidKey[]>).result) outbox.put(true, recId('day', String(k)));
-    };
-    series.getAllKeys().onsuccess = (e) => {
-      for (const k of (e.target as IDBRequest<IDBValidKey[]>).result) outbox.put(true, recId('series', String(k)));
-    };
+  const lists: [DataStore & ('days' | 'series' | 'goals' | 'reviews'), RecordKind, { id?: string; key?: string }[]][] =
+    [
+      ['days', 'day', data.days],
+      ['series', 'series', data.series],
+      ['goals', 'goal', data.goals ?? []],
+      ['reviews', 'review', data.reviews ?? []],
+    ];
+  for (const [name, kind, rows] of lists) {
+    const st = tx.objectStore(name);
+    if (tracking)
+      st.getAllKeys().onsuccess = (e) => {
+        for (const k of (e.target as IDBRequest<IDBValidKey[]>).result) outbox.put(true, recId(kind, String(k)));
+      };
+    // Requests run in order, so this clear comes after the key list above.
+    st.clear();
+    for (const r of rows) {
+      st.put(plain(r));
+      if (tracking) outbox.put(true, recId(kind, String(r.key ?? r.id)));
+    }
   }
-  // Requests run in order, so these clears come after the key lists above.
-  days.clear();
-  series.clear();
   for (const k of ['settings', 'alerts']) meta.delete(k);
-  for (const d of data.days) days.put(plain(d));
-  for (const s of data.series) series.put(plain(s));
   if (data.settings) meta.put(plain(data.settings), 'settings');
-  if (tracking) {
-    for (const d of data.days) outbox.put(true, recId('day', d.key));
-    for (const s of data.series) outbox.put(true, recId('series', s.id));
-    outbox.put(true, recId('settings', 'main'));
-  }
+  if (tracking) outbox.put(true, recId('settings', 'main'));
   await txDone(tx);
   if (tracking) afterWrite?.();
 }
@@ -185,10 +227,16 @@ export async function replaceAll(data: { days: Day[]; series: Series[]; settings
 // ---------- syncing (see sync.ts) ----------
 
 /** The local copy of a record, or undefined if there is none. Settings come whole. */
+const STORE_OF: Record<RecordKind, DataStore> = {
+  day: 'days',
+  series: 'series',
+  settings: 'meta',
+  goal: 'goals',
+  review: 'reviews',
+};
+
 export async function getRecord(kind: RecordKind, key: string): Promise<unknown> {
-  if (kind === 'day') return done((await store('days', 'readonly')).get(key));
-  if (kind === 'series') return done((await store('series', 'readonly')).get(key));
-  return done((await store('meta', 'readonly')).get('settings'));
+  return done((await store(STORE_OF[kind], 'readonly')).get(kind === 'settings' ? 'settings' : key));
 }
 
 /**
@@ -203,7 +251,7 @@ export async function putSyncedRecord(
   dirty: boolean,
 ): Promise<void> {
   const db = await open();
-  const name = kind === 'day' ? 'days' : kind === 'series' ? 'series' : 'meta';
+  const name = STORE_OF[kind];
   const tx = db.transaction([name, 'synced', 'outbox'], 'readwrite');
   const st = tx.objectStore(name);
   if (data !== undefined) {
@@ -230,14 +278,17 @@ export async function getOutbox(): Promise<string[]> {
 /** Note records as changed here (to upload everything, or to send this device's plan to an account). */
 export async function markAll(): Promise<void> {
   const db = await open();
-  const tx = db.transaction(['days', 'series', 'outbox'], 'readwrite');
+  const tx = db.transaction(['days', 'series', 'goals', 'reviews', 'outbox'], 'readwrite');
   const outbox = tx.objectStore('outbox');
-  tx.objectStore('days').getAllKeys().onsuccess = (e) => {
-    for (const k of (e.target as IDBRequest<IDBValidKey[]>).result) outbox.put(true, recId('day', String(k)));
-  };
-  tx.objectStore('series').getAllKeys().onsuccess = (e) => {
-    for (const k of (e.target as IDBRequest<IDBValidKey[]>).result) outbox.put(true, recId('series', String(k)));
-  };
+  for (const [name, kind] of [
+    ['days', 'day'],
+    ['series', 'series'],
+    ['goals', 'goal'],
+    ['reviews', 'review'],
+  ] as const)
+    tx.objectStore(name).getAllKeys().onsuccess = (e) => {
+      for (const k of (e.target as IDBRequest<IDBValidKey[]>).result) outbox.put(true, recId(kind, String(k)));
+    };
   outbox.put(true, recId('settings', 'main'));
   return txDone(tx);
 }

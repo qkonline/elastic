@@ -69,7 +69,8 @@ export function alertGroups(v: unknown, now = Date.now()): AlertGroup[] | null {
   return out.sort((a, b) => a.at - b.at);
 }
 
-export type RecordKind = 'day' | 'series' | 'settings';
+export type RecordKind = 'day' | 'series' | 'settings' | 'goal' | 'review';
+const KINDS: RecordKind[] = ['day', 'series', 'settings', 'goal', 'review'];
 /** A change to one of an account's records. `data` null deletes it; `base` is the version it was made on. */
 export interface Change {
   kind: RecordKind;
@@ -88,7 +89,7 @@ export function changes(v: unknown): Change[] | null {
   const out: Change[] = [];
   for (const c of v) {
     if (!c || typeof c !== 'object') return null;
-    if (c.kind !== 'day' && c.kind !== 'series' && c.kind !== 'settings') return null;
+    if (!KINDS.includes(c.kind)) return null;
     if (typeof c.key !== 'string' || !c.key || c.key.length > 64) return null;
     if (!Number.isInteger(c.base) || c.base < 0) return null;
     if (c.data !== null && (typeof c.data !== 'object' || Array.isArray(c.data))) return null;

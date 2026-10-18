@@ -33,6 +33,7 @@ export function seriesFromItem(it: Item, from: string, id = it.seriesId ?? uid()
     order,
     ...(it.habit ? { habit: it.habit } : {}),
     ...(it.habitId ? { habitId: it.habitId } : {}),
+    ...(it.goalId ? { goalId: it.goalId } : {}),
   };
 }
 
@@ -49,6 +50,7 @@ export function itemFromSeries(s: Series): Item {
     subtasks: (s.subtasks ?? []).map((x) => ({ id: uid(), t: x.t, d: false })),
     ...(s.habit ? { habit: s.habit } : {}),
     ...(s.habitId ? { habitId: s.habitId } : {}),
+    ...(s.goalId ? { goalId: s.goalId } : {}),
   });
 }
 
@@ -167,6 +169,7 @@ export function syncSeriesInto(day: Day, next: Series | null, prev: Series | nul
       subtasks: steps,
       habit: next!.habit,
       habitId: next!.habitId ?? null,
+      goalId: next!.goalId ?? null,
     };
   }
   // A fixed time that changed goes where the new time falls.

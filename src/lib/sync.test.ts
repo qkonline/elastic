@@ -273,6 +273,26 @@ describe('sync', () => {
     expect(titles(a.p)).toEqual(['From the phone']);
   });
 
+  it('brings goals and reviews to the other device', async () => {
+    const a = await device({ fresh: true });
+    const b = await device();
+    a.p.addGoal({
+      quarter: '2026-Q4',
+      title: 'Reach 100 users',
+      why: '',
+      target: { now: 10, goal: 100, unit: 'users' },
+      milestones: [],
+    });
+    await settle();
+    expect(b.p.goals.map((g) => g.title)).toEqual(['Reach 100 users']);
+    b.p.editGoal(b.p.goals[0].id, { target: { now: 40, goal: 100, unit: 'users' } });
+    await settle();
+    expect(a.p.goals[0].target?.now).toBe(40);
+    a.p.setSettings({ hueNames: { orange: 'Cadora' } });
+    await settle();
+    expect(b.p.settings.hueNames).toEqual({ orange: 'Cadora' });
+  });
+
   it('sends changes made while offline once it reconnects', async () => {
     const a = await device({ fresh: true });
     const b = await device();

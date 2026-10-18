@@ -4,8 +4,8 @@
   import { planner as P } from '../lib/planner.svelte';
   import { hasNotifications, needsInstallForNotifications } from '../lib/platform';
   import { pushConfigured } from '../lib/push';
-  import { dL, fT, keyDate, shortDate } from '../lib/time';
-  import { FIXED_LEADS, type ShowTimes, type ThemePref } from '../lib/types';
+  import { dL, fT, hhmm, hm, keyDate, shortDate } from '../lib/time';
+  import { FIXED_LEADS, HUES, hueColor, hueName, isHex, type Hue, type ShowTimes, type ThemePref } from '../lib/types';
   import DayShape, { describe, type Shape } from './DayShape.svelte';
   import DisarmBar from './DisarmBar.svelte';
 
@@ -39,6 +39,13 @@
     else void P.enableNotifications();
   }
   const count = $derived(P.day.items.length);
+  // The five colours, then any colour of your own used on a repeating task or a loaded day.
+  const colours = $derived.by(() => {
+    const own = new Set<Hue>();
+    for (const s of P.series) if (isHex(s.hue)) own.add(s.hue);
+    for (const d of Object.values(P.days)) for (const it of d.items) if (isHex(it.hue)) own.add(it.hue);
+    return [...(Object.keys(HUES) as Hue[]), ...own];
+  });
   const syncText = $derived(
     !P.session
       ? 'Use the same plan on your phone and your computer.'
@@ -196,6 +203,50 @@
   </section>
 
   <section class="card g12">
+    <span class="ct">Weekly review</span>
+    <span class="muted">When your week in review comes up, with a notification if they're on.</span>
+    <div class="row">
+      {#each ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as d, i (d)}
+        <button class="chip" aria-pressed={S.reviewDay === i} onclick={() => P.setSettings({ reviewDay: i })}
+          >{d}</button
+        >
+      {/each}
+    </div>
+    <label class="at">
+      <span class="ol">At</span>
+      <input
+        type="time"
+        aria-label="Weekly review time"
+        value={hhmm(S.reviewAt)}
+        onchange={(e) => e.currentTarget.value && P.setSettings({ reviewAt: hm(e.currentTarget.value) })}
+      />
+    </label>
+  </section>
+
+  <section class="card g12">
+    <span class="ct">Colours</span>
+    <span class="muted">Name your colours, like Cadora or Admin, and reviews show where your time went by name.</span>
+    {#each colours as h (h)}
+      <label class="hue">
+        <i style:background={hueColor(h)}></i>
+        <input
+          placeholder={hueName(h, {})}
+          aria-label="Name for {hueName(h, {})}"
+          maxlength="40"
+          value={S.hueNames[h] ?? ''}
+          onchange={(e) => {
+            const v = e.currentTarget.value.trim();
+            const next = { ...S.hueNames };
+            if (v) next[h] = v;
+            else delete next[h];
+            P.setSettings({ hueNames: next });
+          }}
+        />
+      </label>
+    {/each}
+  </section>
+
+  <section class="card g12">
     <span class="ct">Your day</span>
     <span class="muted">Used for days you haven't planned yet.</span>
     <div class="setting">
@@ -348,6 +399,37 @@
     color: var(--redT);
     font: 400 13px/1 var(--font);
     cursor: pointer;
+  }
+  .at {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .at input,
+  .hue input {
+    height: 40px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg);
+    color: var(--text);
+    font: 400 15px/1 var(--font);
+    box-sizing: border-box;
+  }
+  .hue {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .hue i {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    flex: none;
+  }
+  .hue input {
+    flex: 1;
+    min-width: 0;
   }
   .confirm {
     display: flex;

@@ -26,6 +26,11 @@
   import Timeline from './components/Timeline.svelte';
   import WeekStrip from './components/WeekStrip.svelte';
   import Welcome from './components/Welcome.svelte';
+  import BottomBar from './components/BottomBar.svelte';
+  import Goals from './components/Goals.svelte';
+  import HabitsScreen from './components/HabitsScreen.svelte';
+  import Review from './components/Review.svelte';
+  import ReviewDue from './components/ReviewDue.svelte';
   import WeekView from './components/WeekView.svelte';
   import MonthView from './components/MonthView.svelte';
   import { mondayOf } from './lib/time';
@@ -121,6 +126,9 @@
     install: 'Install',
     wrapup: 'End your day',
     account: 'Sync across devices',
+    habits: 'Habits',
+    goals: 'Goals',
+    review: 'Review',
     reorder: 'Later days',
   } as const;
 </script>
@@ -147,6 +155,7 @@
     <RunningElsewhere />
     <ComingUp />
     <NotifyPrompt />
+    <ReviewDue />
     <main
       class:settling={!gestures.dragging}
       style:transform={gestures.pull ? `translateY(${gestures.pull * 0.6}px)` : undefined}
@@ -183,6 +192,8 @@
   <PullIndicator />
   <StartFirst />
 
+  <BottomBar />
+
   <button
     class="fab"
     aria-label="Add task"
@@ -193,7 +204,7 @@
   </button>
 
   {#if P.sheet && shownSheet}
-    {#key shownSheet.type === 'task' ? 'task-' + shownSheet.id : shownSheet.type}
+    {#key shownSheet.type === 'task' ? 'task-' + shownSheet.id : shownSheet.type === 'review' ? 'review-' + (shownSheet.id ?? '') : shownSheet.type}
       <Sheet
         variant={shownSheet.type === 'add'
           ? 'form'
@@ -210,7 +221,7 @@
         {:else if shownSheet.type === 'task'}
           <TaskSheet id={shownSheet.id} />
         {:else if shownSheet.type === 'add'}
-          <AddTask at={shownSheet.at} />
+          <AddTask at={shownSheet.at} kind={shownSheet.kind} />
         {:else if shownSheet.type === 'hours'}
           <DayHours />
         {:else if shownSheet.type === 'install'}
@@ -221,6 +232,12 @@
           <ReorderAsk id={shownSheet.id} anchor={shownSheet.anchor} dir={shownSheet.dir} />
         {:else if shownSheet.type === 'account'}
           <Account />
+        {:else if shownSheet.type === 'habits'}
+          <HabitsScreen />
+        {:else if shownSheet.type === 'goals'}
+          <Goals start={shownSheet.quarter} />
+        {:else if shownSheet.type === 'review'}
+          <Review id={shownSheet.id} />
         {:else}
           <Settings />
         {/if}
@@ -261,7 +278,7 @@
     /* Fill the screen even when the day is short, so a swipe anywhere changes day. */
     min-height: 100dvh;
     margin: 0 auto;
-    padding: 0 0 calc(96px + env(safe-area-inset-bottom));
+    padding: 0 0 calc(96px + var(--bar-h) + env(safe-area-inset-bottom));
     box-sizing: border-box;
   }
   @media (min-width: 768px) {
@@ -272,7 +289,7 @@
   .fab {
     position: fixed;
     right: 20px;
-    bottom: calc(40px + env(safe-area-inset-bottom));
+    bottom: calc(var(--bar-h) + 16px + env(safe-area-inset-bottom));
     z-index: 5;
     height: 52px;
     padding: 0 22px 0 18px;
@@ -293,8 +310,8 @@
   }
   @media (min-width: 768px) {
     .fab {
-      right: max(28px, calc((100% - 780px) / 2));
-      bottom: 28px;
+      right: max(28px, calc((100% - 780px) / 2 + 20px));
+      bottom: calc(var(--bar-h) + 20px);
     }
   }
   .plus {

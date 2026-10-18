@@ -590,4 +590,44 @@ describe('Planner', () => {
     expect(p.viewKey).toBe('2026-09-02');
     p.setView('day');
   });
+
+  it('keeps goals with progress from linked tasks, and finishes a weekly review', async () => {
+    const p = await boot();
+    const g = p.addGoal({
+      quarter: '2026-Q3',
+      title: 'Ship the beta',
+      why: '',
+      target: null,
+      milestones: [{ id: 'm1', t: 'Invite testers', done: false }],
+    });
+    add(p, 'Build');
+    p.edit(byTitle(p, 'Build').id, { goalId: g.id });
+    p.startDay();
+    vi.setSystemTime(new Date(2026, 8, 25, 10, 30));
+    p.tick();
+    p.finish(byTitle(p, 'Build').id);
+    p.toggleMilestone(g.id, 'm1');
+    expect(p.progressOf(p.goals[0])).toMatchObject({ share: 1, minutes: 30, milestones: [1, 1] });
+
+    // The quarter's last week: its review comes first. Then the week's (Fridays at 9).
+    p.setSettings({ reviewDay: 5, reviewAt: 540 });
+    p.tick();
+    expect(p.dueReview).toMatchObject({ kind: 'quarter', id: '2026-Q3' });
+    p.editGoal(g.id, { status: 'hit' });
+    await p.finishReview(p.dueReview!);
+    expect(p.reviews[0].goals[0]).toMatchObject({
+      title: 'Ship the beta',
+      minutes: 30,
+      milestones: [1, 1],
+      status: 'hit',
+    });
+    expect(p.dueReview).toMatchObject({ kind: 'week', from: '2026-09-21', to: '2026-09-27' });
+    await p.skipReview(p.dueReview!);
+    expect(p.dueReview).toBeNull();
+    expect(p.reviews.find((r) => r.kind === 'quarter')).toMatchObject({ numbers: { tasksDone: 1, logged: 30 } });
+
+    const q = await boot();
+    expect(q.goals.map((x) => x.title)).toEqual(['Ship the beta']);
+    expect(q.reviews).toHaveLength(2);
+  });
 });

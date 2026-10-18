@@ -22,7 +22,7 @@
     z-index: 6;
     left: 16px;
     right: 16px;
-    bottom: calc(40px + 52px + 14px + env(safe-area-inset-bottom));
+    bottom: calc(var(--bar-h) + 16px + 52px + 14px + env(safe-area-inset-bottom));
     width: fit-content;
     max-width: 460px;
     margin: 0 auto;
@@ -39,7 +39,7 @@
   }
   @media (min-width: 768px) {
     .nudge {
-      bottom: calc(28px + 52px + 14px);
+      bottom: calc(var(--bar-h) + 20px + 52px + 14px);
     }
   }
 </style>
