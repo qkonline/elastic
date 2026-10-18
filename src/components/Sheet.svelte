@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, type Snippet } from 'svelte';
+  import { onMount, setContext, type Snippet } from 'svelte';
   import { cubicOut } from 'svelte/easing';
   import { fade } from 'svelte/transition';
   import { planner as P } from '../lib/planner.svelte';
@@ -9,8 +9,17 @@
    * full: bottom sheet (88%) on phone, 440px right side panel on desktop.
    * form: bottom sheet sized to content on phone, centred 480px dialog on desktop.
    * small: centred 360px dialog everywhere.
+   * A form whose fields come and go as choices change (New habit) can ask for a fixed height
+   * through the 'sheet' context, so the sheet doesn't jump with them.
    */
   let { variant, label, children }: { variant: 'full' | 'form' | 'small'; label: string; children: Snippet } = $props();
+
+  let tall = $state(false);
+  setContext('sheet', {
+    set tall(v: boolean) {
+      tall = v;
+    },
+  });
 
   let panel: HTMLDivElement | null = $state(null);
   const shape = $derived(
@@ -18,9 +27,11 @@
       ? 'dialog small'
       : desktop.current
         ? variant === 'form'
-          ? 'dialog'
+          ? tall
+            ? 'dialog tall'
+            : 'dialog'
           : 'side'
-        : variant === 'form'
+        : variant === 'form' && !tall
           ? 'bottom'
           : 'bottom tall',
   );
@@ -210,6 +221,9 @@
     border-radius: 20px;
     border: 1px solid var(--border);
     box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.35);
+  }
+  .dialog.tall {
+    height: min(760px, calc(100dvh - 64px));
   }
   .dialog.small {
     width: min(360px, calc(100% - 32px));

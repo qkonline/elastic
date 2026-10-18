@@ -96,6 +96,9 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
+  /* No double-tap zoom: quick taps on steppers and buttons (even disabled ones) would zoom the
+     page on iPhone. Pinch zoom still works. */
+  touch-action: manipulation;
 }
 
 body {

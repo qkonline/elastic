@@ -37,8 +37,11 @@
 </script>
 
 <script lang="ts">
+  import { cubicOut } from 'svelte/easing';
+  import { slide } from 'svelte/transition';
   import { habitDefaults } from '../lib/habits';
   import { hhmm, hm } from '../lib/time';
+  import { reducedMotion } from '../lib/ui.svelte';
   import Fields from './Fields.svelte';
   import SwitchRow from './SwitchRow.svelte';
 
@@ -84,6 +87,9 @@
     if (next.length) set({}, daysRepeat(next));
   }
 
+  // Parts that come and go slide open and shut, so what's below them glides instead of jumping.
+  const unfold = () => ({ duration: reducedMotion.current ? 0 : 220, easing: cubicOut });
+
   const maxTimes = $derived(habit.per === 'week' ? 7 : 31);
   const hint = $derived(HABIT_TYPES.find(([t]) => t === habit.type)?.[2] ?? '');
 </script>
@@ -101,44 +107,43 @@
     </div>
   {/if}
 
-  {#if habit.type === 'amount'}
-    <div class="group">
+  {#if habit.type === 'amount' || habit.type === 'time'}
+    <div class="group" transition:slide={unfold()}>
       <span class="label">Each day it's done</span>
-      <div class="amount">
-        <div class="stepper" role="group" aria-label="Target">
-          <button aria-label="Fewer" disabled={habit.target <= 1} onclick={() => set({ target: habit.target - 1 })}
-            >−</button
-          >
+      {#if habit.type === 'amount'}
+        <div class="amount">
+          <div class="stepper" role="group" aria-label="Target">
+            <button aria-label="Fewer" disabled={habit.target <= 1} onclick={() => set({ target: habit.target - 1 })}
+              >−</button
+            >
+            <input
+              type="number"
+              inputmode="numeric"
+              min="1"
+              max="999"
+              aria-label="Target"
+              value={habit.target}
+              onchange={(e) => set({ target: Math.max(1, Math.min(999, Math.round(+e.currentTarget.value) || 1)) })}
+            />
+            <button aria-label="More" onclick={() => set({ target: Math.min(999, habit.target + 1) })}>+</button>
+          </div>
           <input
-            type="number"
-            inputmode="numeric"
-            min="1"
-            max="999"
-            aria-label="Target"
-            value={habit.target}
-            onchange={(e) => set({ target: Math.max(1, Math.min(999, Math.round(+e.currentTarget.value) || 1)) })}
+            class="unit"
+            placeholder="times"
+            aria-label="Unit, like glasses"
+            maxlength="30"
+            value={habit.unit}
+            onchange={(e) => set({ unit: e.currentTarget.value.trim() })}
           />
-          <button aria-label="More" onclick={() => set({ target: Math.min(999, habit.target + 1) })}>+</button>
         </div>
-        <input
-          class="unit"
-          placeholder="times"
-          aria-label="Unit, like glasses"
-          maxlength="30"
-          value={habit.unit}
-          onchange={(e) => set({ unit: e.currentTarget.value.trim() })}
-        />
-      </div>
-    </div>
-  {:else if habit.type === 'time'}
-    <div class="group">
-      <span class="label">Each day it's done</span>
-      <Fields field="duration" min={habit.target} showLabel={false} onMin={(m) => set({ target: m })} />
+      {:else}
+        <Fields field="duration" min={habit.target} showLabel={false} onMin={(m) => set({ target: m })} />
+      {/if}
     </div>
   {/if}
 
   {#if habit.type !== 'quit'}
-    <div class="group">
+    <div class="group" transition:slide={unfold()}>
       <span class="label">How often</span>
       <div class="row">
         <button class="chip" aria-pressed={often === 'daily'} onclick={() => pickOften('daily')}>Every day</button>
@@ -146,28 +151,32 @@
         <button class="chip" aria-pressed={often === 'week'} onclick={() => pickOften('week')}>Times a week</button>
         <button class="chip" aria-pressed={often === 'month'} onclick={() => pickOften('month')}>Times a month</button>
       </div>
-      {#if often === 'days'}
-        <div class="days" role="group" aria-label="Days">
-          {#each ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as d (d)}
-            <button class="day" aria-pressed={days.includes(d)} aria-label={d} onclick={() => toggleDay(d)}
-              >{d.slice(0, 1)}</button
-            >
-          {/each}
-        </div>
-      {:else if often === 'week' || often === 'month'}
-        <div class="amount">
-          <div class="stepper" role="group" aria-label="Times">
-            <button aria-label="Fewer" disabled={habit.times <= 1} onclick={() => set({ times: habit.times - 1 })}
-              >−</button
-            >
-            <span class="num">{habit.times}</span>
-            <button
-              aria-label="More"
-              disabled={habit.times >= maxTimes}
-              onclick={() => set({ times: Math.min(maxTimes, habit.times + 1) })}>+</button
-            >
-          </div>
-          <span class="per">{habit.times === 1 ? 'time' : 'times'} a {habit.per}, on any days</span>
+      {#if often !== 'daily'}
+        <div class="more" transition:slide={unfold()}>
+          {#if often === 'days'}
+            <div class="days" role="group" aria-label="Days">
+              {#each ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as d (d)}
+                <button class="day" aria-pressed={days.includes(d)} aria-label={d} onclick={() => toggleDay(d)}
+                  >{d.slice(0, 1)}</button
+                >
+              {/each}
+            </div>
+          {:else}
+            <div class="amount">
+              <div class="stepper" role="group" aria-label="Times">
+                <button aria-label="Fewer" disabled={habit.times <= 1} onclick={() => set({ times: habit.times - 1 })}
+                  >−</button
+                >
+                <span class="num">{habit.times}</span>
+                <button
+                  aria-label="More"
+                  disabled={habit.times >= maxTimes}
+                  onclick={() => set({ times: Math.min(maxTimes, habit.times + 1) })}>+</button
+                >
+              </div>
+              <span class="per">{habit.times === 1 ? 'time' : 'times'} a {habit.per}, on any days</span>
+            </div>
+          {/if}
         </div>
       {/if}
     </div>
@@ -214,11 +223,18 @@
     flex-wrap: wrap;
     gap: 6px;
   }
+  /* Two lines whatever the kind, so the fields under it don't move as the hint changes. */
   .hint {
     margin: 0;
     font: 400 13px/1.45 var(--font);
     color: var(--muted);
     max-width: 46ch;
+    min-height: 2.9em;
+  }
+  /* Room for the chips' focus ring, which the slide's clipping would otherwise cut off. */
+  .more {
+    padding: 2px;
+    margin: -2px;
   }
   .amount {
     display: flex;

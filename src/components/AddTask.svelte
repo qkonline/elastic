@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { getContext, untrack } from 'svelte';
   import { cubicOut } from 'svelte/easing';
   import { slide } from 'svelte/transition';
   import { planner as P } from '../lib/planner.svelte';
@@ -41,6 +41,11 @@
   const ok = $derived(!!title.trim());
   const sel = $derived(hue ?? (kind === 'fixed' ? 'indigo' : kind === 'habit' ? 'lime' : 'cyan'));
   const placeholder = $derived(P.isToday ? 'What else today?' : `What else on ${shortDate(keyDate(P.viewKey))}?`);
+  // A habit's fields change a lot with its kind and how often, so its sheet keeps one height.
+  const sheet = getContext<{ tall: boolean } | undefined>('sheet');
+  $effect(() => {
+    if (sheet) sheet.tall = kind === 'habit';
+  });
   const unfold = () => ({ duration: reducedMotion.current ? 0 : 220, easing: cubicOut });
 
   // Turning timing off makes it a plain task.
