@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount, untrack } from 'svelte';
   import { addQuarters, quarterLabel, suggestStatus } from '../lib/goals';
   import { weekSpan } from '../lib/review';
   import { planner as P } from '../lib/planner.svelte';
@@ -10,15 +11,24 @@
   // The weekly or quarterly review that's due (or this week so far), and past reviews to read
   // back. A week's review is its numbers and a check-in on the quarter's goals; a quarter's is
   // how each goal went, the quarter's numbers, and the next quarter's goals.
+  // Opening a review that's due counts as having done it: it's saved straight away (so the card
+  // on Today goes), and saved again on closing, with whatever was checked in on meanwhile. The
+  // sheet keeps showing that review after it's saved.
   let { id }: { id?: string } = $props();
 
   const past = $derived(id ? P.reviews.find((r) => r.id === id) : undefined);
-  const due = $derived(P.dueReview);
+  const due = untrack(() => (id ? null : P.dueReview));
+  onMount(() => {
+    if (due) P.finishReview(due);
+    return () => {
+      if (due) P.finishReview(due);
+    };
+  });
   const live = $derived(due ? P.numbersFor(due.from, due.to) : P.numbersFor(...P.thisWeek()));
   const goals = $derived(due ? P.goalsFor(due) : []);
   const history = $derived(
     P.reviews
-      .filter((r) => r.done != null)
+      .filter((r) => r.done != null && r.id !== due?.id)
       .sort((a, b) => (a.to < b.to ? 1 : a.to > b.to ? -1 : a.kind === 'quarter' ? -1 : 1)),
   );
   const nextQ = $derived(due?.kind === 'quarter' ? addQuarters(due.id, 1) : null);
@@ -140,8 +150,7 @@
       {/if}
 
       <div class="acts">
-        <button class="pill pri" onclick={() => P.finishReview(due)}>Finish review</button>
-        <button class="pill" onclick={() => P.skipReview(due)}>Dismiss</button>
+        <button class="pill pri" onclick={() => P.closeSheet()}>Done</button>
       </div>
     {:else}
       <section class="card">
