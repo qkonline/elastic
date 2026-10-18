@@ -4,8 +4,8 @@
 
 import { newItem, uid } from './actions';
 import { dkey } from './time';
-import type { Day, Item, Kind, Series, Settings, Status } from './types';
-import { DEFAULT_SETTINGS, FIXED_LEADS, isHue } from './types';
+import type { Day, Habit, Item, Kind, Series, Settings, Status } from './types';
+import { DEFAULT_SETTINGS, FIXED_LEADS, isHue, untimed } from './types';
 
 export interface BackupV2 {
   app: 'elastic-day';
@@ -20,7 +20,8 @@ export type Parsed =
   | { kind: 'full'; settings: Settings; series: Series[]; days: Day[] }
   | { kind: 'day'; items: Item[]; dayStart: number; wrap: number };
 
-const KINDS: Kind[] = ['task', 'buffer', 'fixed', 'check'];
+const KINDS: Kind[] = ['task', 'buffer', 'fixed', 'check', 'habit'];
+const HABIT_TYPES: Habit['type'][] = ['check', 'amount', 'time', 'quit'];
 const STATUSES: Status[] = ['todo', 'running', 'paused', 'done', 'postponed', 'skipped'];
 const KEY = /^\d{4}-\d{2}-\d{2}$/;
 const num = (v: unknown, d: number | null) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -41,16 +42,35 @@ function normalizeSteps(raw: unknown): { id: string; t: string; d: boolean }[] {
   });
 }
 
+/** A habit's settings, or undefined if there are none worth keeping. */
+function normalizeHabit(raw: unknown): Habit | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = obj(raw);
+  const type = HABIT_TYPES.includes(r.type as Habit['type']) ? (r.type as Habit['type']) : 'check';
+  const per = r.per === 'week' || r.per === 'month' ? r.per : 'day';
+  const remindAt = num(r.remindAt, null);
+  return {
+    type,
+    target: Math.max(1, Math.round(num(r.target, 1)!)),
+    unit: str(r.unit, '').slice(0, 30),
+    per,
+    times: Math.min(per === 'week' ? 7 : 31, Math.max(1, Math.round(num(r.times, 3)!))),
+    remindAt: remindAt == null ? null : Math.max(0, Math.min(2879, Math.round(remindAt))),
+  };
+}
+
 export function normalizeItem(raw: unknown): Item {
   const r = obj(raw);
-  const kind = KINDS.includes(r.kind as Kind) ? (r.kind as Kind) : 'task';
+  const habit = normalizeHabit(r.habit);
+  let kind = KINDS.includes(r.kind as Kind) ? (r.kind as Kind) : 'task';
+  if (kind === 'habit' && !habit) kind = 'check'; // a habit with nothing to go by is a plain check
   let status: Status =
     r.status === 'stopped' ? 'done' : STATUSES.includes(r.status as Status) ? (r.status as Status) : 'todo';
   const startedAt = num(r.startedAt, null);
   let endedAt = num(r.endedAt, null);
   let pausedAt = num(r.pausedAt, null);
-  const min = kind === 'check' ? 0 : minutes(r.min, 30); // checks have no duration
-  if (kind === 'check' && (status === 'running' || status === 'paused')) status = 'todo'; // never timed
+  const min = untimed(kind) ? 0 : minutes(r.min, 30); // checks and habits have no duration
+  if (untimed(kind) && (status === 'running' || status === 'paused')) status = 'todo'; // never timed
   // Reconcile timer fields that don't fit the status (hand-edited or damaged files).
   if ((status === 'running' || status === 'paused') && startedAt == null) status = 'todo';
   if (status === 'paused' && pausedAt == null) pausedAt = startedAt;
@@ -78,6 +98,8 @@ export function normalizeItem(raw: unknown): Item {
     laterCopy: !!r.laterCopy,
     movedKey: typeof r.movedKey === 'string' && KEY.test(r.movedKey) ? r.movedKey : null,
     movedId: typeof r.movedId === 'string' ? r.movedId : null,
+    ...(kind === 'habit' ? { habit, progress: Math.max(0, num(r.progress, 0)!) } : {}),
+    ...(typeof r.habitId === 'string' && r.habitId ? { habitId: r.habitId } : {}),
   });
 }
 
@@ -107,11 +129,13 @@ export function normalizeSeries(raw: unknown, index: number): Series | null {
   if (typeof r.id !== 'string' || !r.id || typeof r.from !== 'string' || !KEY.test(r.from)) return null;
   const repeat = str(r.repeat, '');
   if (!repeat || repeat === 'Once') return null;
-  const kind = KINDS.includes(r.kind as Kind) ? (r.kind as Kind) : 'task';
+  const habit = normalizeHabit(r.habit);
+  let kind = KINDS.includes(r.kind as Kind) ? (r.kind as Kind) : 'task';
+  if (kind === 'habit' && !habit) kind = 'check';
   return {
     id: r.id,
     title: str(r.title, 'Untitled'),
-    min: minutes(r.min, 30),
+    min: untimed(kind) ? 0 : minutes(r.min, 30),
     kind,
     hue: isHue(r.hue) ? r.hue : 'cyan',
     fixedAt: kind === 'fixed' ? num(r.fixedAt, 540) : null,
@@ -121,6 +145,8 @@ export function normalizeSeries(raw: unknown, index: number): Series | null {
     from: r.from,
     until: typeof r.until === 'string' && KEY.test(r.until) ? r.until : null,
     order: num(r.order, index)!,
+    ...(kind === 'habit' ? { habit } : {}),
+    ...(typeof r.habitId === 'string' && r.habitId ? { habitId: r.habitId } : {}),
   };
 }
 
@@ -143,6 +169,7 @@ export function normalizeSettings(raw: unknown): Settings {
     flexStart: typeof r.flexStart === 'boolean' ? r.flexStart : d.flexStart,
     // A backup comes from someone who has used the app, so don't show them the welcome again.
     onboarded: true,
+    habitsPlace: r.habitsPlace === 'separate' ? 'separate' : 'checklist',
   };
 }
 

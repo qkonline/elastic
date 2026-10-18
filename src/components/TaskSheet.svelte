@@ -46,6 +46,10 @@
     return list;
   });
   const repeating = $derived(!!it && it.repeat !== 'Once');
+  // Time habits a timed task can count towards.
+  const timeHabits = $derived(
+    P.series.filter((s) => s.kind === 'habit' && s.habit?.type === 'time' && (s.until == null || s.until >= P.viewKey)),
+  );
   // Deleting asks about later days only while the task's series still has days after this one.
   const series = $derived(it?.seriesId ? P.series.find((s) => s.id === it.seriesId) : undefined);
   const repeatsLater = $derived(!!series && (series.until == null || series.until > P.viewKey));
@@ -237,6 +241,24 @@
             {/each}
           </div>
         </SwitchRow>
+        {#if timeHabits.length && !isCheck && it.kind !== 'buffer'}
+          <SwitchRow
+            label="Counts towards a habit"
+            note={it.habitId
+              ? `Its time adds to ${timeHabits.find((s) => s.id === it.habitId)?.title ?? 'a habit'}`
+              : 'Time spent on it can count towards a time habit'}
+            on={!!it.habitId}
+            ontoggle={() => P.edit(id, { habitId: it.habitId ? null : timeHabits[0].id })}
+          >
+            <div class="row">
+              {#each timeHabits as s (s.id)}
+                <button class="chip" aria-pressed={it.habitId === s.id} onclick={() => P.edit(id, { habitId: s.id })}
+                  >{s.title}</button
+                >
+              {/each}
+            </div>
+          </SwitchRow>
+        {/if}
       </div>
 
       <div class="card tight">

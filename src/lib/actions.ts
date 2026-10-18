@@ -3,6 +3,7 @@
 
 import { isActive, isMissed, isPartial, schedule } from './schedule';
 import type { Day, Item, Kind } from './types';
+import { untimed } from './types';
 
 export function uid(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID().slice(0, 12);
@@ -39,6 +40,8 @@ export function freshCopy(it: Item, extra: Partial<Item> = {}): Item {
     hue: it.hue,
     note: it.note,
     subtasks: it.subtasks.map((x) => ({ ...x, id: uid(), d: false })),
+    ...(it.habit ? { habit: it.habit } : {}),
+    ...(it.habitId ? { habitId: it.habitId } : {}),
     ...extra,
   });
 }
@@ -65,7 +68,7 @@ function toCurrentPoint(items: Item[], id: string, missed: Set<string>): Item[] 
   if (!self) return items;
   const rest = items.filter((x) => x.id !== id);
   // Checks live in the checklist, so they don't count.
-  const at = rest.findIndex((x) => x.kind !== 'check' && x.status === 'todo' && !missed.has(x.id));
+  const at = rest.findIndex((x) => !untimed(x.kind) && x.status === 'todo' && !missed.has(x.id));
   rest.splice(at < 0 ? rest.length : at, 0, self);
   return rest;
 }
@@ -76,7 +79,7 @@ function toCurrentPoint(items: Item[], id: string, missed: Set<string>): Item[] 
  */
 export function startItem(day: Day, id: string, n: number): Day {
   const target = find(day, id);
-  if (!target || target.kind === 'buffer' || target.kind === 'check') return day;
+  if (!target || target.kind === 'buffer' || untimed(target.kind)) return day;
   const missed = new Set(
     schedule(day, n)
       .rows.filter((r) => r.it.id !== id && isMissed(r, n))
@@ -108,7 +111,7 @@ export function startItem(day: Day, id: string, n: number): Day {
  * runs from this moment, so nothing still to do counts as missed.
  */
 export function startDay(day: Day, n: number): Day {
-  const timed = (i: Item) => i.status === 'todo' && i.kind !== 'buffer' && i.kind !== 'check';
+  const timed = (i: Item) => i.status === 'todo' && i.kind !== 'buffer' && !untimed(i.kind);
   const first = day.items.find((i) => timed(i) && i.kind === 'task') ?? day.items.find(timed);
   const d = { ...day, dayStarted: n, dayEnded: null };
   return first ? startItem(d, first.id, n) : d;
@@ -119,6 +122,31 @@ export function toggleCheck(day: Day, id: string, n: number): Day {
   return mapItem(day, id, (i) =>
     i.kind !== 'check' ? {} : i.status === 'done' ? { status: 'todo', endedAt: null } : { status: 'done', endedAt: n },
   );
+}
+
+/**
+ * Tap a habit: tick or untick a yes/no habit, mark or unmark a slip on a habit to break, or add
+ * one to an amount (`by` minutes for a time habit).
+ */
+export function tapHabit(day: Day, id: string, n: number, by = 1): Day {
+  const it = find(day, id);
+  if (!it || it.kind !== 'habit' || !it.habit) return day;
+  const t = it.habit.type;
+  if (t === 'check')
+    return mapItem(day, id, (i) =>
+      i.status === 'done' ? { status: 'todo', endedAt: null } : { status: 'done', endedAt: n },
+    );
+  if (t === 'quit') return mapItem(day, id, (i) => ({ progress: i.progress ? 0 : 1 }));
+  return setProgress(day, id, (it.progress ?? 0) + by, n);
+}
+
+/** Set an amount or time habit's progress (minutes added by hand, for a time habit). */
+export function setProgress(day: Day, id: string, value: number, n: number): Day {
+  return mapItem(day, id, (i) => {
+    const v = Math.max(0, Math.round(value));
+    const met = !!i.habit && v >= Math.max(1, i.habit.target);
+    return { progress: v, status: met ? 'done' : 'todo', endedAt: met ? (i.endedAt ?? n) : null };
+  });
 }
 
 /** "End my day": finish whatever is running or paused, and mark the day as ended. */
@@ -298,7 +326,7 @@ export function placeFixed(day: Day, id: string, n: number): Day {
   const t = it.fixedAt;
   const rest = day.items.filter((i) => i.id !== id);
   const after = schedule({ ...day, items: rest }, n).rows.find(
-    (r) => r.it.status === 'todo' && r.it.kind !== 'check' && (r.it.kind === 'fixed' ? r.start > t : r.end > t + 0.5),
+    (r) => r.it.status === 'todo' && !untimed(r.it.kind) && (r.it.kind === 'fixed' ? r.start > t : r.end > t + 0.5),
   );
   const at = after ? after.idx : rest.length;
   rest.splice(at, 0, it);

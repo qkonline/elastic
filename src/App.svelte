@@ -11,6 +11,7 @@
   import DayHours from './components/DayHours.svelte';
   import DayStatus from './components/DayStatus.svelte';
   import EmptyState from './components/EmptyState.svelte';
+  import HabitSheet from './components/HabitSheet.svelte';
   import Header from './components/Header.svelte';
   import InstallGuide from './components/InstallGuide.svelte';
   import NotifyPrompt from './components/NotifyPrompt.svelte';
@@ -28,6 +29,7 @@
   import WrapUp from './components/WrapUp.svelte';
   import { dayGestures, gestures } from './lib/gestures.svelte';
   import { planner as P, type Sheet as SheetState } from './lib/planner.svelte';
+  import { untimed } from './lib/types';
   import { reducedMotion } from './lib/ui.svelte';
 
   const prefersDark = new MediaQuery('(prefers-color-scheme: dark)', false);
@@ -98,7 +100,7 @@
   $effect(() => {
     document.body.classList.toggle('locked', covered);
   });
-  const timed = $derived(P.day.items.some((i) => i.kind !== 'check'));
+  const timed = $derived(P.day.items.some((i) => !untimed(i.kind)));
 
   const LABELS = {
     task: 'Edit task',
@@ -148,7 +150,12 @@
             <EmptyState />
           {:else}
             <DayStatus />
-            <Checklist />
+            {#if P.settings.habitsPlace === 'separate'}
+              <Checklist mode="habits" />
+              <Checklist mode="checks" />
+            {:else}
+              <Checklist mode="both" />
+            {/if}
             {#if timed}<Timeline />{/if}
           {/if}
           <DayFooter />
@@ -181,7 +188,9 @@
             : 'full'}
         label={LABELS[shownSheet.type]}
       >
-        {#if shownSheet.type === 'task'}
+        {#if shownSheet.type === 'task' && P.item(shownSheet.id)?.kind === 'habit'}
+          <HabitSheet id={shownSheet.id} />
+        {:else if shownSheet.type === 'task'}
           <TaskSheet id={shownSheet.id} />
         {:else if shownSheet.type === 'add'}
           <AddTask />

@@ -3,9 +3,11 @@
   import { slide } from 'svelte/transition';
   import { planner as P } from '../lib/planner.svelte';
   import { clockToDay, fT, hhmm, hm, keyDate, shortDate, weekdayLong } from '../lib/time';
-  import type { Hue, Kind } from '../lib/types';
+  import { habitDefaults } from '../lib/habits';
+  import type { Habit, Hue, Kind } from '../lib/types';
   import { reducedMotion } from '../lib/ui.svelte';
   import Fields from './Fields.svelte';
+  import HabitFields from './HabitFields.svelte';
   import KindChips from './KindChips.svelte';
   import SwitchRow from './SwitchRow.svelte';
 
@@ -18,7 +20,10 @@
   // Buffers and fixed times always take time. For a task it's the Timed switch, so trying
   // Buffer and going back to Task leaves the switch as it was.
   let timedTask = $state(false);
-  const timed = $derived(kind !== 'task' || timedTask);
+  const timed = $derived(kind === 'buffer' || kind === 'fixed' || (kind === 'task' && timedTask));
+  // A habit: what it asks for and on which days (it always repeats).
+  let habit = $state<Habit>(habitDefaults('check'));
+  let habitRepeat = $state('Every day');
   let min = $state(30);
   let repeats = $state(false);
   let repeat = $state('Every day');
@@ -30,7 +35,7 @@
   const late = $derived(Math.max(P.day.wrap, P.isToday ? P.n : 0));
 
   const ok = $derived(!!title.trim());
-  const sel = $derived(hue ?? (kind === 'fixed' ? 'indigo' : 'cyan'));
+  const sel = $derived(hue ?? (kind === 'fixed' ? 'indigo' : kind === 'habit' ? 'lime' : 'cyan'));
   const placeholder = $derived(P.isToday ? 'What else today?' : `What else on ${shortDate(keyDate(P.viewKey))}?`);
   const unfold = () => ({ duration: reducedMotion.current ? 0 : 220, easing: cubicOut });
 
@@ -43,6 +48,10 @@
 
   function add() {
     if (!ok) return;
+    if (kind === 'habit') {
+      P.addTask({ title: title.trim(), min: 0, kind, hue: sel, fixedAt: null, repeat: habitRepeat, habit });
+      return;
+    }
     const k = timed ? kind : 'check';
     const fixedAt = k === 'fixed' ? fixedAtPicked : null;
     P.addTask({
@@ -58,7 +67,7 @@
 </script>
 
 <div class="head">
-  <span class="h">New task</span>
+  <span class="h">{kind === 'habit' ? 'New habit' : 'New task'}</span>
   <button class="close-x" aria-label="Close" onclick={() => P.closeSheet()}>×</button>
 </div>
 <div class="body">
@@ -72,7 +81,7 @@
   />
 
   <div class="group">
-    <KindChips {kind} {hue} onpick={(k) => (kind = k)} />
+    <KindChips {kind} {hue} habit onpick={(k) => (kind = k)} />
     {#if kind === 'fixed'}
       <label class="at" transition:slide={unfold()}>
         <span>At</span>
@@ -87,43 +96,60 @@
     </div>
   {/if}
 
-  <div class="props">
-    <SwitchRow
-      label="Timed"
-      note={!timed
-        ? 'No timer, just a box to tick'
-        : kind === 'buffer'
-          ? 'How much time it keeps free'
-          : 'Start, pause and finish it with a timer'}
-      on={timed}
-      ontoggle={() => setTimed(!timed)}
-    >
-      <Fields field="duration" {min} showLabel={false} onMin={(m) => (min = m)} />
-    </SwitchRow>
-    <SwitchRow
-      label="Repeats"
-      note={repeats ? 'Also added to the matching days after this one' : 'Just this once'}
-      on={repeats}
-      ontoggle={() => (repeats = !repeats)}
-    >
-      <div class="row">
-        {#each repeatOpts as r (r)}
-          <button class="chip" aria-pressed={repeat === r} onclick={() => (repeat = r)}>{r}</button>
-        {/each}
-      </div>
-    </SwitchRow>
-  </div>
+  {#if kind === 'habit'}
+    <div transition:slide={unfold()}>
+      <HabitFields
+        {habit}
+        repeat={habitRepeat}
+        onchange={(h, r) => {
+          habit = h;
+          habitRepeat = r;
+        }}
+      />
+    </div>
+  {:else}
+    <div class="props">
+      <SwitchRow
+        label="Timed"
+        note={!timed
+          ? 'No timer, just a box to tick'
+          : kind === 'buffer'
+            ? 'How much time it keeps free'
+            : 'Start, pause and finish it with a timer'}
+        on={timed}
+        ontoggle={() => setTimed(!timed)}
+      >
+        <Fields field="duration" {min} showLabel={false} onMin={(m) => (min = m)} />
+      </SwitchRow>
+      <SwitchRow
+        label="Repeats"
+        note={repeats ? 'Also added to the matching days after this one' : 'Just this once'}
+        on={repeats}
+        ontoggle={() => (repeats = !repeats)}
+      >
+        <div class="row">
+          {#each repeatOpts as r (r)}
+            <button class="chip" aria-pressed={repeat === r} onclick={() => (repeat = r)}>{r}</button>
+          {/each}
+        </div>
+      </SwitchRow>
+    </div>
+  {/if}
 </div>
 <div class="foot">
   <span class="note">
-    {!timed
-      ? 'Goes on your checklist, above the timeline.'
-      : kind === 'fixed'
-        ? `Goes in the plan at ${fT(fixedAtPicked, P.settings.clock24)}.`
-        : 'Goes to the end of the day. Drag it to reorder.'}
+    {kind === 'habit'
+      ? P.settings.habitsPlace === 'separate'
+        ? 'Goes in your Habits, on each day it is due.'
+        : 'Goes on your checklist, on each day it is due.'
+      : !timed
+        ? 'Goes on your checklist, above the timeline.'
+        : kind === 'fixed'
+          ? `Goes in the plan at ${fT(fixedAtPicked, P.settings.clock24)}.`
+          : 'Goes to the end of the day. Drag it to reorder.'}
   </span>
   <button class="cancel" onclick={() => P.closeSheet()}>Cancel</button>
-  <button class="add" class:ok disabled={!ok} onclick={add}>Add task</button>
+  <button class="add" class:ok disabled={!ok} onclick={add}>{kind === 'habit' ? 'Add habit' : 'Add task'}</button>
 </div>
 
 <style>

@@ -6,6 +6,7 @@
     ['buffer', 'Buffer'],
     ['fixed', 'Fixed time'],
   ];
+  const HABIT: [Kind, string] = ['habit', 'Habit'];
 
   // What the chosen type means. Task is chosen by default, so its line also says what the other
   // two are for.
@@ -15,6 +16,8 @@
       'Time kept free between tasks: room for overruns, travel or a breather. It holds its place, and you never start it.',
     fixed:
       'Happens at a set time, like a meeting or a call. If the tasks you put before it run past that time, it moves later.',
+    habit:
+      'Something you do regularly, like drinking water, reading or not smoking. Tick it, count it or time it, and keep a streak going.',
   };
 </script>
 
@@ -25,14 +28,21 @@
   import KindMark from './KindMark.svelte';
 
   // The Type choice in the New task and task sheets: each type with its mark, and a line on
-  // what the chosen one means. `hue` is null while no colour has been picked.
-  let { kind, hue, onpick }: { kind: Kind; hue: Hue | null; onpick: (k: Kind) => void } = $props();
-  const markHue = (k: Kind): Hue => hue ?? (k === 'fixed' ? 'indigo' : 'cyan');
+  // what the chosen one means. `hue` is null while no colour has been picked. Habit is offered
+  // in New task only (`habit`): a task and a habit don't turn into each other.
+  let {
+    kind,
+    hue,
+    onpick,
+    habit = false,
+  }: { kind: Kind; hue: Hue | null; onpick: (k: Kind) => void; habit?: boolean } = $props();
+  const markHue = (k: Kind): Hue => hue ?? (k === 'fixed' ? 'indigo' : k === 'habit' ? 'lime' : 'cyan');
+  const kinds = $derived(habit ? [...KINDS, HABIT] : KINDS);
 </script>
 
 <span class="label">Type</span>
 <div class="kinds">
-  {#each KINDS as [k, l] (k)}
+  {#each kinds as [k, l] (k)}
     <button class="chip kind" aria-pressed={kind === k} onclick={() => onpick(k)}>
       <KindMark kind={k} hue={markHue(k)} />{l}
     </button>

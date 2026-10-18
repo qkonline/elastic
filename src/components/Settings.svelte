@@ -94,6 +94,21 @@
       </div>
     </div>
     <div class="setting">
+      <span class="ol">Habits</span>
+      <div class="row">
+        <button
+          class="chip"
+          aria-pressed={S.habitsPlace === 'checklist'}
+          onclick={() => P.setSettings({ habitsPlace: 'checklist' })}>In the Checklist</button
+        >
+        <button
+          class="chip"
+          aria-pressed={S.habitsPlace === 'separate'}
+          onclick={() => P.setSettings({ habitsPlace: 'separate' })}>In a section of their own</button
+        >
+      </div>
+    </div>
+    <div class="setting">
       <span class="ol">Show times on the timeline</span>
       <div class="row">
         {#each TIMES as [k, l] (k)}

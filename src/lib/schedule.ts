@@ -1,4 +1,5 @@
 import type { Day, Item } from './types';
+import { untimed } from './types';
 
 export interface Row {
   it: Item;
@@ -26,7 +27,7 @@ export const isPartial = (it: Item) => it.status === 'postponed' && it.startedAt
  * zero keeps the fall-back case from going negative.
  */
 export function worked(it: Item, n: number): number {
-  if (it.kind === 'check') return 0; // ticked off, never timed
+  if (untimed(it.kind)) return 0; // ticked off, never timed
   const s = it.status;
   let w = 0;
   if (s === 'running') w = n - it.startedAt! - it.pausedFor;
@@ -57,7 +58,7 @@ export function schedule(day: Day, n: number): { rows: Row[]; finish: number } {
   // Tasks left in front of everything that has happened were missed before the day started
   // (and kept as missed when another task was started): they stay where the plan had them.
   const first = day.items.findIndex((i) => i.status === 'done' || isActive(i) || isPartial(i));
-  if (started && first > 0 && day.items.slice(0, first).some((i) => i.status === 'todo' && i.kind !== 'check'))
+  if (started && first > 0 && day.items.slice(0, first).some((i) => i.status === 'todo' && !untimed(i.kind)))
     cur = Math.min(day.dayStart, cur);
   // Idle time only counts once the day has started.
   const idle = (start: number) => start - Math.max(cur, started ? day.dayStarted! : cur);
@@ -75,7 +76,7 @@ export function schedule(day: Day, n: number): { rows: Row[]; finish: number } {
     const s = it.status;
     // Checks (no duration) and skipped or moved items take no room in the plan.
     let moved = false;
-    if (it.kind === 'check' || s === 'skipped' || (s === 'postponed' && !isPartial(it))) {
+    if (untimed(it.kind) || s === 'skipped' || (s === 'postponed' && !isPartial(it))) {
       start = end = cur;
     } else if (s === 'done' || isPartial(it)) {
       start = it.startedAt!;
@@ -116,7 +117,7 @@ export function schedule(day: Day, n: number): { rows: Row[]; finish: number } {
   // Warnings are about what's still to fit, so an ended day has none.
   const ended = day.dayEnded != null;
   rows.forEach((r, i) => {
-    const open = !ended && r.it.kind !== 'check' && !['done', 'skipped', 'postponed'].includes(r.it.status);
+    const open = !ended && !untimed(r.it.kind) && !['done', 'skipped', 'postponed'].includes(r.it.status);
     if (open && r.it.kind !== 'fixed') {
       const f = rows.slice(i + 1).find((x) => x.it.kind === 'fixed' && x.it.status === 'todo');
       if (f && r.end > f.start + 0.5 && r.start < f.end) r.runsInto = true;
@@ -130,7 +131,7 @@ export function schedule(day: Day, n: number): { rows: Row[]; finish: number } {
 }
 
 /** A todo item whose planned end has passed (today only). Checks are never missed. */
-export const isMissed = (r: Row, n: number) => r.it.kind !== 'check' && r.it.status === 'todo' && r.end <= n + 1e-6;
+export const isMissed = (r: Row, n: number) => !untimed(r.it.kind) && r.it.status === 'todo' && r.end <= n + 1e-6;
 
 export interface DayStats {
   tasks: number;
@@ -144,7 +145,7 @@ export interface DayStats {
 /** What a day adds up to. Skipped items and ones moved to another day don't count. */
 export function dayStats(day: Day, n: number): DayStats {
   const counts = (i: Item) => i.status !== 'skipped' && !(i.status === 'postponed' && !isPartial(i));
-  const tasks = day.items.filter((i) => i.kind !== 'check' && i.kind !== 'buffer' && counts(i));
+  const tasks = day.items.filter((i) => !untimed(i.kind) && i.kind !== 'buffer' && counts(i));
   const checks = day.items.filter((i) => i.kind === 'check' && counts(i));
   return {
     tasks: tasks.length,

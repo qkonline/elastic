@@ -4,6 +4,7 @@
   import { planner as P } from '../lib/planner.svelte';
   import { isActive } from '../lib/schedule';
   import { dL, fNZ } from '../lib/time';
+  import { untimed } from '../lib/types';
   import { reducedMotion } from '../lib/ui.svelte';
 
   // Once a day has started: when it began, when it's likely to end, and a thread in the task
@@ -14,7 +15,7 @@
   const live = $derived(P.isToday && d.dayEnded == null);
   // Still something to do that takes time (checks and leftover buffers don't keep a day going).
   const open = $derived(
-    d.items.some((i) => (i.status === 'todo' || isActive(i)) && i.kind !== 'check' && i.kind !== 'buffer'),
+    d.items.some((i) => (i.status === 'todo' || isActive(i)) && !untimed(i.kind) && i.kind !== 'buffer'),
   );
   const likely = $derived(Math.ceil(P.sch.finish / 5) * 5);
   // A past day that was never ended: the last thing finished is as close as it gets.

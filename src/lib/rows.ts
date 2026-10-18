@@ -3,7 +3,7 @@
 import { isActive, isMissed, isPartial, pausedTotal, worked, type Row } from './schedule';
 import { apOf, cd, dL, fT, fTs, keyDate, shortDate } from './time';
 import type { Day, Item, Status } from './types';
-import { hueColor } from './types';
+import { hueColor, untimed } from './types';
 
 // Running colour: orange ring, orange countdown text while within time (red once over).
 export const RUN = '#fb923c';
@@ -199,7 +199,7 @@ export function itemVM(r: Row, c: Ctx): ItemVM {
 export function timelineRows(c: Ctx): TimelineRow[] {
   const out: TimelineRow[] = [];
   for (const r of c.rows) {
-    if (r.it.kind === 'check') continue; // checks live in the Checklist
+    if (untimed(r.it.kind)) continue; // checks and habits live in the Checklist
     const v = itemVM(r, c);
     if (r.gap) out.push({ type: 'gap', key: 'g' + v.id, gap: dL(r.gap) });
     out.push(v);
@@ -248,8 +248,13 @@ export function dragShifts(
 /** Week-strip dot: lime = all done, orange = some pending, faint = planned, none = empty. */
 export function dayDot(d: Day | undefined, key: string, today: string): string | null {
   if (!d) return null;
+  // Habits come back every day: they don't make a day look planned or pending.
   const real = d.items.filter(
-    (i) => i.kind !== 'buffer' && i.status !== 'skipped' && !(i.status === 'postponed' && !isPartial(i)),
+    (i) =>
+      i.kind !== 'buffer' &&
+      i.kind !== 'habit' &&
+      i.status !== 'skipped' &&
+      !(i.status === 'postponed' && !isPartial(i)),
   );
   if (!real.length) return null;
   if (key > today) return 'var(--faint)';

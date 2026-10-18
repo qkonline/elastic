@@ -515,4 +515,50 @@ describe('Planner', () => {
     expect(q.day.items).toEqual([]);
     expect(q.settings.clock24).toBe(false);
   });
+
+  it('adds a habit that comes back on later days and waits for the day to start', async () => {
+    const p = await boot();
+    p.addTask({
+      title: 'Water',
+      min: 0,
+      kind: 'habit',
+      hue: 'cyan',
+      fixedAt: null,
+      habit: { type: 'amount', target: 3, unit: 'glasses', per: 'day', times: 3, remindAt: null },
+    });
+    await vi.waitFor(() => expect(p.days[TOMORROW].items).toHaveLength(1));
+    const water = byTitle(p, 'Water');
+    expect(water).toMatchObject({ kind: 'habit', min: 0, repeat: 'Every day' });
+    p.tapHabit(water.id);
+    expect(byTitle(p, 'Water').progress).toBe(0); // the day hasn't started
+    p.startDay();
+    p.tapHabit(water.id);
+    p.tapHabit(water.id);
+    expect(byTitle(p, 'Water').progress).toBe(2);
+    expect(p.sch.rows.find((r) => r.it.title === 'Water')?.end).toBe(
+      p.sch.rows.find((r) => r.it.title === 'Water')?.start,
+    );
+    await p.switchDay(TOMORROW);
+    expect(byTitle(p, 'Water')).toMatchObject({ kind: 'habit', habit: { target: 3 } });
+    expect(byTitle(p, 'Water').progress ?? 0).toBe(0);
+  });
+
+  it('keeps a habit out of the plan: never missed, never started', async () => {
+    const p = await boot();
+    p.addTask({
+      title: 'Stretch',
+      min: 0,
+      kind: 'habit',
+      hue: 'lime',
+      fixedAt: null,
+      habit: { type: 'check', target: 1, unit: '', per: 'day', times: 3, remindAt: null },
+    });
+    add(p, 'Write');
+    p.startDay();
+    expect(byTitle(p, 'Write').status).toBe('running');
+    expect(byTitle(p, 'Stretch').status).toBe('todo');
+    vi.setSystemTime(new Date(2026, 8, 25, 23, 0));
+    p.tick();
+    expect(p.sch.rows.filter((r) => isMissed(r, p.n)).map((r) => r.it.title)).not.toContain('Stretch');
+  });
 });

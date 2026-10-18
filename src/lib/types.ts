@@ -6,12 +6,35 @@
 export type HueName = 'orange' | 'yellow' | 'lime' | 'cyan' | 'indigo';
 /** One of the five task colours, or a custom colour as '#rrggbb'. */
 export type Hue = HueName | `#${string}`;
-/** 'check' = no duration and no timer, just ticked off (shown in the Checklist, not the timeline). */
-export type Kind = 'task' | 'buffer' | 'fixed' | 'check';
+/**
+ * 'check' = no duration and no timer, just ticked off (shown in the Checklist, not the timeline).
+ * 'habit' = a repeating habit (see `Habit`): like a check, it takes no room in the plan.
+ */
+export type Kind = 'task' | 'buffer' | 'fixed' | 'check' | 'habit';
+/** Kinds that take no time in the plan and live in the Checklist instead of the timeline. */
+export const untimed = (k: Kind) => k === 'check' || k === 'habit';
 export type Status = 'todo' | 'running' | 'paused' | 'done' | 'postponed' | 'skipped';
-export type Repeat = string; // 'Once' | 'Every day' | 'Weekdays' | `Every ${Weekday}`
+export type Repeat = string; // 'Once' | 'Every day' | 'Weekdays' | `Every ${Weekday}` | 'Every Monday, Friday'
 export type ThemePref = 'match' | 'light' | 'dark';
 export type ShowTimes = 'started' | 'always' | 'never';
+
+/**
+ * What a habit asks for. 'check': done or not. 'amount': `target` of `unit` (8 glasses).
+ * 'time': `target` minutes, from timed tasks that count towards it (`Item.habitId`) plus minutes
+ * added by hand. 'quit': a habit to break; each day counts as clean unless a slip is marked.
+ * `per` 'week' / 'month': the habit is due `times` days in each week (Monday first) or month,
+ * on any days; it shows every day until then.
+ */
+export type HabitType = 'check' | 'amount' | 'time' | 'quit';
+export interface Habit {
+  type: HabitType;
+  target: number;
+  unit: string;
+  per: 'day' | 'week' | 'month';
+  times: number;
+  /** Minutes into the day to remind at, if it isn't done by then. */
+  remindAt: number | null;
+}
 
 export interface Subtask {
   id: string;
@@ -44,6 +67,12 @@ export interface Item {
   /** Day this item was moved to, and the id of the copy there (for Undo). */
   movedKey?: string | null;
   movedId?: string | null;
+  /** A habit: what it asks for (kind 'habit'). */
+  habit?: Habit;
+  /** A habit's progress today: an amount, minutes added by hand, or 1 = slipped (quit). */
+  progress?: number;
+  /** A task whose time counts towards this time habit (its series id). */
+  habitId?: string | null;
 }
 
 export interface Day {
@@ -80,6 +109,8 @@ export interface Settings {
   flexStart: boolean;
   /** Has been through the welcome / first-visit setup. */
   onboarded: boolean;
+  /** Habits in the Checklist, mixed with checks, or in a section of their own. */
+  habitsPlace: 'checklist' | 'separate';
 }
 
 /** Template for a repeating item. Day items point at it through `seriesId`. */
@@ -99,6 +130,8 @@ export interface Series {
   until: string | null;
   /** Where it goes among the repeating tasks on days built from them: lower comes first. */
   order: number;
+  habit?: Habit;
+  habitId?: string | null;
 }
 
 export const HUES: Record<HueName, string> = {
@@ -141,4 +174,5 @@ export const DEFAULT_SETTINGS: Settings = {
   dayLength: 480,
   flexStart: false,
   onboarded: false,
+  habitsPlace: 'checklist',
 };

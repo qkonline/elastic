@@ -9,6 +9,7 @@ import { download, parseBackup } from './backup';
 import * as db from './db';
 import { hasNotifications, needsInstallForNotifications } from './platform';
 import { cancelPush, preparePush, pushEndpoint, schedulePush, unsubscribePush } from './push';
+import { habitMet, isHabit, progressText } from './habits';
 import { type HeadsUp, headsUps, type Note, pushPlan } from './reminders';
 import {
   materialize,
@@ -24,6 +25,7 @@ import { sampleItems } from './sample';
 import { dayStats, type DayStats, isActive, schedule, worked } from './schedule';
 import {
   addDays,
+  atMinutes,
   clockToDay,
   dayDiff,
   fT,
@@ -38,8 +40,8 @@ import {
 import { Sync, type SyncStatus } from './sync';
 import { activeDayKey } from './today';
 import { newBuildOut, reloadToUpdate } from './update';
-import type { Day, Hue, Item, Kind, Series, Settings } from './types';
-import { DEFAULT_SETTINGS } from './types';
+import type { Day, Habit, Hue, Item, Kind, Series, Settings } from './types';
+import { DEFAULT_SETTINGS, untimed } from './types';
 
 /** The full-screen moment after Start my day or End my day. */
 export type Celebration =
@@ -103,7 +105,9 @@ function readThemeMirror(): Settings['themePref'] {
   return DEFAULT_SETTINGS.themePref;
 }
 
-const SERIES_FIELDS: (keyof Item)[] = ['title', 'min', 'kind', 'hue', 'fixedAt', 'note', 'repeat'];
+const SERIES_FIELDS: (keyof Item)[] = ['title', 'min', 'kind', 'hue', 'fixedAt', 'note', 'repeat', 'habit', 'habitId'];
+/** How far back stored days are kept at hand for habit streaks and history. */
+const PAST_DAYS = 400;
 
 export class Planner {
   ready = $state(false);
@@ -111,6 +115,8 @@ export class Planner {
   settings = $state.raw<Settings>({ ...DEFAULT_SETTINGS, themePref: readThemeMirror() });
   series = $state.raw<Series[]>([]);
   days = $state.raw<Record<string, Day>>({});
+  /** Stored days before the ones loaded for the screen: for habit streaks and history. */
+  past = $state.raw<Record<string, Day>>({});
   today = $state(todayKey());
   viewKey = $state(todayKey());
   weekOff = $state(0);
@@ -224,6 +230,7 @@ export class Planner {
       this.series = series;
       // Yesterday has to be loaded first: if it's still going, it's Today.
       await this.loadRecent();
+      await this.loadPast();
       this.today = activeDayKey(todayKey(), this.days, Date.now());
       this.viewKey = this.today;
       await this.ensureDay(this.today);
@@ -323,7 +330,26 @@ export class Planner {
         out.push({ at: now + left * 60000, note: { title: "Time's up", body: it.title, tag: 'timer-' + it.id } });
     }
     for (const h of this.headsUps()) out.push({ at: h.at, note: this.headsUpNote(h) });
+    for (const r of this.habitReminders()) if (r.at > now) out.push(r);
     return out;
+  }
+
+  /** Today's habits with a reminder that aren't done yet. */
+  private habitReminders(): { at: number; note: Note }[] {
+    const d = this.days[this.today];
+    if (!d || d.dayEnded != null) return [];
+    const n = minutesInto(d.key, this.clock);
+    return d.items
+      .filter(isHabit)
+      .filter(
+        (i) => i.habit.remindAt != null && i.status !== 'skipped' && (i.habit.type === 'quit' || !habitMet(d, i, n)),
+      )
+      .map((i) => {
+        const tag = `habit-${d.key}-${i.seriesId ?? i.id}`;
+        const so = progressText(d, i, n);
+        const body = i.habit.type === 'quit' ? 'A reminder for today' : so ? `${so} so far` : 'Not done yet today';
+        return { at: atMinutes(d.key, i.habit.remindAt!), note: { title: i.title, body, tag } };
+      });
   }
 
   /** Fixed-time tasks on Today and the day after (for the small hours), with their heads-up times. */
@@ -404,6 +430,15 @@ export class Planner {
       }
       if (this.settings.notify) notifyHidden(note.title, note.body, note.tag);
     }
+    for (const r of this.habitReminders()) {
+      if (r.at <= from || r.at > this.clock) continue;
+      this.say(`${r.note.title}: ${r.note.body}`);
+      if (this.settings.alertOn) {
+        chime([1175]);
+        vibrate(180);
+      }
+      if (this.settings.notify) notifyHidden(r.note.title, r.note.body, r.note.tag);
+    }
   }
 
   /** Midnight passed with the app open. Follow it to the new day unless a timer is running. */
@@ -450,6 +485,15 @@ export class Planner {
     }
     this.days = next;
   }
+
+  /** Stored days further back, for habit history. Days loaded for the screen take precedence. */
+  private async loadPast(): Promise<void> {
+    const got = await db.getDays(addDays(this.today, -PAST_DAYS), addDays(this.today, -1));
+    this.past = Object.fromEntries(got.map((d) => [d.key, d]));
+  }
+
+  /** A day as last known: loaded, or from the stored past. */
+  dayAt = (key: string): Day | undefined => this.days[key] ?? this.past[key];
 
   private put(day: Day): void {
     this.days = { ...this.days, [day.key]: day };
@@ -526,6 +570,7 @@ export class Planner {
     if (ids.some((id) => id.startsWith('settings:'))) msgs.push({ t: 'settings' });
     if (ids.some((id) => id.startsWith('series:'))) msgs.push({ t: 'series' });
     if (keys.length) msgs.push({ t: 'days', keys });
+    if (keys.some((k) => !(k in this.days) && k < this.today)) void this.loadPast();
     void (async () => {
       for (const m of msgs) {
         this.post(m);
@@ -686,7 +731,7 @@ export class Planner {
     unlockAudio();
     this.nudge = null;
     const n = this.n;
-    const timed = (i: Item) => i.status === 'todo' && i.kind !== 'buffer' && i.kind !== 'check';
+    const timed = (i: Item) => i.status === 'todo' && i.kind !== 'buffer' && !untimed(i.kind);
     const first = this.day.items.find((i) => timed(i) && i.kind === 'task') ?? this.day.items.find(timed);
     if (first) {
       this.alerted.delete(first.id);
@@ -741,6 +786,42 @@ export class Planner {
     this.update((d) => A.toggleCheck(d, id, this.n), `${it.title} ${it.status === 'done' ? 'not done' : 'done'}`);
   }
 
+  /**
+   * Tap a habit: tick it, add one (`by` minutes for a time habit), or mark a slip. Like a check,
+   * it waits for the day to start; taking a tick back never does.
+   */
+  tapHabit(id: string, by = 1): void {
+    const it = this.item(id);
+    if (!it || !isHabit(it)) return;
+    const undo = it.habit.type === 'check' ? it.status === 'done' : it.habit.type === 'quit' && !!it.progress;
+    if (this.waiting && !undo) return;
+    this.update((d) => A.tapHabit(d, id, this.n, by), this.habitSaid(id, by));
+  }
+
+  /** Set how much of an amount or time habit is done (minutes added by hand, for time). */
+  setHabitProgress(id: string, value: number): void {
+    const it = this.item(id);
+    if (!it || !isHabit(it) || this.waiting) return;
+    this.update((d) => A.setProgress(d, id, value, this.n), this.habitSaid(id, 0, value));
+  }
+
+  /** Change a habit's settings; later days follow, like any repeating task. */
+  editHabit(id: string, patch: Partial<Habit>, repeat?: string): void {
+    const it = this.item(id);
+    if (!it || !isHabit(it)) return;
+    this.edit(id, { habit: { ...it.habit, ...patch }, ...(repeat ? { repeat } : {}) });
+  }
+
+  private habitSaid(id: string, by: number, value?: number): string {
+    const it = this.item(id);
+    if (!it || !isHabit(it)) return '';
+    const h = it.habit;
+    if (h.type === 'check') return `${it.title} ${it.status === 'done' ? 'not done' : 'done'}`;
+    if (h.type === 'quit') return it.progress ? `${it.title}: slip taken back` : `${it.title}: slip marked`;
+    const v = value ?? (it.progress ?? 0) + by;
+    return `${it.title}: ${v} ${h.type === 'time' ? 'min' : h.unit || ''}`.trim();
+  }
+
   /** The welcome's answers become the defaults for new days. */
   completeOnboarding(o: { start: number; length: number; flex: boolean }): void {
     this.setSettings({
@@ -754,7 +835,7 @@ export class Planner {
 
   startItem(id: string): void {
     const it = this.item(id);
-    if (!it || it.kind === 'buffer' || it.kind === 'check') return;
+    if (!it || it.kind === 'buffer' || untimed(it.kind)) return;
     unlockAudio();
     this.alerted.delete(id);
     this.confirm = null;
@@ -932,12 +1013,24 @@ export class Planner {
 
   // ---------- editing ----------
 
-  addTask(o: { title: string; min: number; kind: Kind; hue: Hue; fixedAt: number | null; repeat?: string }): void {
-    const { repeat, ...fields } = o;
+  addTask(o: {
+    title: string;
+    min: number;
+    kind: Kind;
+    hue: Hue;
+    fixedAt: number | null;
+    repeat?: string;
+    habit?: Habit;
+  }): void {
+    const { repeat: asked, habit, ...fields } = o;
+    // A habit always repeats: on its days, or every day for one due a number of times a week.
+    const repeat =
+      o.kind === 'habit' ? (habit?.per === 'day' && asked && asked !== 'Once' ? asked : 'Every day') : asked;
     const it = A.newItem({
       ...fields,
-      min: o.kind === 'check' ? 0 : o.min,
+      min: untimed(o.kind) ? 0 : o.min,
       fixedAt: o.kind === 'fixed' ? o.fixedAt : null,
+      ...(o.kind === 'habit' && habit ? { habit, progress: 0 } : {}),
     });
     this.sheet = null;
     this.update((d) => A.addItem(d, it, this.n), `Added ${it.title}`);

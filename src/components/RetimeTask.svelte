@@ -2,7 +2,7 @@
   import { planner as P } from '../lib/planner.svelte';
   import { isActive, isPartial } from '../lib/schedule';
   import { dL, fT } from '../lib/time';
-  import { hueColor } from '../lib/types';
+  import { hueColor, untimed } from '../lib/types';
   import TimeAdjust from './TimeAdjust.svelte';
 
   // Correcting a task's recorded times, in its sheet: when it started (and finished, once done)
@@ -29,7 +29,7 @@
   // How the rest of the day moved since the strip was opened (a running task pushes what follows).
   const row = $derived(P.sch.rows.find((r) => r.it.id === id));
   const later = $derived(
-    !!row && P.sch.rows.some((r) => r.idx > row.idx && r.it.status === 'todo' && r.it.kind !== 'check'),
+    !!row && P.sch.rows.some((r) => r.idx > row.idx && r.it.status === 'todo' && !untimed(r.it.kind)),
   );
   let openedEnd = $state(0);
   const shift = $derived(row && which ? Math.round(row.end - openedEnd) : 0);

@@ -7,7 +7,8 @@ export function repeatMatches(repeat: Repeat, key: string): boolean {
     dow = d.getDay();
   if (repeat === 'Every day') return true;
   if (repeat === 'Weekdays') return dow >= 1 && dow <= 5;
-  return repeat === 'Every ' + weekdayLong(d);
+  // 'Every Monday', or several days: 'Every Monday, Wednesday, Friday'.
+  return repeat.startsWith('Every ') && repeat.slice(6).split(', ').includes(weekdayLong(d));
 }
 
 export function seriesApplies(s: Series, key: string): boolean {
@@ -30,6 +31,8 @@ export function seriesFromItem(it: Item, from: string, id = it.seriesId ?? uid()
     from,
     until: null,
     order,
+    ...(it.habit ? { habit: it.habit } : {}),
+    ...(it.habitId ? { habitId: it.habitId } : {}),
   };
 }
 
@@ -44,6 +47,8 @@ export function itemFromSeries(s: Series): Item {
     note: s.note,
     seriesId: s.id,
     subtasks: (s.subtasks ?? []).map((x) => ({ id: uid(), t: x.t, d: false })),
+    ...(s.habit ? { habit: s.habit } : {}),
+    ...(s.habitId ? { habitId: s.habitId } : {}),
   });
 }
 
@@ -160,6 +165,8 @@ export function syncSeriesInto(day: Day, next: Series | null, prev: Series | nul
       repeat: next!.repeat,
       note: next!.note,
       subtasks: steps,
+      habit: next!.habit,
+      habitId: next!.habitId ?? null,
     };
   }
   // A fixed time that changed goes where the new time falls.
