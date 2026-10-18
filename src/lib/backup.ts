@@ -81,7 +81,7 @@ export function normalizeItem(raw: unknown): Item {
   });
 }
 
-function normalizeDay(raw: unknown): Day | null {
+export function normalizeDay(raw: unknown): Day | null {
   const r = obj(raw);
   if (typeof r.key !== 'string' || !KEY.test(r.key)) return null;
   const items = Array.isArray(r.items) ? r.items.map(normalizeItem) : [];
@@ -102,7 +102,7 @@ function normalizeDay(raw: unknown): Day | null {
   };
 }
 
-function normalizeSeries(raw: unknown, index: number): Series | null {
+export function normalizeSeries(raw: unknown, index: number): Series | null {
   const r = obj(raw);
   if (typeof r.id !== 'string' || !r.id || typeof r.from !== 'string' || !KEY.test(r.from)) return null;
   const repeat = str(r.repeat, '');
@@ -124,7 +124,7 @@ function normalizeSeries(raw: unknown, index: number): Series | null {
   };
 }
 
-function normalizeSettings(raw: unknown): Settings {
+export function normalizeSettings(raw: unknown): Settings {
   const r = obj(raw);
   const d = DEFAULT_SETTINGS;
   const pick = <T>(v: unknown, ok: readonly T[], fallback: T) => (ok.includes(v as T) ? (v as T) : fallback);

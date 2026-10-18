@@ -1,9 +1,10 @@
 // Elastic Day service worker. Generated into dist/sw.js at build time (see vite.config.ts),
-// which fills in the cache version and the build's file list.
+// which fills in the cache version, the build's file list and the worker's address.
 // Pages: network first, falling back to the cached copy offline. Build files: cache first.
 
 const CACHE = 'elastic-day-__VERSION__';
 const ASSETS = __ASSETS__;
+const API = __API__;
 
 self.addEventListener('install', (e) => {
   self.skipWaiting();
@@ -63,10 +64,13 @@ self.addEventListener('fetch', (e) => {
 // Time's up, or a fixed-time task coming up, while the app is closed or in the background.
 // The push worker sends an empty push at each moment the app booked, and what to say comes
 // from the app's own IndexedDB (see src/lib/reminders.ts), so it never leaves the device.
+// Signed in, the account sends the pushes and says what they're for, since another device may
+// have changed the plan after this one last saw it.
 self.addEventListener('push', (e) => {
   e.waitUntil(
-    dueNotes()
+    accountNotes()
       .catch(() => null)
+      .then((notes) => notes ?? dueNotes().catch(() => null))
       .then((notes) => notes ?? timeUpNotes())
       .then(async (notes) => {
         for (const n of notes) {
@@ -105,6 +109,41 @@ function dueNotes() {
       for (const g of due) g.shown = true;
       meta.put(plan, 'alerts');
       resolve(due.flatMap((g) => g.notes));
+    };
+  });
+}
+
+/** How long to wait for the account before falling back on what this device knows. */
+const ACCOUNT_WAIT_MS = 8000;
+
+/**
+ * Signed in: the account's alerts that are due and haven't been shown here, or if none are
+ * (a push that arrived late) the last one again. Null when not signed in or out of reach.
+ */
+async function accountNotes() {
+  if (!API) return null;
+  const session = await withMeta('readonly', (meta, resolve) => {
+    const get = meta.get('account');
+    get.onsuccess = () => resolve(get.result ?? null);
+  });
+  if (!session || !session.token) return null;
+  const res = await fetch(API + '/alerts/due', {
+    method: 'POST',
+    headers: { 'content-type': 'text/plain' }, // no preflight
+    body: JSON.stringify({ token: session.token }),
+    signal: AbortSignal.timeout(ACCOUNT_WAIT_MS),
+  });
+  if (!res.ok) return null;
+  const { groups } = await res.json();
+  if (!Array.isArray(groups) || !groups.length) return null;
+  const id = (g) => g.at + '|' + g.notes.map((n) => n.tag).join(',');
+  return withMeta('readwrite', (meta, resolve) => {
+    const get = meta.get('shown');
+    get.onsuccess = () => {
+      const shown = Array.isArray(get.result) ? get.result : [];
+      const fresh = groups.filter((g) => !shown.includes(id(g)));
+      meta.put([...shown, ...fresh.map(id)].slice(-50), 'shown');
+      resolve((fresh.length ? fresh : groups.slice(-1)).flatMap((g) => g.notes));
     };
   });
 }

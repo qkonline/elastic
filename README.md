@@ -28,13 +28,16 @@ Live at **[kaiserkhan.com/planner](https://kaiserkhan.com/planner/)**. It works 
 - **Fix the record.** Forgot to tap Start, or tapped Done long after you'd finished? Open the task and move when it started or finished on a strip of time; the rest of the day follows. Done on a task well over time asks whether you finished when time was up, and the day hours let you move when the day started.
 - **Ended days are a record.** Once you've ended a day you can look back at it, but not change or reorder it. Today can be reopened if you ended it too soon.
 - **Always the latest version.** When you come back to the app, it checks whether a newer version is out and quietly reloads onto it, so a copy on your Home Screen never falls behind.
+- **Sync across devices.** Make an account in Settings → _Sync across devices_ and sign in on your phone and your computer: the same plan on both, and a change on one shows up on the others straight away. You sign in with a passkey (Face ID, Touch ID or your device's screen lock), so there's no password. Changes made offline go up when you're back online, and if two devices change the same day at once, both changes are kept, task by task. Theme, sound and notifications stay set per device.
 - **Install it.** Settings has an _Install_ button in browsers that support it (Chrome, Edge, Samsung Internet), and short instructions for Safari on iPhone, iPad and Mac. Installed, it opens from its own icon in its own window. On iPhone and iPad this is also what makes notifications possible.
 
 ## Your data
 
-There's no account. Your plan is saved in your browser (IndexedDB), on the device you're using, and never sent anywhere. Settings → _Your data_ exports a backup file and imports it again, which is also how you'd move your plan to another browser. Clearing the site's data deletes your plan, and Safari can clear it after a week without a visit unless the app is on your home screen, so export now and then.
+You don't need an account. Without one, your plan is saved in your browser (IndexedDB), on the device you're using, and never sent anywhere. Settings → _Your data_ exports a backup file and imports it again. Clearing the site's data deletes your plan, and Safari can clear it after a week without a visit unless the app is on your home screen, so export now and then.
 
-The one exception is notifications while the app is closed (see below): for those, the push service is told _when_ to ring (your timer running out, a fixed time coming up), and nothing else.
+With an account, your plan (days, repeating tasks and the settings for how your days work) is also stored with the account on Cloudflare, so your other devices can get it. Each device still keeps its own full copy and works offline. Signing out leaves that copy where it is; deleting the account removes the account's copy and leaves each device's. The account holds no name or password, only your passkeys' public keys and, if you add one, a backup email.
+
+Notifications while the app is closed (see below) need the push service to know _when_ to ring (your timer running out, a fixed time coming up). Without an account that's all it's told; with one, the account also says what each notification is for, since another device may have changed the plan.
 
 ## Development
 
@@ -50,7 +53,7 @@ npm run build      # production build in dist/
 npm run preview    # serve the build at http://localhost:4173/planner/
 ```
 
-Built with Svelte 5, TypeScript and Vite. The only thing shipped besides the app's own code is the Geist font.
+Built with Svelte 5, TypeScript and Vite. The only things shipped besides the app's own code are the Geist font and [SimpleWebAuthn](https://simplewebauthn.dev)'s browser helpers for passkeys.
 
 ### Layout
 
@@ -67,11 +70,14 @@ src/
     drag.ts            reordering tasks by dragging
     gestures.svelte.ts swiping between days and pulling to refresh
     backup.ts          export, and checking files on import
+    account.ts         making an account and signing in (passkeys, email codes)
+    sync.ts            keeping this device's plan and the account's the same
+    merge.ts           combining a record changed on two devices, task by task
     push.ts            booking time's-up pushes with the push worker
     install.svelte.ts  the browser's install prompt
   components/          the screens and sheets
   sw.js                service worker: offline cache and showing pushed notifications
-worker/                Cloudflare Worker that sends the time's-up pushes
+worker/                Cloudflare Worker: notification pushes, accounts and sync
 public/                icons, web app manifest, .htaccess for the host
 scripts/deploy.sh      build and upload the site
 ```
@@ -86,19 +92,23 @@ A few rules the code sticks to:
 
 A web page can only ring while it's running, and phones pause pages as soon as they're locked or in the background. So when Elastic Day goes into the background, it books pushes with a small [Cloudflare Worker](worker/) for the moment a running timer runs out and for each heads-up before a fixed time, and cancels them when you come back. The pushes are empty: the app's service worker shows the notification and reads what to say from the browser's own storage. The worker only ever holds a push address and some times.
 
-Without the worker configured, notifications still work whenever the page is running (on a desktop, that includes background tabs).
+Signed in, the account does the booking instead: the open device keeps it up to date with what's coming, and when a notification is due, every device of the account with notifications on gets a push, except one that has the app open in front of you (it rings by itself).
+
+Without the worker configured, notifications still work whenever the page is running (on a desktop, that includes background tabs), and there are no accounts.
 
 To run your own:
 
 ```bash
 node worker/scripts/vapid-keys.mjs                # prints a key pair
 # put the public key in worker/wrangler.toml (VAPID_PUBLIC_KEY) and .env.production (VITE_VAPID_PUBLIC_KEY)
-cd worker
+cd worker                                         # Wrangler needs Node 22+
 npx wrangler secret put VAPID_PRIVATE_KEY         # paste the private key
-npx wrangler deploy                               # Wrangler needs Node 22+
+npx wrangler d1 create elastic-day                # put its database_id in wrangler.toml
+npx wrangler d1 migrations apply elastic-day --remote
+npx wrangler deploy
 ```
 
-Then set `VITE_PUSH_URL` in `.env.production` to the worker's address and add your site's origin to `ALLOWED_ORIGINS` in `worker/wrangler.toml`.
+Then set `VITE_PUSH_URL` in `.env.production` to the worker's address and add your site's origin to `ALLOWED_ORIGINS` in `worker/wrangler.toml`. Passkeys belong to the site they were made on, so accounts work on the origins listed there.
 
 ## Deploying the site
 

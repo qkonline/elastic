@@ -1,11 +1,28 @@
 // IndexedDB persistence. One record per day (keyed 'YYYY-MM-DD'), one per repeating series,
-// and in `meta` the settings and the booked notifications. Everything stays in this browser.
+// and in `meta` the settings and the booked notifications. Signed in, `synced` holds the version
+// of each record last agreed with the account, `outbox` the records changed here since (see
+// sync.ts), and `meta` the account and how far syncing got.
 
 import type { AlertGroup } from './reminders';
 import type { Day, Series, Settings } from './types';
 
 const DB_NAME = 'elastic-day';
-const VERSION = 1;
+const VERSION = 2;
+
+/** A record as the account knows it: a day (by key), a repeating series (by id), or the settings ('main'). */
+export type RecordKind = 'day' | 'series' | 'settings';
+export const recId = (kind: RecordKind, key: string) => `${kind}:${key}`;
+
+/**
+ * Signed in: every local change is noted in the outbox, in the same transaction as the change,
+ * and `onWrite` hears about it once it's saved.
+ */
+let tracking = false;
+let afterWrite: (() => void) | null = null;
+export function track(on: boolean, onWrite?: () => void): void {
+  tracking = on;
+  afterWrite = on ? (onWrite ?? null) : null;
+}
 
 let dbp: Promise<IDBDatabase> | null = null;
 
@@ -18,6 +35,8 @@ function open(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('days')) db.createObjectStore('days', { keyPath: 'key' });
       if (!db.objectStoreNames.contains('series')) db.createObjectStore('series', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
+      if (!db.objectStoreNames.contains('synced')) db.createObjectStore('synced');
+      if (!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox');
     };
     req.onsuccess = () => {
       const db = req.result;
@@ -48,7 +67,9 @@ const txDone = (tx: IDBTransaction) =>
     tx.onabort = () => reject(tx.error ?? new Error('Transaction aborted'));
   });
 
-async function store(name: 'days' | 'series' | 'meta', mode: IDBTransactionMode) {
+type StoreName = 'days' | 'series' | 'meta' | 'synced' | 'outbox';
+
+async function store(name: StoreName, mode: IDBTransactionMode) {
   const db = await open();
   return db.transaction(name, mode).objectStore(name);
 }
@@ -68,18 +89,33 @@ export async function getAllDays(): Promise<Day[]> {
   return done((await store('days', 'readonly')).getAll());
 }
 
+/** A write to one store, noted in the outbox when signed in. */
+async function write(name: 'days' | 'series' | 'meta', fn: (st: IDBObjectStore, note: (id: string) => void) => void) {
+  const db = await open();
+  const tx = db.transaction(tracking ? [name, 'outbox'] : [name], 'readwrite');
+  const noted = tracking;
+  fn(tx.objectStore(name), (id) => noted && tx.objectStore('outbox').put(true, id));
+  await txDone(tx);
+  if (noted) afterWrite?.();
+}
+
 export async function putDays(days: Day[]): Promise<void> {
   if (!days.length) return;
-  const db = await open();
-  const tx = db.transaction('days', 'readwrite');
-  for (const d of days) tx.objectStore('days').put(plain(d));
-  return txDone(tx);
+  return write('days', (st, note) => {
+    for (const d of days) {
+      st.put(plain(d));
+      note(recId('day', d.key));
+    }
+  });
 }
 
 export const putDay = (day: Day) => putDays([day]);
 
 export async function deleteDay(key: string): Promise<void> {
-  await done((await store('days', 'readwrite')).delete(key));
+  return write('days', (st, note) => {
+    st.delete(key);
+    note(recId('day', key));
+  });
 }
 
 export async function getAllSeries(): Promise<Series[]> {
@@ -87,7 +123,10 @@ export async function getAllSeries(): Promise<Series[]> {
 }
 
 export async function putSeries(s: Series): Promise<void> {
-  await done((await store('series', 'readwrite')).put(plain(s)));
+  return write('series', (st, note) => {
+    st.put(plain(s));
+    note(recId('series', s.id));
+  });
 }
 
 export async function getSettings(): Promise<Partial<Settings> | undefined> {
@@ -95,7 +134,10 @@ export async function getSettings(): Promise<Partial<Settings> | undefined> {
 }
 
 export async function putSettings(s: Settings): Promise<void> {
-  await done((await store('meta', 'readwrite')).put(plain(s), 'settings'));
+  return write('meta', (st, note) => {
+    st.put(plain(s), 'settings');
+    note(recId('settings', 'main'));
+  });
 }
 
 /** The notifications booked with the push worker, for the service worker to show (see reminders.ts). */
@@ -103,16 +145,122 @@ export async function putAlerts(groups: AlertGroup[]): Promise<void> {
   await done((await store('meta', 'readwrite')).put(plain({ groups }), 'alerts'));
 }
 
-/** Replace everything in one transaction (Import) or wipe it (Erase everything). */
+/**
+ * Replace everything in one transaction (Import) or wipe it (Erase everything). Signed in, the
+ * account follows: every day and series there was or is now goes in the outbox, so the ones
+ * gone are deleted from it too. The account and sync state in `meta` stay.
+ */
 export async function replaceAll(data: { days: Day[]; series: Series[]; settings: Settings | null }): Promise<void> {
   const db = await open();
-  const tx = db.transaction(['days', 'series', 'meta'], 'readwrite');
-  tx.objectStore('days').clear();
-  tx.objectStore('series').clear();
-  tx.objectStore('meta').clear();
-  for (const d of data.days) tx.objectStore('days').put(plain(d));
-  for (const s of data.series) tx.objectStore('series').put(plain(s));
-  if (data.settings) tx.objectStore('meta').put(plain(data.settings), 'settings');
+  const names: StoreName[] = ['days', 'series', 'meta', 'outbox'];
+  const tx = db.transaction(names, 'readwrite');
+  const days = tx.objectStore('days');
+  const series = tx.objectStore('series');
+  const meta = tx.objectStore('meta');
+  const outbox = tx.objectStore('outbox');
+  if (tracking) {
+    days.getAllKeys().onsuccess = (e) => {
+      for (const k of (e.target as IDBRequest<IDBValidKey[]>).result) outbox.put(true, recId('day', String(k)));
+    };
+    series.getAllKeys().onsuccess = (e) => {
+      for (const k of (e.target as IDBRequest<IDBValidKey[]>).result) outbox.put(true, recId('series', String(k)));
+    };
+  }
+  // Requests run in order, so these clears come after the key lists above.
+  days.clear();
+  series.clear();
+  for (const k of ['settings', 'alerts']) meta.delete(k);
+  for (const d of data.days) days.put(plain(d));
+  for (const s of data.series) series.put(plain(s));
+  if (data.settings) meta.put(plain(data.settings), 'settings');
+  if (tracking) {
+    for (const d of data.days) outbox.put(true, recId('day', d.key));
+    for (const s of data.series) outbox.put(true, recId('series', s.id));
+    outbox.put(true, recId('settings', 'main'));
+  }
+  await txDone(tx);
+  if (tracking) afterWrite?.();
+}
+
+// ---------- syncing (see sync.ts) ----------
+
+/** The local copy of a record, or undefined if there is none. Settings come whole. */
+export async function getRecord(kind: RecordKind, key: string): Promise<unknown> {
+  if (kind === 'day') return done((await store('days', 'readonly')).get(key));
+  if (kind === 'series') return done((await store('series', 'readonly')).get(key));
+  return done((await store('meta', 'readonly')).get('settings'));
+}
+
+/**
+ * Write what came from the account: the local copy (`data` undefined leaves it, null deletes
+ * it), the version agreed with the account, and whether it still has changes to send.
+ */
+export async function putSyncedRecord(
+  kind: RecordKind,
+  key: string,
+  data: unknown,
+  synced: { rev: number; data: unknown },
+  dirty: boolean,
+): Promise<void> {
+  const db = await open();
+  const name = kind === 'day' ? 'days' : kind === 'series' ? 'series' : 'meta';
+  const tx = db.transaction([name, 'synced', 'outbox'], 'readwrite');
+  const st = tx.objectStore(name);
+  if (data !== undefined) {
+    if (kind === 'settings') {
+      if (data != null) st.put(plain(data), 'settings');
+    } else if (data === null) st.delete(key);
+    else st.put(plain(data));
+  }
+  const id = recId(kind, key);
+  tx.objectStore('synced').put(plain(synced), id);
+  if (dirty) tx.objectStore('outbox').put(true, id);
+  else tx.objectStore('outbox').delete(id);
+  return txDone(tx);
+}
+
+export async function getSynced(id: string): Promise<{ rev: number; data: unknown } | undefined> {
+  return done((await store('synced', 'readonly')).get(id));
+}
+
+export async function getOutbox(): Promise<string[]> {
+  return (await done((await store('outbox', 'readonly')).getAllKeys())).map(String);
+}
+
+/** Note records as changed here (to upload everything, or to send this device's plan to an account). */
+export async function markAll(): Promise<void> {
+  const db = await open();
+  const tx = db.transaction(['days', 'series', 'outbox'], 'readwrite');
+  const outbox = tx.objectStore('outbox');
+  tx.objectStore('days').getAllKeys().onsuccess = (e) => {
+    for (const k of (e.target as IDBRequest<IDBValidKey[]>).result) outbox.put(true, recId('day', String(k)));
+  };
+  tx.objectStore('series').getAllKeys().onsuccess = (e) => {
+    for (const k of (e.target as IDBRequest<IDBValidKey[]>).result) outbox.put(true, recId('series', String(k)));
+  };
+  outbox.put(true, recId('settings', 'main'));
+  return txDone(tx);
+}
+
+export async function getMeta<T>(key: string): Promise<T | undefined> {
+  return done((await store('meta', 'readonly')).get(key));
+}
+
+export async function putMeta(key: string, v: unknown): Promise<void> {
+  await done((await store('meta', 'readwrite')).put(plain(v), key));
+}
+
+export async function deleteMeta(key: string): Promise<void> {
+  await done((await store('meta', 'readwrite')).delete(key));
+}
+
+/** Signing out: forget what was agreed with the account and what was waiting to go. */
+export async function clearSync(): Promise<void> {
+  const db = await open();
+  const tx = db.transaction(['synced', 'outbox', 'meta'], 'readwrite');
+  tx.objectStore('synced').clear();
+  tx.objectStore('outbox').clear();
+  for (const k of ['account', 'syncRev']) tx.objectStore('meta').delete(k);
   return txDone(tx);
 }
 

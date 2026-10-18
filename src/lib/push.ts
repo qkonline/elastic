@@ -2,6 +2,7 @@
 // fixed-time tasks. When the app goes into the background, it asks the push worker (worker/) to
 // send an empty push at each of those moments; the service worker then shows the notification,
 // reading what to say from IndexedDB. Only the push address and the times leave the device.
+// Signed in, the account sends them instead, to each of its devices (see sync.ts).
 
 const URL_ = import.meta.env.VITE_PUSH_URL?.replace(/\/$/, '');
 const KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY;
@@ -38,6 +39,11 @@ export async function preparePush(): Promise<boolean> {
     endpoint = null;
     return false;
   }
+}
+
+/** This browser's push address, once notifications are set up here. */
+export function pushEndpoint(): string | null {
+  return endpoint;
 }
 
 /** Send without waiting: text/plain avoids a CORS preflight, and beacons survive the page being hidden. */

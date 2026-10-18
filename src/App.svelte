@@ -2,6 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import { cubicOut } from 'svelte/easing';
   import { MediaQuery } from 'svelte/reactivity';
+  import Account from './components/Account.svelte';
   import AddTask from './components/AddTask.svelte';
   import Celebration from './components/Celebration.svelte';
   import Checklist from './components/Checklist.svelte';
@@ -106,6 +107,7 @@
     settings: 'Settings',
     install: 'Install',
     wrapup: 'End your day',
+    account: 'Sync across devices',
     reorder: 'Later days',
   } as const;
 </script>
@@ -191,6 +193,8 @@
           <WrapUp />
         {:else if shownSheet.type === 'reorder'}
           <ReorderAsk id={shownSheet.id} anchor={shownSheet.anchor} dir={shownSheet.dir} />
+        {:else if shownSheet.type === 'account'}
+          <Account />
         {:else}
           <Settings />
         {/if}

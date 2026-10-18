@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 
 const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
@@ -13,7 +13,7 @@ const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
  * The same version goes into index.html (`<meta name="build">`) and dist/version.json, which
  * the app checks to notice that a newer build is out (src/lib/update.ts).
  */
-function serviceWorker(): Plugin {
+function serviceWorker(api: string): Plugin {
   return {
     name: 'elastic-day-sw',
     apply: 'build',
@@ -37,7 +37,8 @@ function serviceWorker(): Plugin {
       const version = hash.digest('hex').slice(0, 12);
       const source = readFileSync(here('./src/sw.js'), 'utf8')
         .replace('__VERSION__', version)
-        .replace('__ASSETS__', JSON.stringify(files.sort()));
+        .replace('__ASSETS__', JSON.stringify(files.sort()))
+        .replace('__API__', JSON.stringify(api.replace(/\/$/, '')));
       this.emitFile({ type: 'asset', fileName: 'sw.js', source });
       this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ v: version }) });
       const html = bundle['index.html'];
@@ -48,10 +49,10 @@ function serviceWorker(): Plugin {
 }
 
 // Served from kaiserkhan.com/planner/, so every asset URL is prefixed with /planner/.
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   base: '/planner/',
-  plugins: [svelte(), serviceWorker()],
+  plugins: [svelte(), serviceWorker(loadEnv(mode, here('.'), 'VITE_').VITE_PUSH_URL ?? '')],
   test: {
     include: ['src/**/*.test.ts', 'worker/src/**/*.test.ts'],
   },
-});
+}));

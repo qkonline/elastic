@@ -1,5 +1,7 @@
-# Push worker for Elastic Day. Deploy with `npx wrangler deploy` from this folder (Wrangler
-# needs Node 22+). The private key is a secret: `npx wrangler secret put VAPID_PRIVATE_KEY`.
+# Elastic Day's worker: notifications, and accounts that sync the plan across devices. Deploy
+# with `npx wrangler deploy` from this folder (Wrangler needs Node 22+). The private key is a
+# secret: `npx wrangler secret put VAPID_PRIVATE_KEY`. Database changes go in migrations/ and are
+# applied with `npx wrangler d1 migrations apply elastic-day --remote`.
 name = "elastic-day-push"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
@@ -14,9 +16,30 @@ ALLOWED_ORIGINS = "https://kaiserkhan.com,http://localhost:4173"
 name = "TIMERS"
 class_name = "Timer"
 
+[[durable_objects.bindings]]
+name = "ACCOUNTS"
+class_name = "Account"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Timer"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Account"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "elastic-day"
+database_id = "a972726d-b3bb-4f2b-98ed-ac33fdf859ad"
+migrations_dir = "migrations"
+
+# Email codes (the backup way to sign in) need Cloudflare Email Service, which needs the
+# domain's DNS on Cloudflare and the Workers Paid plan. Once the domain is onboarded, uncomment:
+# [[send_email]]
+# name = "EMAIL"
+# remote = true
+# and add EMAIL_FROM to [vars], e.g. EMAIL_FROM = "Elastic Day <hello@kaiserkhan.com>".
 
 [observability]
 enabled = true

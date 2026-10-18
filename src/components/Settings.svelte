@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { accountsAvailable } from '../lib/account';
   import { install } from '../lib/install.svelte';
   import { planner as P } from '../lib/planner.svelte';
   import { hasNotifications, needsInstallForNotifications } from '../lib/platform';
@@ -38,6 +39,13 @@
     else void P.enableNotifications();
   }
   const count = $derived(P.day.items.length);
+  const syncText = $derived(
+    !P.session
+      ? 'Use the same plan on your phone and your computer.'
+      : P.syncStatus === 'offline'
+        ? "On. You're offline, so changes will sync when you're back."
+        : 'On. Your plan is the same on every device you sign in on.',
+  );
 
   const THEMES: [ThemePref, string][] = [
     ['match', 'Match device'],
@@ -96,6 +104,16 @@
       </div>
     </div>
   </section>
+
+  {#if accountsAvailable() || P.session}
+    <section class="card g12">
+      <span class="ct">Sync across devices</span>
+      <span class="muted">{syncText}</span>
+      <button class="btn-plain self" onclick={() => P.openSheet({ type: 'account' })}
+        >{P.session ? 'Manage' : 'Set up'}</button
+      >
+    </section>
+  {/if}
 
   {#if install.method}
     <section class="card g12">
@@ -178,7 +196,10 @@
 
   <section class="card g12">
     <span class="ct">Your data</span>
-    <span class="muted">Everything stays in this browser. Back it up as a file whenever you like.</span>
+    <span class="muted"
+      >{P.session ? 'Your plan is kept on this device and in your account.' : 'Everything stays in this browser.'} Back it
+      up as a file whenever you like.</span
+    >
     <div class="row g8">
       <button class="btn-plain" onclick={() => P.exportData()}>Export</button>
       <button class="btn-plain" onclick={() => fileEl?.click()}>Import</button>
@@ -208,7 +229,7 @@
     {/if}
     {#if P.armed('erase', 'all')}
       <span class="confirm">
-        Erase every day and setting?
+        {P.session ? 'Erase every day and setting, here and on your other devices?' : 'Erase every day and setting?'}
         <button class="btn-yes" onclick={() => P.eraseAll()} {@attach (el) => el.focus()}>Erase</button>
         <button class="btn-no" onclick={() => P.disarm()}>Cancel</button>
         <DisarmBar />

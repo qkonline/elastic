@@ -2,11 +2,13 @@
 // with the pure functions in actions.ts, then `commit` swaps it in and queues a write.
 
 import * as A from './actions';
+import * as api from './account';
+import { API, ApiError, cancelled, type Session, type SignedIn } from './account';
 import { chime, notifyHidden, requestNotifications, unlockAudio, unlockOnFirstGesture, vibrate } from './alert';
 import { download, parseBackup } from './backup';
 import * as db from './db';
 import { hasNotifications, needsInstallForNotifications } from './platform';
-import { cancelPush, preparePush, schedulePush, unsubscribePush } from './push';
+import { cancelPush, preparePush, pushEndpoint, schedulePush, unsubscribePush } from './push';
 import { type HeadsUp, headsUps, type Note, pushPlan } from './reminders';
 import {
   materialize,
@@ -33,6 +35,7 @@ import {
   shortDate,
   todayKey,
 } from './time';
+import { Sync, type SyncStatus } from './sync';
 import { activeDayKey } from './today';
 import { newBuildOut, reloadToUpdate } from './update';
 import type { Day, Hue, Item, Kind, Series, Settings } from './types';
@@ -49,8 +52,9 @@ export type Sheet =
   | { type: 'add' }
   | { type: 'install' }
   | { type: 'wrapup' }
+  | { type: 'account' }
   | { type: 'reorder'; id: string; anchor: string; dir: 'up' | 'down' };
-export type ConfirmType = 'postpone' | 'delete' | 'clear' | 'erase' | 'sample' | 'finish';
+export type ConfirmType = 'postpone' | 'delete' | 'clear' | 'erase' | 'sample' | 'finish' | 'signout' | 'unaccount';
 /** Running this far over before Done asks when it was really finished (minutes). */
 export const ASK_FINISH_OVER = 5;
 export interface Confirm {
@@ -85,7 +89,9 @@ const UPDATE_EVERY_MS = 24 * 3600_000;
 const RECENT_DAYS = 7;
 export const THEME_KEY = 'elastic-day:theme';
 
-type Msg = { t: 'days'; keys: string[] } | { t: 'settings' } | { t: 'series' } | { t: 'all' };
+type Msg = { t: 'days'; keys: string[] } | { t: 'settings' } | { t: 'series' } | { t: 'all' } | { t: 'account' };
+/** How often to check whether the alerts the account sends have changed. */
+const ALERTS_EVERY_MS = 5000;
 
 function readThemeMirror(): Settings['themePref'] {
   try {
@@ -121,6 +127,15 @@ export class Planner {
   notifyPrompt = $state<'timer' | 'fixed' | 'blocked' | null>(null);
   /** Heads-ups closed from the banner. */
   private dismissedHeadsUps = $state.raw<string[]>([]);
+  /** Signed in on this device: the plan syncs with the account. */
+  session = $state.raw<Session | null>(null);
+  syncStatus = $state<SyncStatus>('off');
+  /** Just signed in on a device with its own plan: keep the account's, or add this one to it? */
+  joinAsk = $state(false);
+  /** A sign-in or account action is under way (buttons wait). */
+  accountBusy = $state(false);
+  /** The outcome of the last account action, to show in the account sheet. */
+  accountMsg = $state<{ err: boolean; t: string } | null>(null);
 
   day: Day = $derived(this.days[this.viewKey] ?? this.blankDay(this.viewKey));
   isToday = $derived(this.viewKey === this.today);
@@ -186,6 +201,15 @@ export class Planner {
   /** A newer build is out: reload for it at the next quiet moment. */
   private updateReady = false;
   private reloading = false;
+  private alertsCheckedAt = 0;
+  private sync = new Sync(API, {
+    flush: () => this.flush(),
+    changed: (ids) => this.fromAccount(ids),
+    status: (st) => (this.syncStatus = st),
+    signedOut: () => void this.forgetSession('You were signed out on this device. Your plan is still here.'),
+    alerts: () => pushPlan(this.alerts(), Date.now()),
+    endpoint: () => (this.settings.notify ? pushEndpoint() : null),
+  });
 
   // ---------- lifecycle ----------
 
@@ -217,6 +241,11 @@ export class Planner {
       return;
     }
     this.iv = setInterval(() => this.tick(), 250);
+    const session = await db.getMeta<Session>('account').catch(() => undefined);
+    if (session) {
+      this.session = session;
+      void this.sync.start(session);
+    }
     try {
       this.bc = new BroadcastChannel('elastic-day');
       this.bc.onmessage = (e) => void this.onMessage(e.data as Msg);
@@ -240,15 +269,20 @@ export class Planner {
   private onHidden(): void {
     this.updateIfQuiet();
     void this.flush();
+    // Signed in, the account sends the alerts, to every device of the account.
+    this.sync.setVisible(false);
     if (!this.settings.notify) return;
     const plan = pushPlan(this.alerts(), Date.now());
+    // Signed in, the service worker asks the account what to show, and falls back on this.
     void db.putAlerts(plan).catch(() => {});
-    this.pushScheduled = schedulePush(plan.map((g) => g.at));
+    if (this.session) this.pushScheduled = !!pushEndpoint() && plan.length > 0;
+    else this.pushScheduled = schedulePush(plan.map((g) => g.at));
   }
 
   private onVisible(): void {
+    this.sync.setVisible(true);
     if (this.pushScheduled) {
-      cancelPush();
+      if (!this.session) cancelPush();
       // Heads-ups that came as a notification while away don't chime again on the way back.
       this.remindFrom = Date.now();
     }
@@ -320,6 +354,7 @@ export class Planner {
   destroy(): void {
     if (this.iv) clearInterval(this.iv);
     this.bc?.close();
+    this.sync.stop();
   }
 
   tick(): void {
@@ -329,6 +364,10 @@ export class Planner {
     if (this.confirm && Date.now() - this.confirm.at > CONFIRM_MS) this.confirm = null;
     if (this.nudge && Date.now() - this.nudge.at > NUDGE_MS) this.nudge = null;
     if (Date.now() - this.updateCheckedAt > UPDATE_EVERY_MS) void this.checkForUpdate(false);
+    if (this.session && this.clock - this.alertsCheckedAt > ALERTS_EVERY_MS) {
+      this.alertsCheckedAt = this.clock;
+      this.sync.alertsChanged();
+    }
     for (const d of Object.values(this.days)) {
       for (const it of d.items) {
         if (it.status !== 'running') continue;
@@ -447,6 +486,9 @@ export class Planner {
 
   /** Another tab wrote something: reload what we have cached. */
   private async onMessage(m: Msg): Promise<void> {
+    // Its changes are in the outbox: this tab may be the one that sends them.
+    this.sync.kick();
+    if (m.t === 'account') return this.loadSession();
     if (m.t === 'all') return this.reloadAll();
     if (m.t === 'settings') {
       const s = await db.getSettings();
@@ -465,11 +507,31 @@ export class Planner {
       if (!(k in this.days)) continue;
       const d = await db.getDay(k);
       // Merge one key at a time, after the await, so edits made meanwhile aren't overwritten.
-      if (d && !this.pending.has(k)) {
+      if (this.pending.has(k)) continue;
+      if (d) {
         this.days = { ...this.days, [k]: d };
         this.stored.add(k);
+      } else if (this.stored.has(k)) {
+        // Deleted (an import or erase on another device): back to a day built from repeats.
+        this.stored.delete(k);
+        this.days = { ...this.days, [k]: this.blankDay(k) };
       }
     }
+  }
+
+  /** Records changed from the account: reload them here and in this device's other tabs. */
+  private fromAccount(ids: string[]): void {
+    const keys = ids.filter((id) => id.startsWith('day:')).map((id) => id.slice(4));
+    const msgs: Msg[] = [];
+    if (ids.some((id) => id.startsWith('settings:'))) msgs.push({ t: 'settings' });
+    if (ids.some((id) => id.startsWith('series:'))) msgs.push({ t: 'series' });
+    if (keys.length) msgs.push({ t: 'days', keys });
+    void (async () => {
+      for (const m of msgs) {
+        this.post(m);
+        await this.onMessage(m);
+      }
+    })();
   }
 
   /**
@@ -1212,6 +1274,208 @@ export class Planner {
     await this.reloadAll();
     this.post({ t: 'all' });
     this.say('Everything erased');
+  }
+
+  // ---------- account ----------
+
+  /** Run an account action: one at a time, with its error (if any) shown in the account sheet. */
+  private async accountAction(fn: () => Promise<void>): Promise<boolean> {
+    if (this.accountBusy) return false;
+    this.accountBusy = true;
+    this.accountMsg = null;
+    try {
+      await fn();
+      return true;
+    } catch (e) {
+      // Closing the browser's passkey prompt is an answer, not an error.
+      if (!cancelled(e)) this.accountMsg = { err: true, t: e instanceof Error ? e.message : String(e) };
+      if (e instanceof ApiError && e.status === 401 && this.session) await this.forgetSession();
+      return false;
+    } finally {
+      this.accountBusy = false;
+    }
+  }
+
+  /** Make an account with a passkey on this device. Everything here goes up to it. */
+  createAccount(): Promise<boolean> {
+    return this.accountAction(async () => this.signedIn(await api.createAccount()));
+  }
+
+  signIn(): Promise<boolean> {
+    return this.accountAction(async () => this.signedIn(await api.signInWithPasskey()));
+  }
+
+  /** Email a code to an account's backup email, to sign in with. */
+  sendSignInCode(email: string): Promise<boolean> {
+    return this.accountAction(() => api.sendCode(email));
+  }
+
+  signInWithCode(email: string, code: string): Promise<boolean> {
+    return this.accountAction(async () => this.signedIn(await api.verifyCode(email, code)));
+  }
+
+  /**
+   * Signed in on this device. A new account takes everything here. An existing one: a device
+   * with nothing of its own just takes the account's plan; one with its own plan asks first.
+   */
+  private async signedIn(r: SignedIn): Promise<void> {
+    await this.flush();
+    const session: Session = { token: r.token, user: r.user, device: A.uid() };
+    await db.clearSync();
+    this.session = session;
+    if (!this.settings.onboarded) this.setSettings({ onboarded: true });
+    cancelPush(); // the account sends this device's notifications from now on
+    if (!r.fresh && (await this.hasOwnPlan())) {
+      const info = await api.accountInfo(r.token).catch(() => null);
+      // Asked first; the sign-in is only kept once it's answered.
+      if (info?.records) {
+        this.joinAsk = true;
+        this.sheet = { type: 'account' };
+        return;
+      }
+      await db.markAll();
+    }
+    await this.keepSession(session);
+    if (r.fresh) {
+      await db.markAll();
+      this.accountMsg = { err: false, t: 'Account made. Sign in on your other devices to use the same plan there.' };
+    }
+    await this.sync.start(session);
+  }
+
+  /** Remember the sign-in on this device, for its other tabs and the next launch. */
+  private async keepSession(session: Session): Promise<void> {
+    await db.putMeta('account', session);
+    this.post({ t: 'account' });
+  }
+
+  /** Anything here worth keeping: a stored day with tasks on it, or a repeating task. */
+  private async hasOwnPlan(): Promise<boolean> {
+    const [days, series] = await Promise.all([db.getAllDays(), db.getAllSeries()]);
+    return series.length > 0 || days.some((d) => d.items.length > 0);
+  }
+
+  /** The answer to joinAsk: use the account's plan here, or add this device's plan to it. */
+  async joinAccount(keep: 'account' | 'both'): Promise<void> {
+    const session = this.session;
+    if (!session || !this.joinAsk) return;
+    this.joinAsk = false;
+    if (keep === 'account') {
+      // This device's own days and repeating tasks go; its settings stay until the account's arrive.
+      await db.replaceAll({ days: [], series: [], settings: this.settings });
+      await this.reloadAll();
+      this.post({ t: 'all' });
+    } else await db.markAll();
+    await this.keepSession(session);
+    this.accountMsg = { err: false, t: 'Signed in. Your plan now syncs with your other devices.' };
+    await this.sync.start(session);
+  }
+
+  /** Not signing in after all (the join question was put aside). */
+  async cancelJoin(): Promise<void> {
+    const s = this.session;
+    if (!s || !this.joinAsk) return;
+    await this.forgetSession();
+    await api.signOutRemote(s.token);
+  }
+
+  /** Another tab signed in or out. */
+  private async loadSession(): Promise<void> {
+    const session = (await db.getMeta<Session>('account')) ?? null;
+    if (session?.token === this.session?.token) return;
+    this.sync.stop();
+    this.session = session;
+    if (session) await this.sync.start(session);
+  }
+
+  addPasskey(): Promise<boolean> {
+    const s = this.session;
+    if (!s) return Promise.resolve(false);
+    return this.accountAction(async () => {
+      await api.addPasskey(s.token);
+      this.accountMsg = { err: false, t: 'Passkey added.' };
+    });
+  }
+
+  /** Email a code to confirm a backup email for this account. */
+  sendEmailCode(email: string): Promise<boolean> {
+    const s = this.session;
+    if (!s) return Promise.resolve(false);
+    return this.accountAction(() => api.sendCode(email, s.token));
+  }
+
+  confirmEmail(email: string, code: string): Promise<boolean> {
+    const s = this.session;
+    if (!s) return Promise.resolve(false);
+    return this.accountAction(async () => {
+      const r = await api.verifyCode(email, code, s.token);
+      await this.updateUser({ email: r.email });
+      this.accountMsg = { err: false, t: 'Backup email saved.' };
+    });
+  }
+
+  removeEmail(): Promise<boolean> {
+    const s = this.session;
+    if (!s) return Promise.resolve(false);
+    return this.accountAction(async () => {
+      await api.removeEmail(s.token);
+      await this.updateUser({ email: null });
+    });
+  }
+
+  private async updateUser(patch: Partial<Session['user']>): Promise<void> {
+    if (!this.session) return;
+    this.session = { ...this.session, user: { ...this.session.user, ...patch } };
+    await db.putMeta('account', this.session);
+  }
+
+  /** The account's details (passkeys, email), fresh from the worker. */
+  async accountDetails(): Promise<api.AccountInfo | null> {
+    const s = this.session;
+    if (!s) return null;
+    try {
+      const info = await api.accountInfo(s.token);
+      if (info.email !== s.user.email) await this.updateUser({ email: info.email });
+      return info;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401)
+        await this.forgetSession('You were signed out on this device. Your plan is still here.');
+      return null;
+    }
+  }
+
+  /** Stop syncing on this device. The plan stays here, and on the account. */
+  async signOut(): Promise<void> {
+    const s = this.session;
+    this.confirm = null;
+    if (!s) return;
+    await this.flush();
+    await this.forgetSession('Signed out. This device keeps its copy of your plan.');
+    await api.signOutRemote(s.token);
+  }
+
+  /** Delete the account and everything it holds. Each device keeps the copy it has. */
+  deleteAccount(): Promise<boolean> {
+    const s = this.session;
+    this.confirm = null;
+    if (!s) return Promise.resolve(false);
+    return this.accountAction(async () => {
+      await api.deleteAccount(s.token);
+      await this.forgetSession('Account deleted. This device keeps its copy of your plan.');
+    });
+  }
+
+  private async forgetSession(msg?: string): Promise<void> {
+    this.sync.stop();
+    this.session = null;
+    this.joinAsk = false;
+    this.pushScheduled = false;
+    await db.clearSync();
+    this.post({ t: 'account' });
+    if (msg) {
+      this.accountMsg = { err: false, t: msg };
+      this.say(msg);
+    }
   }
 
   // ---------- notifications ----------

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { fade, fly } from 'svelte/transition';
+  import { accountsAvailable } from '../lib/account';
   import { planner as P } from '../lib/planner.svelte';
   import { dL, fT } from '../lib/time';
   import { reducedMotion } from '../lib/ui.svelte';
@@ -45,7 +46,15 @@
           <div class="actions">
             <button class="pri" onclick={() => (step = 1)}>Get started</button>
             <button class="text" onclick={() => finish()}>Skip for now</button>
+            {#if accountsAvailable()}
+              <button class="text" disabled={P.accountBusy} onclick={() => P.signIn()}
+                >I use Elastic Day on another device</button
+              >
+            {/if}
           </div>
+          {#if P.accountMsg?.err}
+            <p class="hint err" role="status">{P.accountMsg.t}</p>
+          {/if}
         {:else if step === 1}
           <p class="count">1 of 2</p>
           <h2>When does your day usually start?</h2>
@@ -176,5 +185,8 @@
     border: none;
     background: transparent;
     color: var(--muted);
+  }
+  .err {
+    color: var(--redT);
   }
 </style>
