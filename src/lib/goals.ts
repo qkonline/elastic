@@ -8,7 +8,7 @@ import { addDays, keyDate } from './time';
 import type { Goal, GoalSnapshot } from './types';
 import { untimed } from './types';
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export function quarterOf(key: string): string {
   const [y, m] = key.split('-').map(Number);

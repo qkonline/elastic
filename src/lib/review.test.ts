@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { newItem } from './actions';
 import { addQuarters, goalProgress, quarterLabel, quarterOf, quarterRange, suggestStatus } from './goals';
 import { habitDefaults } from './habits';
-import { dueQuarterly, dueWeekly, reviewNumbers, weekId } from './review';
+import { dueQuarterly, dueWeekly, reviewNumbers, weekId, weekSpan } from './review';
 import type { Day, Goal, Review } from './types';
 
 const day = (key: string, items: Day['items'], extra: Partial<Day> = {}): Day => ({
@@ -114,5 +114,12 @@ describe('when reviews are due', () => {
     expect(dueQuarterly('2026-12-20', [])).toBeNull();
     expect(dueQuarterly('2027-01-10', [])?.id).toBe('2026-Q4');
     expect(dueQuarterly('2027-01-10', [{ ...rev('2026-Q4'), kind: 'quarter' }])).toBeNull();
+  });
+});
+
+describe('weekSpan', () => {
+  it('names the days of a week, with both months when it spans two', () => {
+    expect(weekSpan('2026-10-12', '2026-10-18')).toBe('12 to 18 Oct');
+    expect(weekSpan('2026-09-28', '2026-10-04')).toBe('28 Sep to 4 Oct');
   });
 });

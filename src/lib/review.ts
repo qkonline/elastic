@@ -4,7 +4,7 @@
 
 import { habitMet, isHabit } from './habits';
 import type { DayAt } from './habits';
-import { quarterOf, quarterRange, addQuarters } from './goals';
+import { MONTHS, quarterOf, quarterRange, addQuarters } from './goals';
 import { isPartial, worked } from './schedule';
 import { addDays, dayDiff, keyDate, mondayOf } from './time';
 import type { Hue, Review, ReviewNumbers } from './types';
@@ -20,6 +20,16 @@ export function weekId(key: string): string {
 }
 
 export const weekRange = (key: string): [string, string] => [mondayOf(key), addDays(mondayOf(key), 6)];
+
+/** A week's days in words: "12 to 18 Oct", or "28 Sep to 4 Oct" across a month. */
+export function weekSpan(from: string, to: string): string {
+  const a = keyDate(from),
+    b = keyDate(to);
+  const month = (d: Date) => MONTHS[d.getMonth()];
+  return a.getMonth() === b.getMonth()
+    ? `${a.getDate()} to ${b.getDate()} ${month(b)}`
+    : `${a.getDate()} ${month(a)} to ${b.getDate()} ${month(b)}`;
+}
 
 /** The numbers for the days from `from` to `to` (up to today; `n` minutes into today). */
 export function reviewNumbers(dayAt: DayAt, from: string, to: string, today: string, n: number): ReviewNumbers {

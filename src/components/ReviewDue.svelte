@@ -1,16 +1,17 @@
 <script lang="ts">
   import { quarterLabel } from '../lib/goals';
   import { planner as P } from '../lib/planner.svelte';
-  import { keyDate } from '../lib/time';
+  import { weekSpan } from '../lib/review';
 
-  // On Today, when a weekly or quarterly review is due: a card to start it, or skip it.
+  // On Today, when a weekly or quarterly review is due: a card to view it, or dismiss it (it's
+  // then saved as skipped and doesn't come back). It says which week or quarter it covers.
   const due = $derived(P.view === 'day' && P.isToday ? P.dueReview : null);
   const range = $derived(
     !due
       ? ''
       : due.kind === 'quarter'
         ? quarterLabel(due.id)
-        : `Week of ${keyDate(due.from).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`,
+        : `${due.to >= P.today ? 'This week' : 'Last week'}, ${weekSpan(due.from, due.to)}`,
   );
 </script>
 
@@ -23,8 +24,8 @@
       >
     </div>
     <div class="acts">
-      <button class="go" onclick={() => P.openSheet({ type: 'review' })}>Start</button>
-      <button class="skip" onclick={() => P.skipReview(due)}>Skip</button>
+      <button class="go" onclick={() => P.openSheet({ type: 'review' })}>View</button>
+      <button class="skip" onclick={() => P.skipReview(due)}>Dismiss</button>
     </div>
   </section>
 {/if}

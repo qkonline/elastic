@@ -1,7 +1,8 @@
 <script lang="ts">
   import { addQuarters, quarterLabel, suggestStatus } from '../lib/goals';
+  import { weekSpan } from '../lib/review';
   import { planner as P } from '../lib/planner.svelte';
-  import { dL, fT, keyDate } from '../lib/time';
+  import { dL, fT } from '../lib/time';
   import type { Goal, Review } from '../lib/types';
   import GoalCard from './GoalCard.svelte';
   import ReviewNumbers from './ReviewNumbers.svelte';
@@ -23,9 +24,8 @@
   const nextQ = $derived(due?.kind === 'quarter' ? addQuarters(due.id, 1) : null);
   const nextGoals = $derived(nextQ ? P.goals.filter((g) => g.quarter === nextQ) : []);
   const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const dayMonth = (k: string) => keyDate(k).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-  const titleOf = (r: { kind: 'week' | 'quarter'; id: string; from: string }) =>
-    r.kind === 'quarter' ? quarterLabel(r.id) : `Week of ${dayMonth(r.from)}`;
+  const titleOf = (r: { kind: 'week' | 'quarter'; id: string; from: string; to: string }) =>
+    r.kind === 'quarter' ? quarterLabel(r.id) : weekSpan(r.from, r.to);
   const STATUS: [Goal['status'], string][] = [
     ['hit', 'Hit'],
     ['partly', 'Partly'],
@@ -141,7 +141,7 @@
 
       <div class="acts">
         <button class="pill pri" onclick={() => P.finishReview(due)}>Finish review</button>
-        <button class="pill" onclick={() => P.skipReview(due)}>Skip this {due.kind}</button>
+        <button class="pill" onclick={() => P.skipReview(due)}>Dismiss</button>
       </div>
     {:else}
       <section class="card">
