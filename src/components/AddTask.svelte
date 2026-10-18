@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { cubicOut } from 'svelte/easing';
   import { slide } from 'svelte/transition';
   import { planner as P } from '../lib/planner.svelte';
@@ -14,8 +15,10 @@
   // The name, type and colour are always shown. Timing and repeating are optional, each behind
   // a switch that opens its choices in place. Timing starts off: without it, a task is a check,
   // ticked off on the checklist instead of timed.
+  // Added from the week grid at a time: a fixed time at that time.
+  let { at }: { at?: number } = $props();
   let title = $state('');
-  let kind = $state<Kind>('task');
+  let kind = $state<Kind>(untrack(() => (at != null ? 'fixed' : 'task')));
   let hue = $state<Hue | null>(null);
   // Buffers and fixed times always take time. For a task it's the Timed switch, so trying
   // Buffer and going back to Task leaves the switch as it was.
@@ -31,7 +34,7 @@
   // Fixed items default to the next quarter hour, half an hour from now (after midnight on a
   // late day, that's still this day).
   const defaultFixed = Math.ceil((P.nowToday() + 30) / 15) * 15;
-  let fixedStr = $state(hhmm(defaultFixed));
+  let fixedStr = $state(hhmm(untrack(() => at) ?? defaultFixed));
   const late = $derived(Math.max(P.day.wrap, P.isToday ? P.n : 0));
 
   const ok = $derived(!!title.trim());

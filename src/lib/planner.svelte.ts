@@ -27,12 +27,14 @@ import {
   addDays,
   atMinutes,
   clockToDay,
+  addMonths,
   dayDiff,
   fT,
   hhmm,
   hm,
   keyDate,
   minutesInto,
+  monthGrid,
   mondayOf,
   shortDate,
   todayKey,
@@ -51,7 +53,7 @@ export type Sheet =
   | { type: 'task'; id: string }
   | { type: 'settings' }
   | { type: 'hours' }
-  | { type: 'add' }
+  | { type: 'add'; at?: number }
   | { type: 'install' }
   | { type: 'wrapup' }
   | { type: 'account' }
@@ -90,6 +92,19 @@ const UPDATE_EVERY_MS = 24 * 3600_000;
 /** How far back to look for a timer left running on an earlier day. */
 const RECENT_DAYS = 7;
 export const THEME_KEY = 'elastic-day:theme';
+const VIEW_KEY = 'elastic-day:view';
+/** Day, week or month on screen. Remembered on this device. */
+export type View = 'day' | 'week' | 'month';
+
+function readView(): View {
+  try {
+    const v = localStorage.getItem(VIEW_KEY);
+    if (v === 'week' || v === 'month') return v;
+  } catch {
+    /* storage blocked */
+  }
+  return 'day';
+}
 
 type Msg = { t: 'days'; keys: string[] } | { t: 'settings' } | { t: 'series' } | { t: 'all' } | { t: 'account' };
 /** How often to check whether the alerts the account sends have changed. */
@@ -118,7 +133,9 @@ export class Planner {
   /** Stored days before the ones loaded for the screen: for habit streaks and history. */
   past = $state.raw<Record<string, Day>>({});
   today = $state(todayKey());
+  /** The day on screen; in the week and month views, the day they're anchored on. */
   viewKey = $state(todayKey());
+  view = $state<View>(readView());
   weekOff = $state(0);
   clock = $state(Date.now());
 
@@ -237,6 +254,7 @@ export class Planner {
       await this.fillSeriesOrder();
       await this.loadWeek();
       await this.ensureDay(addDays(this.today, 1)); // for heads-ups past midnight
+      if (this.view === 'month') await this.loadMonth();
       if (!s && (this.stored.size || series.length)) this.setSettings({ onboarded: true });
       // Anything already over time when the page loads has had its alert.
       for (const d of Object.values(this.days))
@@ -363,7 +381,7 @@ export class Planner {
   }
 
   /** A day as the plan sees it: with a flexible start, today's plan runs from now until it's started. */
-  private planOf(d: Day): Day {
+  planOf(d: Day): Day {
     if (!this.settings.flexStart || d.key !== this.today || d.dayStarted != null) return d;
     const start = Math.ceil(minutesInto(d.key, this.clock) / 5) * 5;
     return { ...d, dayStart: start, wrap: start + this.settings.dayLength };
@@ -379,6 +397,9 @@ export class Planner {
 
   destroy(): void {
     if (this.iv) clearInterval(this.iv);
+    // Nothing more from this store: pending saves would land in whatever database comes next.
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    for (const t of this.seriesTimers.values()) clearTimeout(t);
     this.bc?.close();
     this.sync.stop();
   }
@@ -664,9 +685,107 @@ export class Planner {
     }
   }
 
+  /** Day, week or month. */
+  setView(v: View): void {
+    this.view = v;
+    this.sheet = null;
+    this.confirm = null;
+    this.nudge = null;
+    try {
+      localStorage.setItem(VIEW_KEY, v);
+    } catch {
+      /* storage blocked */
+    }
+    if (v === 'month') void this.loadMonth();
+    else void this.loadWeek();
+  }
+
+  /** The day a step back or forward lands on: a day, a week or a month, as the view goes. */
+  stepKey(dir: -1 | 1): string {
+    if (this.view === 'week') return addDays(this.viewKey, 7 * dir);
+    if (this.view === 'month') return addMonths(this.viewKey, dir);
+    return addDays(this.viewKey, dir);
+  }
+
+  async step(dir: -1 | 1): Promise<void> {
+    await this.switchDay(this.stepKey(dir));
+    if (this.view === 'month') await this.loadMonth();
+  }
+
+  /** The days the month view shows. */
+  async loadMonth(): Promise<void> {
+    await Promise.all(monthGrid(this.viewKey).map((k) => this.ensureDay(k)));
+  }
+
+  /** Open a day from the week or month view. */
+  async openDay(key: string): Promise<void> {
+    await this.switchDay(key);
+    this.setView('day');
+  }
+
+  /** Open a task on another day (week or month view): that day becomes the anchor. */
+  async openTaskOn(key: string, id: string): Promise<void> {
+    if (key !== this.viewKey) await this.switchDay(key);
+    this.openSheet({ type: 'task', id });
+  }
+
+  /** New task on a day (week or month view), at a time if one was picked (a fixed time). */
+  async addOn(key: string, at?: number): Promise<void> {
+    if (key !== this.viewKey) await this.switchDay(key);
+    if (this.locked) return this.sayLocked();
+    this.openSheet({ type: 'add', at });
+  }
+
+  /**
+   * Move a task to another day, or to another time (`at`) on its own day, from the calendar.
+   * A fixed time takes the new time. Any other task goes where `at` falls in that day's plan.
+   * From a day that hasn't started it simply moves; from one under way it's set aside as moved
+   * (with Undo), like Move to another day. Ended days stay as they are.
+   */
+  async moveItem(from: string, id: string, to: string, at?: number): Promise<void> {
+    const src = await this.ensureDay(from);
+    const dst = from === to ? src : await this.ensureDay(to);
+    if (src.dayEnded != null || dst.dayEnded != null) return this.sayLocked();
+    const it = A.find(src, id);
+    if (!it || (untimed(it.kind) && from === to)) return;
+    const n = minutesInto(to, this.clock);
+    const snap = at == null ? null : Math.max(0, Math.round(at / 15) * 15);
+    const place = (d: Day, item: Item): Day => {
+      if (snap == null) return A.addItem(d, item, n);
+      if (item.kind === 'fixed')
+        return A.placeFixed(
+          A.addItem({ ...d, items: d.items.filter((x) => x.id !== item.id) }, { ...item, fixedAt: snap }, n),
+          item.id,
+          n,
+        );
+      const rest = { ...d, items: d.items.filter((x) => x.id !== item.id) };
+      const rows = schedule(this.planOf(rest), n).rows;
+      const before = rows.find((r) => r.it.status === 'todo' && !untimed(r.it.kind) && r.start >= snap - 1e-6);
+      const at_ = before ? rest.items.findIndex((x) => x.id === before.it.id) : rest.items.length;
+      const items = [...rest.items];
+      items.splice(at_, 0, item);
+      return { ...rest, items };
+    };
+    if (from === to) {
+      if (it.status !== 'todo') return;
+      this.put(place(src, it));
+      return;
+    }
+    if (src.dayStarted == null && it.status === 'todo') {
+      this.put(A.remove(src, id));
+      this.put(place(dst, A.freshCopy(it)));
+    } else {
+      const res = A.moveOut(src, id, to, minutesInto(from, this.clock));
+      if (!res) return;
+      this.put(res.day);
+      this.put(place(dst, res.copy));
+    }
+    this.say(`${it.title} moved to ${shortDate(keyDate(to))}`);
+  }
+
   backToToday(): void {
     this.weekOff = 0;
-    void this.switchDay(this.today).then(() => this.loadWeek());
+    void this.switchDay(this.today).then(() => (this.view === 'month' ? this.loadMonth() : this.loadWeek()));
   }
 
   shiftWeek(d: -1 | 1): void {

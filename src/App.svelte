@@ -26,6 +26,9 @@
   import Timeline from './components/Timeline.svelte';
   import WeekStrip from './components/WeekStrip.svelte';
   import Welcome from './components/Welcome.svelte';
+  import WeekView from './components/WeekView.svelte';
+  import MonthView from './components/MonthView.svelte';
+  import { mondayOf } from './lib/time';
   import WrapUp from './components/WrapUp.svelte';
   import { dayGestures, gestures } from './lib/gestures.svelte';
   import { planner as P, type Sheet as SheetState } from './lib/planner.svelte';
@@ -38,25 +41,33 @@
   // right behind it, edge to edge. A later day comes in from the right, an earlier one from the
   // left. After a swipe the motion starts from wherever the finger let go.
   const DAY_MS = 320;
-  let slide = { dir: 1, from: 0 };
-  let shownKey = untrack(() => P.viewKey);
+  // The week and month views slide by week or month; switching view itself doesn't slide.
+  let slide = { dir: 1, from: 0, instant: false };
+  const anchor = $derived(
+    P.view === 'week' ? mondayOf(P.viewKey) : P.view === 'month' ? P.viewKey.slice(0, 7) : P.viewKey,
+  );
+  const shownAt = $derived(`${P.view}:${anchor}`);
+  let shownKey = untrack(() => anchor);
+  let shownView = untrack(() => P.view);
   $effect.pre(() => {
-    const key = P.viewKey;
+    const key = anchor;
+    const view = P.view;
     untrack(() => {
-      if (key === shownKey) return;
-      slide = { dir: key > shownKey ? 1 : -1, from: gestures.releaseDx };
+      if (key === shownKey && view === shownView) return;
+      slide = { dir: key > shownKey ? 1 : -1, from: gestures.releaseDx, instant: view !== shownView };
       shownKey = key;
+      shownView = view;
       gestures.releaseDx = 0;
     });
   });
   // Both run on the same linear clock with the easing applied here, so the two days stay joined.
   function dayIn(node: HTMLElement) {
-    if (reducedMotion.current) return { duration: 0 };
+    if (reducedMotion.current || slide.instant) return { duration: 0 };
     const start = slide.dir * node.offsetWidth + slide.from;
     return { duration: DAY_MS, css: (t: number) => `transform: translateX(${start * (1 - cubicOut(t))}px)` };
   }
   function dayOut(node: HTMLElement) {
-    if (reducedMotion.current) return { duration: 0 };
+    if (reducedMotion.current || slide.instant) return { duration: 0 };
     const { from } = slide;
     const end = -slide.dir * node.offsetWidth;
     return {
@@ -129,8 +140,10 @@
   <!-- inert: while a sheet or the welcome is open, keyboard and screen readers stay inside it. -->
   <div class="page" inert={covered} {@attach dayGestures(P)}>
     <Header />
-    <WeekStrip />
-    <StartDay />
+    {#if P.view === 'day'}
+      <WeekStrip />
+      <StartDay />
+    {/if}
     <RunningElsewhere />
     <ComingUp />
     <NotifyPrompt />
@@ -138,7 +151,7 @@
       class:settling={!gestures.dragging}
       style:transform={gestures.pull ? `translateY(${gestures.pull * 0.6}px)` : undefined}
     >
-      {#key P.viewKey}
+      {#key shownAt}
         <div
           class="day"
           class:settling={!gestures.dragging}
@@ -146,7 +159,11 @@
           in:dayIn
           out:dayOut
         >
-          {#if P.day.items.length === 0}
+          {#if P.view === 'week'}
+            <WeekView />
+          {:else if P.view === 'month'}
+            <MonthView />
+          {:else if P.day.items.length === 0}
             <EmptyState />
           {:else}
             <DayStatus />
@@ -158,7 +175,7 @@
             {/if}
             {#if timed}<Timeline />{/if}
           {/if}
-          <DayFooter />
+          {#if P.view === 'day'}<DayFooter />{/if}
         </div>
       {/key}
     </main>
@@ -193,7 +210,7 @@
         {:else if shownSheet.type === 'task'}
           <TaskSheet id={shownSheet.id} />
         {:else if shownSheet.type === 'add'}
-          <AddTask />
+          <AddTask at={shownSheet.at} />
         {:else if shownSheet.type === 'hours'}
           <DayHours />
         {:else if shownSheet.type === 'install'}

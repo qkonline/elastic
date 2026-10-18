@@ -29,7 +29,8 @@
   --cw: 40px;
   --px: 16px;
   --btn: 44px;
-  --header-h: 62px;
+  /* Two rows on a phone: the title, then Day / Week / Month. */
+  --header-h: 106px;
 
   --font: 'Geist Sans', 'Geist', system-ui, -apple-system, sans-serif;
 }

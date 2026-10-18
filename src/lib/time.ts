@@ -87,6 +87,19 @@ export function mondayOf(k: string): string {
   return addDays(k, -((keyDate(k).getDay() + 6) % 7));
 }
 
+/** The same day `n` months on (the last day of the month if it's shorter). */
+export function addMonths(k: string, n: number): string {
+  const [Y, M, D] = k.split('-').map(Number);
+  const last = new Date(Y, M - 1 + n + 1, 0).getDate();
+  return dkey(new Date(Y, M - 1 + n, Math.min(D, last)));
+}
+
+/** The six weeks (Monday first) that show the month `k` falls in. */
+export function monthGrid(k: string): string[] {
+  const first = mondayOf(k.slice(0, 8) + '01');
+  return Array.from({ length: 42 }, (_, i) => addDays(first, i));
+}
+
 /** Whole days from `a` to `b`. */
 export function dayDiff(a: string, b: string): number {
   return Math.round((keyDate(b).getTime() - keyDate(a).getTime()) / 86400000);

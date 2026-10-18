@@ -560,5 +560,34 @@ describe('Planner', () => {
     vi.setSystemTime(new Date(2026, 8, 25, 23, 0));
     p.tick();
     expect(p.sch.rows.filter((r) => isMissed(r, p.n)).map((r) => r.it.title)).not.toContain('Stretch');
+    // Let the habit's series finish saving before the next test gets a fresh database.
+    await vi.waitFor(() => expect(p.days[TOMORROW].items).toHaveLength(1));
+    await p.flush();
+  });
+
+  it('moves a task to another day and time from the calendar', async () => {
+    const p = await boot();
+    add(p, 'Write');
+    add(p, 'Review');
+    await p.moveItem(TODAY, byTitle(p, 'Write').id, TOMORROW, 600);
+    expect(p.day.items.map((i) => i.title)).toEqual(['Review']); // not started: it simply moves
+    await p.switchDay(TOMORROW);
+    expect(p.day.items.map((i) => i.title)).toEqual(['Write']);
+    p.addTask({ title: 'Call', min: 30, kind: 'fixed', hue: 'indigo', fixedAt: 540 });
+    await p.moveItem(TOMORROW, byTitle(p, 'Call').id, TOMORROW, 840);
+    expect(byTitle(p, 'Call').fixedAt).toBe(840);
+    await p.moveItem(TOMORROW, byTitle(p, 'Write').id, TOMORROW, 900);
+    expect(p.day.items.map((i) => i.title)).toEqual(['Call', 'Write']);
+  });
+
+  it('steps by a week or a month in those views', async () => {
+    const p = await boot();
+    p.setView('week');
+    await p.step(1);
+    expect(p.viewKey).toBe('2026-10-02');
+    p.setView('month');
+    await p.step(-1);
+    expect(p.viewKey).toBe('2026-09-02');
+    p.setView('day');
   });
 });

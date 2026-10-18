@@ -3,7 +3,6 @@
 // them while it scrolls, so a gesture can be told apart from a scroll as it happens.
 
 import type { Planner } from './planner.svelte';
-import { addDays } from './time';
 
 /** How far (px, finger travel) a swipe has to go to change day; a quick flick needs less. */
 const SWIPE = 70;
@@ -80,7 +79,7 @@ export function dayGestures(p: Planner) {
         if (Math.abs(travel) >= SWIPE || (quick && Math.abs(travel) >= FLICK)) {
           // Finger moves left → the next day. Hold the day where it is until the slide takes over.
           gestures.releaseDx = travel;
-          void p.switchDay(addDays(p.viewKey, travel < 0 ? 1 : -1)).then(() => (gestures.dx = 0));
+          void p.step(travel < 0 ? 1 : -1).then(() => (gestures.dx = 0));
         } else gestures.dx = 0;
       } else if (mode === 'pull') {
         if (gestures.pull >= PULL) {
