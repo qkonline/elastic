@@ -64,6 +64,7 @@ describe('reviewNumbers', () => {
     const days = [
       day('2026-10-12', [
         done('Write', 'orange', 540, 660),
+        done('Plan', 'orange', 690, 700),
         done('Email', 'cyan', 660, 690),
         newItem({ title: 'Call', min: 30, status: 'postponed', movedKey: '2026-10-13' }),
         newItem({ title: 'Mail', min: 0, kind: 'check', status: 'done' }),
@@ -74,17 +75,17 @@ describe('reviewNumbers', () => {
     expect(n).toMatchObject({
       days: 7,
       daysStarted: 2,
-      tasks: 4,
-      tasksDone: 3,
-      logged: 710,
+      tasks: 5,
+      tasksDone: 4,
+      logged: 720,
       checks: 1,
       checksDone: 1,
       postponed: [{ title: 'Call', times: 1 }],
       longDays: 1,
     });
     expect(n.byHue).toEqual([
-      { hue: 'orange', min: 680 },
-      { hue: 'cyan', min: 30 },
+      { hue: 'orange', min: 690, titles: ['Write', 'Plan'] },
+      { hue: 'cyan', min: 30, titles: ['Email'] },
     ]);
   });
 });

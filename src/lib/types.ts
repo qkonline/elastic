@@ -177,8 +177,9 @@ export interface ReviewNumbers {
   tasksDone: number;
   /** Minutes logged. */
   logged: number;
-  /** Minutes logged per colour, most first. */
-  byHue: { hue: Hue; min: number }[];
+  /** Minutes logged per colour, most first, with the tasks that took them (most first, up to 3;
+   * missing in reviews saved before they were kept). */
+  byHue: { hue: Hue; min: number; titles?: string[] }[];
   checks: number;
   checksDone: number;
   habitsDue: number;

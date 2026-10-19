@@ -1,7 +1,7 @@
 <script lang="ts">
   import { planner as P } from '../lib/planner.svelte';
   import { dL, keyDate } from '../lib/time';
-  import { hueColor, hueName, type ReviewNumbers } from '../lib/types';
+  import { hueColor, hueName, type Hue, type ReviewNumbers } from '../lib/types';
 
   // A stretch of days in numbers: time logged and where it went, tasks done, habits kept, what
   // kept being moved, and days that ran long. A quarter also shows its weeks side by side.
@@ -14,6 +14,12 @@
     ),
   );
   const names = $derived(P.settings.hueNames);
+  // A colour you've named goes by its name. One you haven't goes by the tasks that took the time
+  // ("Yellow" says nothing), falling back to the colour for reviews saved before tasks were kept.
+  const named = (h: Hue) => !!names[h]?.trim();
+  const label = (h: { hue: Hue; titles?: string[] }) =>
+    named(h.hue) || !h.titles?.length ? hueName(h.hue, names) : h.titles.join(', ');
+  const anyUnnamed = $derived(x.byHue.some((h) => !named(h.hue)));
   const weekMax = $derived(Math.max(1, ...(x.weeks ?? []).map((w) => w.logged)));
   const best = $derived(x.weeks?.length ? x.weeks.reduce((a, b) => (b.logged > a.logged ? b : a)) : null);
   const dayMonth = (k: string) => keyDate(k).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
@@ -55,11 +61,14 @@
         {#each x.byHue as h (h.hue)}
           <li>
             <i style:background={hueColor(h.hue)}></i>
-            <span class="n">{hueName(h.hue, names)}</span>
+            <span class="n">{label(h)}</span>
             <span class="v">{dL(h.min)}</span>
           </li>
         {/each}
       </ul>
+      {#if anyUnnamed}
+        <span class="note">Name your colours in Settings to see this by project.</span>
+      {/if}
     </div>
   {/if}
 

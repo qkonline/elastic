@@ -48,6 +48,7 @@ export function reviewNumbers(dayAt: DayAt, from: string, to: string, today: str
     longDays: 0,
   };
   const hues = new Map<Hue, number>();
+  const titles = new Map<Hue, Map<string, number>>();
   const moved = new Map<string, number>();
   const weeks = new Map<string, number>();
   for (let k = from; k <= to && k <= today; k = addDays(k, 1)) {
@@ -76,7 +77,12 @@ export function reviewNumbers(dayAt: DayAt, from: string, to: string, today: str
       if (untimed(it.kind)) continue;
       const w = worked(it, at);
       out.logged += w;
-      if (w > 0) hues.set(it.hue, (hues.get(it.hue) ?? 0) + w);
+      if (w > 0) {
+        hues.set(it.hue, (hues.get(it.hue) ?? 0) + w);
+        const t = titles.get(it.hue) ?? new Map<string, number>();
+        t.set(it.title, (t.get(it.title) ?? 0) + w);
+        titles.set(it.hue, t);
+      }
       weeks.set(mondayOf(k), (weeks.get(mondayOf(k)) ?? 0) + w);
       if (it.endedAt != null) lastEnd = Math.max(lastEnd, it.endedAt);
       if (it.kind === 'buffer') continue;
@@ -87,7 +93,16 @@ export function reviewNumbers(dayAt: DayAt, from: string, to: string, today: str
     if (d.dayStarted != null && end > d.wrap + 15) out.longDays++;
   }
   out.logged = Math.round(out.logged);
-  out.byHue = [...hues].map(([hue, min]) => ({ hue, min: Math.round(min) })).sort((a, b) => b.min - a.min);
+  out.byHue = [...hues]
+    .map(([hue, min]) => ({
+      hue,
+      min: Math.round(min),
+      titles: [...(titles.get(hue) ?? [])]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([t]) => t),
+    }))
+    .sort((a, b) => b.min - a.min);
   out.postponed = [...moved]
     .map(([title, times]) => ({ title, times }))
     .sort((a, b) => b.times - a.times)

@@ -228,7 +228,13 @@ function normalizeNumbers(raw: unknown): ReviewNumbers | null {
     byHue: (Array.isArray(r.byHue) ? r.byHue : [])
       .map(obj)
       .filter((x) => isHue(x.hue))
-      .map((x) => ({ hue: x.hue as Hue, min: n0(x.min) })),
+      .map((x) => ({
+        hue: x.hue as Hue,
+        min: n0(x.min),
+        ...(Array.isArray(x.titles)
+          ? { titles: x.titles.filter((t): t is string => typeof t === 'string').slice(0, 3) }
+          : {}),
+      })),
     checks: n0(r.checks),
     checksDone: n0(r.checksDone),
     habitsDue: n0(r.habitsDue),
