@@ -288,9 +288,9 @@ describe('sync', () => {
     b.p.editGoal(b.p.goals[0].id, { target: { now: 40, goal: 100, unit: 'users' } });
     await settle();
     expect(a.p.goals[0].target?.now).toBe(40);
-    a.p.setSettings({ hueNames: { orange: 'Cadora' } });
+    a.p.setSettings({ reviewDay: 5 });
     await settle();
-    expect(b.p.settings.hueNames).toEqual({ orange: 'Cadora' });
+    expect(b.p.settings.reviewDay).toBe(5);
   });
 
   it('sends changes made while offline once it reconnects', async () => {

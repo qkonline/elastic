@@ -30,7 +30,6 @@ export const SHARED_SETTINGS = [
   'defWrap',
   'dayLength',
   'flexStart',
-  'hueNames',
   'reviewDay',
   'reviewAt',
 ] as const;

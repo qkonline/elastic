@@ -113,8 +113,6 @@ export interface Settings {
   onboarded: boolean;
   /** Habits in the Checklist, mixed with checks, or in a section of their own. */
   habitsPlace: 'checklist' | 'separate';
-  /** Names for colours ('orange' or '#rrggbb' → "Cadora"), used by reviews and the month view. */
-  hueNames: Record<string, string>;
   /** When the weekly review comes up: a weekday (0 = Sunday) and minutes into that day. */
   reviewDay: number;
   reviewAt: number;
@@ -177,9 +175,11 @@ export interface ReviewNumbers {
   tasksDone: number;
   /** Minutes logged. */
   logged: number;
-  /** Minutes logged per colour, most first, with the tasks that took them (most first, up to 3;
-   * missing in reviews saved before they were kept). */
-  byHue: { hue: Hue; min: number; titles?: string[] }[];
+  /** Minutes logged per task (by title), most first; past the first few, the rest share one row
+   * with no title or colour. */
+  byTask: { title: string | null; hue: Hue | null; min: number }[];
+  /** Reviews saved before byTask: minutes per colour. */
+  byHue?: { hue: Hue; min: number; titles?: string[] }[];
   checks: number;
   checksDone: number;
   habitsDue: number;
@@ -246,14 +246,11 @@ export const DEFAULT_SETTINGS: Settings = {
   flexStart: false,
   onboarded: false,
   habitsPlace: 'checklist',
-  hueNames: {},
   reviewDay: 0,
   reviewAt: 18 * 60,
 };
 
-/** A colour's name: what the user called it, or its own name. */
-export function hueName(h: Hue, names: Record<string, string>): string {
-  const own = names[h]?.trim();
-  if (own) return own;
+/** A colour's name, for reviews saved when time was shown by colour. */
+export function hueName(h: Hue): string {
   return isHex(h) ? 'Custom colour' : h.charAt(0).toUpperCase() + h.slice(1);
 }

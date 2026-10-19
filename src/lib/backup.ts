@@ -174,11 +174,6 @@ export function normalizeSettings(raw: unknown): Settings {
     // A backup comes from someone who has used the app, so don't show them the welcome again.
     onboarded: true,
     habitsPlace: r.habitsPlace === 'separate' ? 'separate' : 'checklist',
-    hueNames: Object.fromEntries(
-      Object.entries(obj(r.hueNames))
-        .filter(([k, v]) => isHue(k) && typeof v === 'string')
-        .map(([k, v]) => [k, (v as string).slice(0, 40)]),
-    ),
     reviewDay:
       Number.isInteger(r.reviewDay) && (r.reviewDay as number) >= 0 && (r.reviewDay as number) <= 6
         ? (r.reviewDay as number)
@@ -225,6 +220,14 @@ function normalizeNumbers(raw: unknown): ReviewNumbers | null {
     tasks: n0(r.tasks),
     tasksDone: n0(r.tasksDone),
     logged: n0(r.logged),
+    byTask: (Array.isArray(r.byTask) ? r.byTask : [])
+      .slice(0, 20)
+      .map(obj)
+      .map((x) => ({
+        title: typeof x.title === 'string' ? x.title : null,
+        hue: isHue(x.hue) ? (x.hue as Hue) : null,
+        min: n0(x.min),
+      })),
     byHue: (Array.isArray(r.byHue) ? r.byHue : [])
       .map(obj)
       .filter((x) => isHue(x.hue))

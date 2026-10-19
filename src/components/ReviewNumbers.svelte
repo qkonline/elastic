@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { planner as P } from '../lib/planner.svelte';
   import { dL, keyDate } from '../lib/time';
   import { hueColor, hueName, type Hue, type ReviewNumbers } from '../lib/types';
 
@@ -7,19 +6,18 @@
   // kept being moved, and days that ran long. A quarter also shows its weeks side by side.
   let { numbers: x }: { numbers: ReviewNumbers } = $props();
 
+  // Where the time went: each task with its time, in its colour. Reviews saved before that list
+  // time by colour instead.
+  const rows = $derived(
+    x.byTask ?? (x.byHue ?? []).map((h) => ({ title: hueName(h.hue) as string | null, hue: h.hue, min: h.min })),
+  );
   const total = $derived(
     Math.max(
       1,
-      x.byHue.reduce((s, h) => s + h.min, 0),
+      rows.reduce((s, r) => s + r.min, 0),
     ),
   );
-  const names = $derived(P.settings.hueNames);
-  // A colour you've named goes by its name. One you haven't goes by the tasks that took the time
-  // ("Yellow" says nothing), falling back to the colour for reviews saved before tasks were kept.
-  const named = (h: Hue) => !!names[h]?.trim();
-  const label = (h: { hue: Hue; titles?: string[] }) =>
-    named(h.hue) || !h.titles?.length ? hueName(h.hue, names) : h.titles.join(', ');
-  const anyUnnamed = $derived(x.byHue.some((h) => !named(h.hue)));
+  const colour = (h: Hue | null) => (h ? hueColor(h) : 'var(--line)');
   const weekMax = $derived(Math.max(1, ...(x.weeks ?? []).map((w) => w.logged)));
   const best = $derived(x.weeks?.length ? x.weeks.reduce((a, b) => (b.logged > a.logged ? b : a)) : null);
   const dayMonth = (k: string) => keyDate(k).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
@@ -49,26 +47,23 @@
     {/if}
   </div>
 
-  {#if x.byHue.length}
+  {#if rows.length}
     <div class="part">
       <span class="lbl">Where the time went</span>
       <div class="stack" aria-hidden="true">
-        {#each x.byHue as h (h.hue)}
-          <span style:width="{(h.min / total) * 100}%" style:background={hueColor(h.hue)}></span>
+        {#each rows as r, i (i)}
+          <span style:width="{(r.min / total) * 100}%" style:background={colour(r.hue)}></span>
         {/each}
       </div>
       <ul class="legend">
-        {#each x.byHue as h (h.hue)}
+        {#each rows as r, i (i)}
           <li>
-            <i style:background={hueColor(h.hue)}></i>
-            <span class="n">{label(h)}</span>
-            <span class="v">{dL(h.min)}</span>
+            <i style:background={colour(r.hue)}></i>
+            <span class="n" class:rest={r.title == null}>{r.title ?? 'Everything else'}</span>
+            <span class="v">{dL(r.min)}</span>
           </li>
         {/each}
       </ul>
-      {#if anyUnnamed}
-        <span class="note">Name your colours in Settings to see this by project.</span>
-      {/if}
     </div>
   {/if}
 
@@ -178,6 +173,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .rest {
+    color: var(--muted);
   }
   .v {
     color: var(--muted);

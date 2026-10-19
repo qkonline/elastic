@@ -83,10 +83,20 @@ describe('reviewNumbers', () => {
       postponed: [{ title: 'Call', times: 1 }],
       longDays: 1,
     });
-    expect(n.byHue).toEqual([
-      { hue: 'orange', min: 690, titles: ['Write', 'Plan'] },
-      { hue: 'cyan', min: 30, titles: ['Email'] },
+    expect(n.byTask).toEqual([
+      { title: 'Write', hue: 'orange', min: 680 },
+      { title: 'Email', hue: 'cyan', min: 30 },
+      { title: 'Plan', hue: 'orange', min: 10 },
     ]);
+  });
+});
+
+describe('where the time went', () => {
+  it('lists six tasks, then the rest together', () => {
+    const items = Array.from({ length: 9 }, (_, i) => done(`T${i}`, 'lime', 540 + i * 60, 540 + i * 60 + 50 - i));
+    const n = reviewNumbers(lookup([day('2026-10-12', items)]), '2026-10-12', '2026-10-18', '2026-10-18', 600);
+    expect(n.byTask.map((t) => t.title)).toEqual(['T0', 'T1', 'T2', 'T3', 'T4', 'T5', null]);
+    expect(n.byTask[6]).toEqual({ title: null, hue: null, min: 44 + 43 + 42 });
   });
 });
 

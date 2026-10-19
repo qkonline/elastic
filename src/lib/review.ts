@@ -21,6 +21,9 @@ export function weekId(key: string): string {
 
 export const weekRange = (key: string): [string, string] => [mondayOf(key), addDays(mondayOf(key), 6)];
 
+/** How many tasks "Where the time went" lists before the rest share a row. */
+const TASK_ROWS = 6;
+
 /** A week's days in words: "12 to 18 Oct", or "28 Sep to 4 Oct" across a month. */
 export function weekSpan(from: string, to: string): string {
   const a = keyDate(from),
@@ -39,7 +42,7 @@ export function reviewNumbers(dayAt: DayAt, from: string, to: string, today: str
     tasks: 0,
     tasksDone: 0,
     logged: 0,
-    byHue: [],
+    byTask: [],
     checks: 0,
     checksDone: 0,
     habitsDue: 0,
@@ -47,8 +50,7 @@ export function reviewNumbers(dayAt: DayAt, from: string, to: string, today: str
     postponed: [],
     longDays: 0,
   };
-  const hues = new Map<Hue, number>();
-  const titles = new Map<Hue, Map<string, number>>();
+  const tasks = new Map<string, { hue: Hue; min: number }>();
   const moved = new Map<string, number>();
   const weeks = new Map<string, number>();
   for (let k = from; k <= to && k <= today; k = addDays(k, 1)) {
@@ -78,10 +80,8 @@ export function reviewNumbers(dayAt: DayAt, from: string, to: string, today: str
       const w = worked(it, at);
       out.logged += w;
       if (w > 0) {
-        hues.set(it.hue, (hues.get(it.hue) ?? 0) + w);
-        const t = titles.get(it.hue) ?? new Map<string, number>();
-        t.set(it.title, (t.get(it.title) ?? 0) + w);
-        titles.set(it.hue, t);
+        const t = tasks.get(it.title);
+        tasks.set(it.title, { hue: it.hue, min: (t?.min ?? 0) + w });
       }
       weeks.set(mondayOf(k), (weeks.get(mondayOf(k)) ?? 0) + w);
       if (it.endedAt != null) lastEnd = Math.max(lastEnd, it.endedAt);
@@ -93,16 +93,12 @@ export function reviewNumbers(dayAt: DayAt, from: string, to: string, today: str
     if (d.dayStarted != null && end > d.wrap + 15) out.longDays++;
   }
   out.logged = Math.round(out.logged);
-  out.byHue = [...hues]
-    .map(([hue, min]) => ({
-      hue,
-      min: Math.round(min),
-      titles: [...(titles.get(hue) ?? [])]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([t]) => t),
-    }))
+  const byTask = [...tasks]
+    .map(([title, t]) => ({ title: title as string | null, hue: t.hue as Hue | null, min: t.min }))
     .sort((a, b) => b.min - a.min);
+  const rest = byTask.length > TASK_ROWS + 1 ? byTask.splice(TASK_ROWS) : [];
+  if (rest.length) byTask.push({ title: null, hue: null, min: rest.reduce((n, t) => n + t.min, 0) });
+  out.byTask = byTask.map((t) => ({ ...t, min: Math.round(t.min) })).filter((t) => t.min > 0);
   out.postponed = [...moved]
     .map(([title, times]) => ({ title, times }))
     .sort((a, b) => b.times - a.times)
