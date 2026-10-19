@@ -11,7 +11,7 @@
   let step = $state(0);
   let shape = $state<Shape>({ start: 540, length: 480, flex: false });
   let panel: HTMLElement | null = $state(null);
-  const icon = import.meta.env.BASE_URL + 'icon.svg';
+  const icon = import.meta.env.BASE_URL + 'icon.svg?v=3';
   const summary = $derived(describe(shape, P.settings.clock24, fT, dL));
   const move = () => (reducedMotion.current ? { duration: 0 } : { x: 24, duration: 220 });
 

@@ -68,7 +68,7 @@ export function notifyHidden(title: string, body: string, tag: string): void {
   } catch {
     return;
   }
-  const opts: NotificationOptions = { body, icon: import.meta.env.BASE_URL + 'icon-192.png', tag };
+  const opts: NotificationOptions = { body, icon: import.meta.env.BASE_URL + 'icon-192.png?v=3', tag };
   const direct = () => {
     try {
       new Notification(title, opts);
