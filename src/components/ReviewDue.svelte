@@ -24,7 +24,7 @@
       >
     </div>
     <div class="acts">
-      <button class="go" onclick={() => P.openSheet({ type: 'review' })}>View</button>
+      <button class="go" onclick={() => P.openScreen({ type: 'review' })}>View</button>
       <button class="skip" onclick={() => P.skipReview(due)}>Dismiss</button>
     </div>
   </section>
@@ -34,11 +34,11 @@
   .due {
     margin: 12px var(--px) 2px;
     padding: 14px 16px;
-    border-radius: 16px;
+    border-radius: var(--r-card);
     border: 1.5px solid transparent;
     background:
       linear-gradient(var(--raised), var(--raised)) padding-box,
-      linear-gradient(120deg, #fb923c, #fde047, #a3e635, #22d3ee, #818cf8) border-box;
+      linear-gradient(120deg, var(--rainbow-stops)) border-box;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -65,7 +65,7 @@
   .skip {
     height: 44px;
     padding: 0 18px;
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
     font: 400 14px/1 var(--font);
     cursor: pointer;
   }

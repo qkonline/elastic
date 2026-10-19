@@ -6,7 +6,7 @@
 
   // After tapping a check or a Start button before the day has started: start the day first.
   // Meanwhile the Start my day button itself jumps and lights up (StartDay.svelte). This sits
-  // just above Add task and goes by itself.
+  // just above the bottom bar and goes by itself.
   const n = $derived(P.nudge);
 </script>
 
@@ -22,24 +22,19 @@
     z-index: 6;
     left: 16px;
     right: 16px;
-    bottom: calc(var(--bar-h) + 16px + 52px + 14px + env(safe-area-inset-bottom));
+    bottom: calc(var(--bar-h) + 40px + env(safe-area-inset-bottom));
     width: fit-content;
     max-width: 460px;
     margin: 0 auto;
     padding: 13px 20px;
-    border-radius: 18px;
-    background: #334155;
-    color: #f8fafc;
+    border-radius: var(--r-card);
+    background: var(--text);
+    color: var(--bg);
     font: 400 14px/1.4 var(--font);
     text-align: center;
     text-wrap: pretty;
     box-shadow:
       0 12px 30px -10px rgba(15, 23, 42, 0.5),
       0 2px 6px rgba(15, 23, 42, 0.18);
-  }
-  @media (min-width: 768px) {
-    .nudge {
-      bottom: calc(var(--bar-h) + 20px + 52px + 14px);
-    }
   }
 </style>

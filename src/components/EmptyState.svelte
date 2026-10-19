@@ -16,7 +16,7 @@
     margin: 20px var(--px);
     padding: 40px 24px;
     border: 1.5px dashed var(--line);
-    border-radius: 16px;
+    border-radius: var(--r-card);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -24,14 +24,14 @@
     text-align: center;
   }
   .cap {
-    width: 40px;
-    height: 64px;
-    border-radius: 999px;
+    width: 10px;
+    height: 56px;
+    border-radius: var(--r-bar);
     border: 1.5px dashed var(--faint);
     margin-bottom: 6px;
   }
   .h {
-    font: 400 19px/1.2 var(--font);
+    font: 600 19px/1.2 var(--font);
   }
   .p {
     font: 400 15px/1.5 var(--font);

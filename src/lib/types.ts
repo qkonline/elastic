@@ -113,6 +113,8 @@ export interface Settings {
   onboarded: boolean;
   /** Habits in the Checklist, mixed with checks, or in a section of their own. */
   habitsPlace: 'checklist' | 'separate';
+  /** The Checklist as a vertical list (folds above 3) or a row of chips that scrolls sideways. Per device. */
+  checklistLayout: 'list' | 'row';
   /** When the weekly review comes up: a weekday (0 = Sunday) and minutes into that day. */
   reviewDay: number;
   reviewAt: number;
@@ -205,12 +207,21 @@ export interface Review {
   goals: GoalSnapshot[];
 }
 
+// 'orange' is the stored name of the first colour, which shows as rose: plans saved before it
+// changed keep working as they are.
 export const HUES: Record<HueName, string> = {
-  orange: '#fb923c',
-  yellow: '#fde047',
-  lime: '#a3e635',
+  orange: '#f43f5e',
+  yellow: '#facc15',
+  lime: '#84cc16',
   cyan: '#22d3ee',
   indigo: '#818cf8',
+};
+const HUE_NAMES: Record<HueName, string> = {
+  orange: 'Rose',
+  yellow: 'Yellow',
+  lime: 'Lime',
+  cyan: 'Cyan',
+  indigo: 'Indigo',
 };
 
 export const isHex = (s: unknown): s is `#${string}` => typeof s === 'string' && /^#[0-9a-f]{6}$/i.test(s);
@@ -246,11 +257,12 @@ export const DEFAULT_SETTINGS: Settings = {
   flexStart: false,
   onboarded: false,
   habitsPlace: 'checklist',
+  checklistLayout: 'list',
   reviewDay: 0,
   reviewAt: 18 * 60,
 };
 
-/** A colour's name, for reviews saved when time was shown by colour. */
+/** A colour's name, as people see it ('orange' is shown as Rose). */
 export function hueName(h: Hue): string {
-  return isHex(h) ? 'Custom colour' : h.charAt(0).toUpperCase() + h.slice(1);
+  return isHex(h) ? 'Custom colour' : (HUE_NAMES[h] ?? h);
 }

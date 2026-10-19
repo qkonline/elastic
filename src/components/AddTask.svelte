@@ -5,7 +5,9 @@
   import { planner as P } from '../lib/planner.svelte';
   import { clockToDay, fT, hhmm, hm, keyDate, shortDate, weekdayLong } from '../lib/time';
   import { habitDefaults } from '../lib/habits';
+  import { isPartial } from '../lib/schedule';
   import type { Habit, Hue, Kind } from '../lib/types';
+  import { hueColor, untimed } from '../lib/types';
   import { reducedMotion } from '../lib/ui.svelte';
   import Fields from './Fields.svelte';
   import HabitFields from './HabitFields.svelte';
@@ -39,6 +41,27 @@
   const late = $derived(Math.max(P.day.wrap, P.isToday ? P.n : 0));
 
   const ok = $derived(!!title.trim());
+  // A timed task or buffer goes on the end of the day: show the day's strip with it added, and
+  // when the day would then end.
+  const preview = $derived.by(() => {
+    if (P.locked || !timed || kind === 'fixed' || kind === 'habit') return null;
+    const rows = P.sch.rows.filter(
+      (r) => !untimed(r.it.kind) && r.it.status !== 'skipped' && !(r.it.status === 'postponed' && !isPartial(r.it)),
+    );
+    if (!rows.length) return null;
+    const started = P.planDay.dayStarted != null;
+    const segs = rows.flatMap((r) => [
+      ...(started && r.gap >= 1 ? [{ key: r.it.id + '-g', min: r.gap, c: '', gap: true, faded: false }] : []),
+      {
+        key: r.it.id,
+        min: Math.max(1, r.end - r.start),
+        c: r.it.kind === 'buffer' ? 'var(--line)' : hueColor(r.it.hue),
+        gap: false,
+        faded: r.it.status === 'done' || isPartial(r.it),
+      },
+    ]);
+    return { segs, end: Math.max(P.sch.finish, ...rows.map((r) => r.end)) + min };
+  });
   const sel = $derived(hue ?? (kind === 'fixed' ? 'indigo' : kind === 'habit' ? 'lime' : 'cyan'));
   const placeholder = $derived(P.isToday ? 'What else today?' : `What else on ${shortDate(keyDate(P.viewKey))}?`);
   // A habit's fields change a lot with its kind and how often, so its sheet keeps one height.
@@ -143,6 +166,17 @@
         </div>
       </SwitchRow>
     </div>
+    {#if preview}
+      <div class="preview" transition:slide={unfold()}>
+        <div class="pbar" aria-hidden="true">
+          {#each preview.segs as g (g.key)}
+            <span class:gap={g.gap} class:faded={g.faded} style:flex-grow={g.min} style:--c={g.c}></span>
+          {/each}
+          <span class="new" style:flex-grow={min} style:--c={kind === 'buffer' ? 'var(--line)' : hueColor(sel)}></span>
+        </div>
+        <span>Your day would end at <b>{fT(preview.end, P.settings.clock24)}</b>.</span>
+      </div>
+    {/if}
   {/if}
 </div>
 <div class="foot">
@@ -170,7 +204,7 @@
   }
   .h {
     flex: 1;
-    font: 400 20px/1.2 var(--font);
+    font: 600 20px/1.2 var(--font);
     letter-spacing: -0.01em;
   }
   .body {
@@ -188,9 +222,9 @@
     flex-shrink: 0;
   }
   .name {
-    height: 56px;
-    border-radius: 14px;
-    border: 1px solid var(--border);
+    height: 54px;
+    border-radius: var(--r-ctl);
+    border: 1px solid var(--line);
     background: var(--raised);
     padding: 0 18px;
     font: 400 17px/1 var(--font);
@@ -199,8 +233,45 @@
     box-sizing: border-box;
     width: 100%;
   }
+  .name:focus,
   .name:focus-visible {
-    border-color: var(--muted);
+    border: 1.5px solid var(--text);
+  }
+  /* Where the new task lands: the day's strip, with it on the end. */
+  .preview {
+    padding: 12px;
+    border-radius: var(--r-ctl);
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font: 400 13px/1.3 var(--font);
+    color: var(--muted);
+  }
+  .pbar {
+    display: flex;
+    gap: 2px;
+    height: 14px;
+  }
+  .pbar span {
+    flex: 1 1 0;
+    min-width: 2px;
+    border-radius: var(--r-bar);
+    background: var(--c);
+  }
+  .pbar .faded {
+    opacity: 0.4;
+  }
+  .pbar .gap {
+    background: var(--border);
+  }
+  .pbar .new {
+    outline: 2px solid var(--text);
+    outline-offset: 1px;
+  }
+  .preview b {
+    font-weight: 600;
+    color: var(--text);
   }
   .group {
     display: flex;
@@ -223,14 +294,14 @@
   /* Optional properties: one card, a row per switch (SwitchRow). */
   .props {
     border: 1px solid var(--border);
-    border-radius: 14px;
+    border-radius: var(--r-card);
     background: var(--raised);
     overflow: hidden;
   }
   .time {
     height: 40px;
     padding: 0 8px;
-    border-radius: 10px;
+    border-radius: var(--r-ctl);
     border: none;
     background: var(--sunk);
     color: var(--text);
@@ -262,7 +333,7 @@
   .cancel {
     height: 48px;
     padding: 0 14px;
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
     border: none;
     background: transparent;
     color: var(--muted);
@@ -272,7 +343,7 @@
   .add {
     height: 48px;
     padding: 0 22px;
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
     border: none;
     background: var(--sunk);
     color: var(--faint);
@@ -284,8 +355,8 @@
       color 240ms;
   }
   .add.ok {
-    background: #334155;
-    color: #f8fafc;
+    background: var(--text);
+    color: var(--bg);
     cursor: pointer;
   }
 </style>

@@ -123,18 +123,18 @@
   .mark {
     width: 64px;
     height: 64px;
-    border-radius: 16px;
+    border-radius: var(--r-card);
     margin-bottom: 6px;
   }
   h1 {
     margin: 0;
-    font: 400 32px/1.12 var(--font);
+    font: 600 32px/1.12 var(--font);
     letter-spacing: -0.025em;
     text-wrap: balance;
   }
   h2 {
     margin: 0 0 4px;
-    font: 400 24px/1.2 var(--font);
+    font: 600 24px/1.2 var(--font);
     letter-spacing: -0.015em;
     text-wrap: balance;
   }
@@ -167,7 +167,7 @@
   }
   .actions button {
     height: 52px;
-    border-radius: 14px;
+    border-radius: var(--r-card);
     font: 400 16px/1 var(--font);
     cursor: pointer;
   }

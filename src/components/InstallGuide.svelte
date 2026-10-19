@@ -41,7 +41,7 @@
     gap: 6px;
   }
   .h {
-    font: 400 20px/1.2 var(--font);
+    font: 600 20px/1.2 var(--font);
   }
   .note,
   .done {
@@ -109,7 +109,7 @@
   .ok {
     height: 44px;
     padding: 0 20px;
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
     border: none;
     background: var(--text);
     color: var(--bg);

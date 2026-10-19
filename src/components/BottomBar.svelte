@@ -1,40 +1,63 @@
 <script lang="ts">
-  import { planner as P, type Sheet } from '../lib/planner.svelte';
+  import { planner as P, type Screen } from '../lib/planner.svelte';
 
-  // Habits, Goals and Review: the longer view, each opening over the plan. A dot on Review says
-  // a review is waiting.
-  const ITEMS: { type: 'habits' | 'goals' | 'review'; label: string }[] = [
-    { type: 'habits', label: 'Habits' },
-    { type: 'goals', label: 'Goals' },
-    { type: 'review', label: 'Review' },
+  // Today, Habits, Goals and Review are screens of their own; Add task sits raised in the middle.
+  // The screen you're on is an open tab joined to the page above. A dot on Review says a review
+  // is waiting. Tapping Today while on another day of the plan comes back to today.
+  type Tab = 'today' | 'habits' | 'goals' | 'review';
+  const LEFT: [Tab, string][] = [
+    ['today', 'Today'],
+    ['habits', 'Habits'],
   ];
-  const open = (t: Sheet['type']) => P.sheet?.type === t;
+  const RIGHT: [Tab, string][] = [
+    ['goals', 'Goals'],
+    ['review', 'Review'],
+  ];
+  const on = (t: Tab) => P.screen.type === t;
+
+  function go(t: Tab) {
+    if (t === 'today' && P.screen.type === 'today') {
+      if (!P.isToday || P.view !== 'day') {
+        if (P.view !== 'day') P.setView('day');
+        P.backToToday();
+      }
+      return;
+    }
+    P.openScreen({ type: t } as Screen);
+  }
+  const add = () => (P.locked ? P.sayLocked() : P.openSheet({ type: 'add' }));
 </script>
 
-<nav class="bar" aria-label="More">
-  {#each ITEMS as item (item.type)}
-    <button
-      class="item"
-      class:on={open(item.type)}
-      aria-current={open(item.type) ? 'page' : undefined}
-      onclick={() => P.openSheet({ type: item.type })}
-    >
-      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-        {#if item.type === 'habits'}
-          <circle cx="12" cy="12" r="8" class="soft" />
-          <path d="M12 4a8 8 0 0 1 7.6 10.5" />
-        {:else if item.type === 'goals'}
-          <circle cx="12" cy="12" r="8" />
-          <circle cx="12" cy="12" r="4" />
-          <circle cx="12" cy="12" r="0.8" class="dot" />
-        {:else}
-          <path d="M5 19V13M10 19V8M15 19v-4M20 19V5" />
-        {/if}
-      </svg>
-      <span>{item.label}</span>
-      {#if item.type === 'review' && P.dueReview}<i class="due" aria-label="A review is waiting"></i>{/if}
-    </button>
-  {/each}
+{#snippet tab(t: Tab, label: string)}
+  <button class="tab" class:on={on(t)} aria-current={on(t) ? 'page' : undefined} onclick={() => go(t)}>
+    <svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true">
+      {#if t === 'today'}
+        <rect x="3" y="4" width="16" height="15" rx="2" class="a" />
+        <path d="M3 9h16M8 2v4M14 2v4" class="a" />
+        <rect x="7" y="12" width="4" height="4" rx="1" class="fill" />
+      {:else if t === 'habits'}
+        <circle cx="11" cy="11" r="8" class="a soft" />
+        <circle cx="11" cy="11" r="8" class="b arc" />
+      {:else if t === 'goals'}
+        <circle cx="11" cy="11" r="8" class="a" />
+        <circle cx="11" cy="11" r="4" class="a" />
+        <circle cx="11" cy="11" r="1.8" class="fill" />
+      {:else}
+        <path d="M5 18V11M17 18v-9" class="a thick" />
+        <path d="M11 18V5" class="b thick" />
+      {/if}
+    </svg>
+    <span>{label}</span>
+    {#if t === 'review' && P.dueReview}<i class="due" aria-label="A review is waiting"></i>{/if}
+  </button>
+{/snippet}
+
+<nav class="bar" aria-label="Main">
+  {#each LEFT as [t, l] (t)}{@render tab(t, l)}{/each}
+  <button class="add" aria-label="Add task" onclick={add}>
+    <svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true"><path d="M11 4v14M4 11h14" /></svg>
+  </button>
+  {#each RIGHT as [t, l] (t)}{@render tab(t, l)}{/each}
 </nav>
 
 <style>
@@ -45,18 +68,22 @@
     bottom: 0;
     z-index: 5;
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    height: calc(var(--bar-h) + env(safe-area-inset-bottom));
-    padding-bottom: env(safe-area-inset-bottom);
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    align-items: start;
+    height: calc(var(--bar-h) + 20px + env(safe-area-inset-bottom));
+    padding: 6px 8px calc(14px + env(safe-area-inset-bottom));
     box-sizing: border-box;
-    background: color-mix(in oklab, var(--bg) 92%, transparent);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: var(--raised);
     border-top: 1px solid var(--border);
   }
-  .item {
+  .tab {
     position: relative;
+    justify-self: center;
+    width: 66px;
+    height: 52px;
+    padding: 0;
     border: none;
+    border-radius: var(--r-ctl);
     background: transparent;
     color: var(--muted);
     display: flex;
@@ -67,47 +94,100 @@
     font: 400 11px/1 var(--font);
     cursor: pointer;
   }
-  .item.on,
-  .item:hover {
+  /* The screen you're on: an open tab, joined to the page above it. */
+  .tab.on {
+    margin-top: -7px;
+    height: 59px;
+    padding-top: 7px;
+    box-sizing: border-box;
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 10px 10px;
+    background: var(--bg);
+    box-shadow:
+      inset 1px 0 0 var(--tab-in),
+      inset -1px 0 0 var(--tab-in),
+      inset 0 -1px 0 var(--tab-in);
     color: var(--text);
+    font-weight: 600;
   }
-  .item:focus-visible {
+  .tab:focus-visible {
     outline: 2px solid var(--text);
-    outline-offset: -4px;
-    border-radius: 12px;
+    outline-offset: -2px;
   }
   svg {
     fill: none;
-    stroke: currentColor;
-    stroke-width: 1.6;
+    stroke-width: 1.8;
     stroke-linecap: round;
     stroke-linejoin: round;
   }
-  .soft {
-    opacity: 0.35;
+  .a {
+    stroke: var(--accent);
   }
-  .dot {
-    fill: currentColor;
+  .b {
+    stroke: var(--now);
+  }
+  .fill {
+    fill: var(--now);
+    stroke: none;
+  }
+  .soft {
+    stroke-opacity: 0.35;
+  }
+  .arc {
+    stroke-width: 2.4;
+    stroke-dasharray: 34 50.3;
+    transform: rotate(-90deg);
+    transform-origin: 11px 11px;
+  }
+  .thick {
+    stroke-width: 2;
   }
   .due {
     position: absolute;
-    top: 9px;
+    top: 6px;
     left: calc(50% + 9px);
     width: 7px;
     height: 7px;
     border-radius: 50%;
     background: var(--now);
+    box-shadow: 0 0 0 2px var(--raised);
+  }
+  .tab.on .due {
+    top: 13px;
     box-shadow: 0 0 0 2px var(--bg);
+  }
+  /* Add task: raised over the bar's edge, with the soft stripe as its border. */
+  .add {
+    justify-self: center;
+    width: 54px;
+    height: 54px;
+    margin-top: -15px;
+    padding: 0;
+    border: 2px solid transparent;
+    border-radius: 12px;
+    background:
+      linear-gradient(var(--text), var(--text)) padding-box,
+      linear-gradient(135deg, var(--rainbow-stops)) border-box;
+    color: var(--bg);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    box-shadow: 0 8px 16px -6px rgba(0, 0, 0, 0.4);
+  }
+  .add svg {
+    stroke: currentColor;
+    stroke-width: 2;
   }
   @media (min-width: 768px) {
     .bar {
       left: 50%;
       right: auto;
       width: min(780px, 100%);
-      transform: translateX(-50%);
+      translate: -50% 0;
       border-left: 1px solid var(--border);
       border-right: 1px solid var(--border);
-      border-radius: 16px 16px 0 0;
+      border-radius: 14px 14px 0 0;
     }
   }
 </style>

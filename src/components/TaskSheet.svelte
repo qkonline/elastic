@@ -159,7 +159,8 @@
             <div class="ctls">
               <!-- One button that flips, so keyboard focus stays on it. -->
               <button
-                class="ctl primary"
+                class="ctl"
+                class:primary={v.s !== 'running'}
                 aria-label="{v.s === 'running' ? 'Pause' : 'Resume'} {it.title}"
                 onclick={() => (v.s === 'running' ? P.pause(id) : P.resume(id))}
                 ><span class="g">{v.s === 'running' ? '‖' : '▶'}</span>{v.s === 'running' ? 'Pause' : 'Resume'}</button
@@ -389,7 +390,7 @@
   .icon {
     width: 48px;
     height: 48px;
-    border-radius: 14px;
+    border-radius: var(--r-card);
     border: 1px solid var(--border);
     background: var(--raised);
     color: var(--muted);
@@ -416,7 +417,7 @@
     outline: none;
     background: transparent;
     padding: 4px 0;
-    font: 400 21px/1.2 var(--font);
+    font: 600 21px/1.2 var(--font);
     letter-spacing: -0.01em;
     color: var(--text);
   }
@@ -466,7 +467,7 @@
   }
   .timer {
     padding: 16px;
-    border-radius: 16px;
+    border-radius: var(--r-card);
     background: var(--raised);
     display: flex;
     flex-direction: column;
@@ -485,7 +486,7 @@
     gap: 6px;
   }
   .count {
-    font: 300 56px/1 var(--font);
+    font: 500 56px/1 var(--font);
     letter-spacing: -0.03em;
     transition: color 240ms;
   }
@@ -496,19 +497,19 @@
   .badge {
     font: 400 12px/1 var(--font);
     padding: 6px 10px;
-    border-radius: 99px;
+    border-radius: var(--r-sm);
     background: var(--sunk);
     white-space: nowrap;
   }
   .bar {
     height: 6px;
-    border-radius: 9px;
+    border-radius: var(--r-sm);
     background: var(--sunk);
     overflow: hidden;
   }
   .bar div {
     height: 100%;
-    border-radius: 9px;
+    border-radius: var(--r-sm);
     transition: background 240ms;
   }
   .ctls {
@@ -518,7 +519,7 @@
   }
   .card {
     padding: 16px;
-    border-radius: 16px;
+    border-radius: var(--r-card);
     background: var(--raised);
     border: 1px solid var(--border);
     display: flex;
@@ -548,7 +549,7 @@
   /* Timed and Repeats: one card, a row per switch (SwitchRow). */
   .props {
     border: 1px solid var(--border);
-    border-radius: 16px;
+    border-radius: var(--r-card);
     background: var(--raised);
     overflow: hidden;
   }
@@ -573,7 +574,7 @@
   .time {
     height: 40px;
     padding: 0 8px;
-    border-radius: 10px;
+    border-radius: var(--r-ctl);
     border: none;
     background: var(--sunk);
     color: var(--text);
@@ -590,7 +591,7 @@
   .pb {
     height: 44px;
     padding: 0 12px;
-    border-radius: 10px;
+    border-radius: var(--r-ctl);
     border: 1px solid var(--border);
     background: var(--raised);
     color: var(--text);
@@ -671,7 +672,7 @@
   }
   .ctl.post {
     background: transparent;
-    border: 1.5px solid #fb923c;
+    border: 1.5px solid var(--now);
     color: var(--orT);
   }
   .confirm {
@@ -681,7 +682,7 @@
     align-items: center;
     gap: 10px;
     padding: 12px 14px;
-    border-radius: 14px;
+    border-radius: var(--r-card);
     background: rgba(248, 113, 113, 0.1);
     border: 1px solid rgba(248, 113, 113, 0.4);
     position: relative;
@@ -699,7 +700,7 @@
     width: 50px;
     height: 50px;
     flex: none;
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
     border: none;
     background: rgba(248, 113, 113, 0.12);
     color: var(--redT);

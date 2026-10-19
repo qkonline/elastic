@@ -113,7 +113,7 @@
     margin-top: 10px;
     height: 44px;
     padding: 0 12px;
-    border-radius: 10px;
+    border-radius: var(--r-ctl);
     border: none;
     background: var(--sunk);
     color: var(--text);

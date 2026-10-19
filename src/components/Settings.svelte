@@ -8,6 +8,7 @@
   import { FIXED_LEADS, type ShowTimes, type ThemePref } from '../lib/types';
   import DayShape, { describe, type Shape } from './DayShape.svelte';
   import DisarmBar from './DisarmBar.svelte';
+  import ScreenHeader from './ScreenHeader.svelte';
 
   let fileEl: HTMLInputElement | null = $state(null);
   const S = $derived(P.settings);
@@ -57,7 +58,7 @@
     [false, '12-hour'],
   ];
   const TIMES: [ShowTimes, string][] = [
-    ['started', 'Once the day starts'],
+    ['started', 'Once started'],
     ['always', 'Always'],
     ['never', 'Never'],
   ];
@@ -68,70 +69,77 @@
   }
 </script>
 
-<div class="head">
-  <span class="h">Settings</span>
-  <button class="close-x" aria-label="Close" onclick={() => P.closeSheet()}>×</button>
-</div>
+<ScreenHeader title="Settings" back={() => P.leaveSettings()} />
 <div class="body">
-  <section class="card">
-    <span class="ct">Display</span>
-    <div class="setting">
-      <span class="ol">Theme</span>
-      <div class="row">
-        {#each THEMES as [k, l] (k)}
-          <button class="chip" aria-pressed={S.themePref === k} onclick={() => P.setSettings({ themePref: k })}
-            >{l}</button
+  <section class="group" aria-label="Display">
+    <span class="gl">Display</span>
+    <div class="card">
+      <div class="setting">
+        <span class="ol">Theme</span>
+        <div class="segs">
+          {#each THEMES as [k, l] (k)}
+            <button aria-pressed={S.themePref === k} onclick={() => P.setSettings({ themePref: k })}>{l}</button>
+          {/each}
+        </div>
+      </div>
+      <div class="setting">
+        <span class="ol">Clock</span>
+        <div class="segs">
+          {#each CLOCKS as [k, l] (l)}
+            <button aria-pressed={S.clock24 === k} onclick={() => P.setSettings({ clock24: k })}>{l}</button>
+          {/each}
+        </div>
+      </div>
+      <div class="setting">
+        <span class="ol">Show times on the timeline</span>
+        <div class="segs">
+          {#each TIMES as [k, l] (k)}
+            <button aria-pressed={S.showTimes === k} onclick={() => P.setSettings({ showTimes: k })}>{l}</button>
+          {/each}
+        </div>
+      </div>
+      <div class="setting">
+        <span class="ol">Checklist</span>
+        <div class="segs">
+          <button aria-pressed={S.checklistLayout === 'list'} onclick={() => P.setSettings({ checklistLayout: 'list' })}
+            >A list</button
           >
-        {/each}
-      </div>
-    </div>
-    <div class="setting">
-      <span class="ol">Clock</span>
-      <div class="row">
-        {#each CLOCKS as [k, l] (l)}
-          <button class="chip" aria-pressed={S.clock24 === k} onclick={() => P.setSettings({ clock24: k })}>{l}</button>
-        {/each}
-      </div>
-    </div>
-    <div class="setting">
-      <span class="ol">Habits</span>
-      <div class="row">
-        <button
-          class="chip"
-          aria-pressed={S.habitsPlace === 'checklist'}
-          onclick={() => P.setSettings({ habitsPlace: 'checklist' })}>In the Checklist</button
-        >
-        <button
-          class="chip"
-          aria-pressed={S.habitsPlace === 'separate'}
-          onclick={() => P.setSettings({ habitsPlace: 'separate' })}>In a section of their own</button
-        >
-      </div>
-    </div>
-    <div class="setting">
-      <span class="ol">Show times on the timeline</span>
-      <div class="row">
-        {#each TIMES as [k, l] (k)}
-          <button class="chip" aria-pressed={S.showTimes === k} onclick={() => P.setSettings({ showTimes: k })}
-            >{l}</button
+          <button aria-pressed={S.checklistLayout === 'row'} onclick={() => P.setSettings({ checklistLayout: 'row' })}
+            >A row that scrolls</button
           >
-        {/each}
+        </div>
+      </div>
+      <div class="setting">
+        <span class="ol">Habits</span>
+        <div class="segs">
+          <button
+            aria-pressed={S.habitsPlace === 'checklist'}
+            onclick={() => P.setSettings({ habitsPlace: 'checklist' })}>In the Checklist</button
+          >
+          <button aria-pressed={S.habitsPlace === 'separate'} onclick={() => P.setSettings({ habitsPlace: 'separate' })}
+            >Their own section</button
+          >
+        </div>
       </div>
     </div>
   </section>
 
   {#if accountsAvailable() || P.session}
-    <section class="card g12">
-      <span class="ct">Sync across devices</span>
-      <span class="muted">{syncText}</span>
-      <button class="btn-plain self" onclick={() => P.openSheet({ type: 'account' })}
-        >{P.session ? 'Manage' : 'Set up'}</button
-      >
+    <section class="group" aria-label="Sync across devices">
+      <span class="gl">Sync across devices</span>
+      <button class="card link" onclick={() => P.openSheet({ type: 'account' })}>
+        <span class="dot" class:on={!!P.session}></span>
+        <span class="lt">
+          <span class="ct">{P.session ? 'On' : 'Set up'}</span>
+          <span class="muted">{syncText}</span>
+        </span>
+        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M5 3l4 4-4 4" /></svg>
+      </button>
     </section>
   {/if}
 
   {#if install.method}
-    <section class="card g12">
+    <section class="card g12" aria-label="Install">
       <span class="ct">Install Elastic Day</span>
       <span class="muted">
         Add it to your {install.method === 'mac'
@@ -148,9 +156,10 @@
     </section>
   {/if}
 
-  <section class="card g12">
+  <span class="gl">Alerts</span>
+  <section class="card g12" aria-label="Alerts">
     <div class="alert">
-      <div class="at">
+      <div class="aw">
         <span class="ct">Sound</span>
         <span class="muted">Two soft notes when time's up, one before a fixed time. Phones also vibrate.</span>
       </div>
@@ -165,7 +174,7 @@
       >
     </div>
     <div class="alert">
-      <div class="at">
+      <div class="aw">
         <span class="ct">Notifications</span>
         <span class="muted">{notifyText}</span>
       </div>
@@ -195,8 +204,8 @@
     </div>
   </section>
 
-  <section class="card g12">
-    <span class="ct">Weekly review</span>
+  <span class="gl">Weekly review</span>
+  <section class="card g12" aria-label="Weekly review">
     <span class="muted">When your week in review comes up, with a notification if they're on.</span>
     <div class="row">
       {#each ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as d, i (d)}
@@ -216,8 +225,8 @@
     </label>
   </section>
 
-  <section class="card g12">
-    <span class="ct">Your day</span>
+  <span class="gl">Your day</span>
+  <section class="card g12" aria-label="Your day">
     <span class="muted">Used for days you haven't planned yet.</span>
     <div class="setting">
       <span class="ol">Starts</span>
@@ -230,8 +239,8 @@
     <span class="muted">Your day: {describe(shape, S.clock24, fT, dL)}</span>
   </section>
 
-  <section class="card g12">
-    <span class="ct">Your data</span>
+  <span class="gl">Your data</span>
+  <section class="card g12" aria-label="Your data">
     <span class="muted"
       >{P.session ? 'Your plan is kept on this device and in your account.' : 'Everything stays in this browser.'} Back it
       up as a file whenever you like.</span
@@ -279,35 +288,87 @@
 </div>
 
 <style>
-  .head {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 14px 16px;
-  }
-  .h {
-    flex: 1;
-    font: 400 21px/1.2 var(--font);
-    letter-spacing: -0.01em;
-  }
   .body {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    padding: 0 16px calc(28px + env(safe-area-inset-bottom));
+    padding: 14px var(--px) 0;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 8px;
   }
   .body > :global(*) {
     flex-shrink: 0;
   }
-  .card {
-    padding: 16px;
-    border-radius: 16px;
+  .group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .gl {
+    margin: 8px 4px 0;
+    font: 400 13px/1 var(--font);
+    color: var(--muted);
+  }
+  .segs {
+    display: flex;
+    gap: 2px;
+    padding: 3px;
+    border-radius: var(--r-ctl);
+    background: var(--sunk);
+  }
+  .segs button {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 36px;
+    padding: 0 6px;
+    border: none;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--muted);
+    font: 400 14px/1.1 var(--font);
+    cursor: pointer;
+  }
+  .segs button[aria-pressed='true'] {
     background: var(--raised);
-    border: 1px solid var(--border);
+    color: var(--text);
+    font-weight: 500;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  }
+  .link {
+    flex-direction: row !important;
+    align-items: center;
+    gap: 12px !important;
+    text-align: left;
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
+  }
+  .link svg {
+    flex: none;
+    fill: none;
+    stroke: var(--faint);
+    stroke-width: 1.8;
+    stroke-linecap: round;
+  }
+  .lt {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--faint);
+  }
+  .dot.on {
+    background: #22c55e;
+  }
+  .card {
+    padding: 14px;
+    border-radius: var(--r-card);
+    background: var(--raised);
+    border: none;
     display: flex;
     flex-direction: column;
     gap: 14px;
@@ -316,7 +377,7 @@
     gap: 12px;
   }
   .ct {
-    font: 400 15px/1 var(--font);
+    font: 500 15px/1.2 var(--font);
   }
   .setting {
     display: flex;
@@ -343,6 +404,12 @@
     display: flex;
     align-items: center;
     gap: 12px;
+  }
+  .aw {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
   }
   .at {
     flex: 1;
@@ -379,7 +446,7 @@
     height: 40px;
     padding: 0 10px;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--r-ctl);
     background: var(--bg);
     color: var(--text);
     font: 400 15px/1 var(--font);

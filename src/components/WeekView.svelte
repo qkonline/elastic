@@ -1,29 +1,32 @@
 <script lang="ts">
   import { MediaQuery } from 'svelte/reactivity';
-  import { axis, calendarRows, untimedCounts, type CalRow } from '../lib/calendar';
+  import { axis, calendarRows, dayTotals, untimedCounts, type CalRow } from '../lib/calendar';
   import { planner as P } from '../lib/planner.svelte';
-  import { addDays, fT, keyDate, longDate, minutesInto, mondayOf, weekdayShort } from '../lib/time';
+  import { addDays, dL, fT, keyDate, longDate, minutesInto, mondayOf, weekdayShort } from '../lib/time';
   import { hueColor, inkOn } from '../lib/types';
   import AgendaDay from './AgendaDay.svelte';
   import KindMark from './KindMark.svelte';
 
   // The week the anchor day falls in, as a time grid (each task a block at its time, like a
-  // wall planner) or as a list of days. The grid is the default on a computer, the list on a
+  // wall planner) or as strips (each day a strip of its tasks, as long as they take, with the
+  // chosen day's tasks listed below). The grid is the default on a computer, the strips on a
   // phone; the choice is remembered on this device. In the grid, drag a task still to do to
   // another day or time, or tap an empty slot to add a task there.
   const LAYOUT_KEY = 'elastic-day:week-layout';
   const wide = new MediaQuery('(min-width: 768px)', false);
-  function readLayout(): 'grid' | 'list' | null {
+  type Layout = 'grid' | 'strips';
+  function readLayout(): Layout | null {
     try {
       const v = localStorage.getItem(LAYOUT_KEY);
-      return v === 'grid' || v === 'list' ? v : null;
+      // 'list' was the strips' place before they replaced it.
+      return v === 'grid' ? 'grid' : v === 'strips' || v === 'list' ? 'strips' : null;
     } catch {
       return null;
     }
   }
   let chosen = $state(readLayout());
-  const layout = $derived(chosen ?? (wide.current ? 'grid' : 'list'));
-  function pick(l: 'grid' | 'list') {
+  const layout = $derived(chosen ?? (wide.current ? 'grid' : 'strips'));
+  function pick(l: Layout) {
     chosen = l;
     try {
       localStorage.setItem(LAYOUT_KEY, l);
@@ -48,6 +51,26 @@
     }),
   );
   const span = $derived(axis(cols.map((c) => c.rows)));
+
+  // Strips: the chosen day (the anchor until another is tapped), and how tall a minute is so
+  // the longest day fits.
+  let picked = $state<string | null>(null);
+  const sel = $derived(picked && keys.includes(picked) ? picked : P.viewKey);
+  const STRIP_H = 280;
+  const perMin = $derived(
+    STRIP_H /
+      Math.max(
+        480,
+        ...cols.map((c) => c.rows.reduce((s, r) => s + Math.max(0, r.end - r.start), 0) + c.rows.length * 2),
+      ),
+  );
+  const total = (c: (typeof cols)[number]) => {
+    const day = P.days[c.k];
+    if (!day) return '';
+    const t = dayTotals(day, c.n);
+    const m = c.k <= P.today ? t.logged : t.planned;
+    return m >= 1 ? dL(Math.round(m)) : '';
+  };
   const PX = 0.9; // per minute: 54 px an hour
   const height = $derived((span[1] - span[0]) * PX);
   const hours = $derived(Array.from({ length: (span[1] - span[0]) / 60 + 1 }, (_, i) => span[0] + i * 60));
@@ -162,17 +185,44 @@
   <div class="bar">
     <button class="nav" aria-label="Previous week" onclick={() => P.step(-1)}>‹</button>
     <div class="layout" role="group" aria-label="Layout">
+      <button aria-pressed={layout === 'strips'} onclick={() => pick('strips')}>Strips</button>
       <button aria-pressed={layout === 'grid'} onclick={() => pick('grid')}>Grid</button>
-      <button aria-pressed={layout === 'list'} onclick={() => pick('list')}>List</button>
     </div>
     <button class="nav" aria-label="Next week" onclick={() => P.step(1)}>›</button>
   </div>
 
-  {#if layout === 'list'}
-    <div class="list">
-      {#each keys as k (k)}
-        <AgendaDay key={k} />
-      {/each}
+  {#if layout === 'strips'}
+    <div class="strips">
+      <div class="scols" style:--sh="{STRIP_H}px">
+        {#each cols as c (c.k)}
+          <button
+            class="scol"
+            class:sel={c.k === sel}
+            class:today={c.k === P.today}
+            aria-pressed={c.k === sel}
+            aria-label={longDate(c.d)}
+            onclick={() => (c.k === sel ? P.openDay(c.k) : (picked = c.k))}
+          >
+            <span class="stack" aria-hidden="true">
+              {#each c.rows as r (r.it.id)}
+                <i
+                  class="s {r.state} {r.it.kind}"
+                  style:height="{Math.max(3, (r.end - r.start) * perMin)}px"
+                  style:--c={hueColor(r.it.hue)}
+                ></i>
+              {/each}
+            </span>
+            <span class="tot">{total(c)}</span>
+            <span class="dchip">
+              <span class="wd">{weekdayShort(c.d).slice(0, 1)}</span>
+              <span class="dn">{c.d.getDate()}</span>
+            </span>
+          </button>
+        {/each}
+      </div>
+      <div class="pick">
+        <AgendaDay key={sel} />
+      </div>
     </div>
   {:else}
     <div class="grid-wrap" data-no-swipe>
@@ -252,6 +302,88 @@
 {/if}
 
 <style>
+  .strips {
+    padding: 0 var(--px);
+  }
+  .scols {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 6px;
+    padding: 12px 8px 8px;
+    border-radius: var(--r-card);
+    background: var(--raised);
+  }
+  .scol {
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+  }
+  .stack {
+    width: 100%;
+    height: var(--sh);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .s {
+    flex: none;
+    border-radius: var(--r-bar);
+    background: var(--c);
+  }
+  .s.todo {
+    opacity: 0.35;
+  }
+  .s.missed {
+    opacity: 0.35;
+    outline: 1px dashed #eab308;
+    outline-offset: -1px;
+  }
+  .s.buffer {
+    background: transparent;
+    outline: 1px dashed var(--faint);
+    outline-offset: -1px;
+    opacity: 1;
+  }
+  .tot {
+    min-height: 13px;
+    font: 400 11px/1.2 var(--font);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .dchip {
+    width: 100%;
+    height: 44px;
+    border-radius: var(--r-ctl);
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+  }
+  .scol.today .dchip {
+    box-shadow: inset 0 0 0 1.5px var(--text);
+  }
+  .scol.sel .dchip {
+    background: var(--text);
+    color: var(--bg);
+  }
+  .dchip .wd {
+    font: 400 11px/1 var(--font);
+    opacity: 0.75;
+  }
+  .dchip .dn {
+    font: 600 15px/1 var(--font);
+  }
+  .pick {
+    margin-top: 8px;
+  }
   .week {
     padding: 8px var(--px) 120px;
   }
@@ -266,7 +398,7 @@
     width: 44px;
     height: 40px;
     border: none;
-    border-radius: 10px;
+    border-radius: var(--r-ctl);
     background: transparent;
     color: var(--muted);
     font: 400 22px/1 var(--font);
@@ -280,7 +412,7 @@
     display: inline-flex;
     padding: 3px;
     gap: 2px;
-    border-radius: 10px;
+    border-radius: var(--r-ctl);
     background: var(--sunk);
   }
   .layout button {
@@ -303,7 +435,7 @@
   .grid-wrap {
     --gut: 48px;
     overflow-x: auto;
-    border-radius: 16px;
+    border-radius: var(--r-card);
     border: 1px solid var(--border);
     background: var(--raised);
   }
@@ -336,7 +468,7 @@
     color: var(--muted);
   }
   .head .dn {
-    font: 300 20px/1 var(--font);
+    font: 400 20px/1 var(--font);
     font-variant-numeric: tabular-nums;
   }
   .head.today .dn,
@@ -443,7 +575,7 @@
   .blk.running {
     box-shadow:
       0 0 0 2px var(--raised),
-      0 0 0 4px #fb923c;
+      0 0 0 4px var(--now);
   }
   .blk.lifted {
     opacity: 0.25;

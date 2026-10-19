@@ -63,7 +63,7 @@
   .toggle:focus-visible {
     outline: 2px solid var(--text);
     outline-offset: -4px;
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
   }
   .tt {
     flex: 1;

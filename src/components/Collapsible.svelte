@@ -106,9 +106,8 @@
   .sec {
     margin: 14px var(--px) 2px;
     padding: 12px 14px 6px 16px;
-    border-radius: 16px;
+    border-radius: var(--r-card);
     background: var(--raised);
-    border: 1px solid var(--border);
   }
   .head {
     display: flex;

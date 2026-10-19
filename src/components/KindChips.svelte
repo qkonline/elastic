@@ -41,9 +41,9 @@
 </script>
 
 <span class="label">Type</span>
-<div class="kinds">
+<div class="kinds" style:--n={kinds.length}>
   {#each kinds as [k, l] (k)}
-    <button class="chip kind" aria-pressed={kind === k} onclick={() => onpick(k)}>
+    <button class="kind" aria-pressed={kind === k} onclick={() => onpick(k)}>
       <KindMark kind={k} hue={markHue(k)} />{l}
     </button>
   {/each}
@@ -55,15 +55,31 @@
 </div>
 
 <style>
+  /* One tile per type, its mark above its name. */
   .kinds {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(var(--n), minmax(0, 1fr));
     gap: 6px;
-    align-items: center;
   }
   .kind {
-    gap: 8px;
-    padding-left: 12px;
+    height: 64px;
+    padding: 0 4px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-ctl);
+    background: var(--raised);
+    color: var(--muted);
+    font: 400 13px/1.1 var(--font);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    cursor: pointer;
+  }
+  .kind[aria-pressed='true'] {
+    border: 1.5px solid var(--text);
+    color: var(--text);
+    font-weight: 500;
   }
   .hint p {
     margin: 0;

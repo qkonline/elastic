@@ -4,7 +4,7 @@
   // A strip of time sliding under a fixed needle: drag it sideways to move the time the needle
   // points at, a minute at a time, or use the arrow keys. Times that can't be chosen are shaded.
   // The task being corrected shows as its capsule, other tasks on the record faintly, and now as
-  // an orange mark. Used to correct when a task started or finished, and when the day started.
+  // a rose mark. Used to correct when a task started or finished, and when the day started.
   let {
     value,
     range,
@@ -123,7 +123,7 @@
   .ruler {
     position: relative;
     height: 68px;
-    border-radius: 14px;
+    border-radius: var(--r-card);
     background: var(--sunk);
     overflow: hidden;
     cursor: ew-resize;
@@ -164,7 +164,7 @@
     fill: var(--muted);
   }
   .now {
-    stroke: #fb923c;
+    stroke: var(--now);
     stroke-width: 2;
     stroke-linecap: round;
   }

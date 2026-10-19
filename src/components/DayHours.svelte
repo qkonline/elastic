@@ -44,7 +44,7 @@
         range={bounds}
         others={done}
         now={P.isToday ? P.n : null}
-        hue="#fb923c"
+        hue="#f43f5e"
         clock24={P.settings.clock24}
         label="Day started at"
         late={Math.max(P.day.wrap, P.n)}
@@ -72,7 +72,7 @@
     gap: 6px;
   }
   .h {
-    font: 400 20px/1.2 var(--font);
+    font: 600 20px/1.2 var(--font);
   }
   .note {
     font: 400 13px/1.45 var(--font);
@@ -104,7 +104,7 @@
   input {
     height: 44px;
     padding: 0 10px;
-    border-radius: 10px;
+    border-radius: var(--r-ctl);
     border: 1px solid var(--border);
     background: var(--sunk);
     color: var(--text);
@@ -128,7 +128,7 @@
   .cancel,
   .save {
     height: 44px;
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
     font: 400 15px/1 var(--font);
     cursor: pointer;
   }

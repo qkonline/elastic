@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import { cubicOut } from 'svelte/easing';
-  import { MediaQuery } from 'svelte/reactivity';
   import Account from './components/Account.svelte';
   import AddTask from './components/AddTask.svelte';
   import Celebration from './components/Celebration.svelte';
@@ -9,7 +8,7 @@
   import ComingUp from './components/ComingUp.svelte';
   import DayFooter from './components/DayFooter.svelte';
   import DayHours from './components/DayHours.svelte';
-  import DayStatus from './components/DayStatus.svelte';
+  import DayStrip from './components/DayStrip.svelte';
   import EmptyState from './components/EmptyState.svelte';
   import HabitSheet from './components/HabitSheet.svelte';
   import Header from './components/Header.svelte';
@@ -38,9 +37,7 @@
   import { dayGestures, gestures } from './lib/gestures.svelte';
   import { planner as P, type Sheet as SheetState } from './lib/planner.svelte';
   import { untimed } from './lib/types';
-  import { reducedMotion } from './lib/ui.svelte';
-
-  const prefersDark = new MediaQuery('(prefers-color-scheme: dark)', false);
+  import { prefersDark, reducedMotion } from './lib/ui.svelte';
 
   // Changing day is a slideshow: the day on screen slides out one way while the next slides in
   // right behind it, edge to edge. A later day comes in from the right, an earlier one from the
@@ -106,7 +103,7 @@
     if (P.settings.themePref === 'match') delete root.dataset.theme;
     else root.dataset.theme = P.settings.themePref;
     for (const m of document.querySelectorAll('meta[name="theme-color"]')) {
-      m.setAttribute('content', theme === 'dark' ? '#0e1014' : '#f6f7f9');
+      m.setAttribute('content', theme === 'dark' ? '#0f1115' : '#f4f5f7');
       m.removeAttribute('media');
     }
   });
@@ -122,13 +119,9 @@
     task: 'Edit task',
     hours: 'Day hours',
     add: 'New task',
-    settings: 'Settings',
     install: 'Install',
     wrapup: 'End your day',
     account: 'Sync across devices',
-    habits: 'Habits',
-    goals: 'Goals',
-    review: 'Review',
     reorder: 'Later days',
   } as const;
 </script>
@@ -147,64 +140,68 @@
 {:else if P.ready}
   <!-- inert: while a sheet or the welcome is open, keyboard and screen readers stay inside it. -->
   <div class="page" inert={covered} {@attach dayGestures(P)}>
-    <Header />
-    {#if P.view === 'day'}
-      <WeekStrip />
-      <StartDay />
-    {/if}
-    <RunningElsewhere />
-    <ComingUp />
-    <NotifyPrompt />
-    <ReviewDue />
-    <main
-      class:settling={!gestures.dragging}
-      style:transform={gestures.pull ? `translateY(${gestures.pull * 0.6}px)` : undefined}
-    >
-      {#key shownAt}
-        <div
-          class="day"
-          class:settling={!gestures.dragging}
-          style:transform={gestures.dx ? `translateX(${gestures.dx}px)` : undefined}
-          in:dayIn
-          out:dayOut
-        >
-          {#if P.view === 'week'}
-            <WeekView />
-          {:else if P.view === 'month'}
-            <MonthView />
-          {:else if P.day.items.length === 0}
-            <EmptyState />
-          {:else}
-            <DayStatus />
-            {#if P.settings.habitsPlace === 'separate'}
-              <Checklist mode="habits" />
-              <Checklist mode="checks" />
+    {#if P.screen.type === 'habits'}
+      <HabitsScreen />
+    {:else if P.screen.type === 'goals'}
+      {#key P.screen.quarter}<Goals start={P.screen.quarter} />{/key}
+    {:else if P.screen.type === 'review'}
+      {#key P.screen.id}<Review id={P.screen.id} />{/key}
+    {:else if P.screen.type === 'settings'}
+      <Settings />
+    {:else}
+      <Header />
+      {#if P.view === 'day'}
+        <WeekStrip />
+        <StartDay />
+      {/if}
+      <RunningElsewhere />
+      <ComingUp />
+      <NotifyPrompt />
+      <ReviewDue />
+      <main
+        class:settling={!gestures.dragging}
+        style:transform={gestures.pull ? `translateY(${gestures.pull * 0.6}px)` : undefined}
+      >
+        {#key shownAt}
+          <div
+            class="day"
+            class:settling={!gestures.dragging}
+            style:transform={gestures.dx ? `translateX(${gestures.dx}px)` : undefined}
+            in:dayIn
+            out:dayOut
+          >
+            {#if P.view === 'week'}
+              <WeekView />
+            {:else if P.view === 'month'}
+              <MonthView />
+            {:else if P.day.items.length === 0}
+              <EmptyState />
             {:else}
-              <Checklist mode="both" />
+              <!-- Before Start my day the plan is dimmed, but stays editable. -->
+              <div class="plan" class:waiting={P.startPending}>
+                <DayStrip />
+                {#if P.settings.habitsPlace === 'separate'}
+                  <Checklist mode="habits" />
+                  <Checklist mode="checks" />
+                {:else}
+                  <Checklist mode="both" />
+                {/if}
+                {#if timed}<Timeline />{/if}
+              </div>
             {/if}
-            {#if timed}<Timeline />{/if}
-          {/if}
-          {#if P.view === 'day'}<DayFooter />{/if}
-        </div>
-      {/key}
-    </main>
+            {#if P.view === 'day'}<DayFooter />{/if}
+          </div>
+        {/key}
+      </main>
+    {/if}
   </div>
   <PullIndicator />
   <StartFirst />
 
-  <BottomBar />
-
-  <button
-    class="fab"
-    aria-label="Add task"
-    inert={covered}
-    onclick={() => (P.locked ? P.sayLocked() : P.openSheet({ type: 'add' }))}
-  >
-    <span class="plus">+</span><span>Add task</span>
-  </button>
+  <div inert={covered}><BottomBar /></div>
 
   {#if P.sheet && shownSheet}
-    {#key shownSheet.type === 'task' ? 'task-' + shownSheet.id : shownSheet.type === 'review' ? 'review-' + (shownSheet.id ?? '') : shownSheet.type}
+    {#key shownSheet.type === 'task' ? 'task-' + shownSheet.id : shownSheet.type}
       <Sheet
         variant={shownSheet.type === 'add'
           ? 'form'
@@ -230,16 +227,8 @@
           <WrapUp />
         {:else if shownSheet.type === 'reorder'}
           <ReorderAsk id={shownSheet.id} anchor={shownSheet.anchor} dir={shownSheet.dir} />
-        {:else if shownSheet.type === 'account'}
-          <Account />
-        {:else if shownSheet.type === 'habits'}
-          <HabitsScreen />
-        {:else if shownSheet.type === 'goals'}
-          <Goals start={shownSheet.quarter} />
-        {:else if shownSheet.type === 'review'}
-          <Review id={shownSheet.id} />
         {:else}
-          <Settings />
+          <Account />
         {/if}
       </Sheet>
     {/key}
@@ -278,7 +267,7 @@
     /* Fill the screen even when the day is short, so a swipe anywhere changes day. */
     min-height: 100dvh;
     margin: 0 auto;
-    padding: 0 0 calc(96px + var(--bar-h) + env(safe-area-inset-bottom));
+    padding: 0 0 calc(56px + var(--bar-h) + env(safe-area-inset-bottom));
     box-sizing: border-box;
   }
   @media (min-width: 768px) {
@@ -286,37 +275,17 @@
       max-width: 780px;
     }
   }
-  .fab {
-    position: fixed;
-    right: 20px;
-    bottom: calc(var(--bar-h) + 16px + env(safe-area-inset-bottom));
-    z-index: 5;
-    height: 52px;
-    padding: 0 22px 0 18px;
-    border-radius: 999px;
-    border: 2.5px solid transparent;
-    background:
-      linear-gradient(#334155, #334155) padding-box,
-      conic-gradient(from 200deg, #fb923c, #fde047, #a3e635, #22d3ee, #818cf8, #fb923c) border-box;
-    color: #f8fafc;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font: 400 15px/1 var(--font);
-    box-shadow:
-      0 10px 28px -8px rgba(15, 23, 42, 0.45),
-      0 2px 6px rgba(15, 23, 42, 0.18);
-    cursor: pointer;
+  .plan.waiting {
+    opacity: 0.6;
+    filter: saturate(0.35);
+    transition:
+      opacity 400ms ease,
+      filter 400ms ease;
   }
-  @media (min-width: 768px) {
-    .fab {
-      right: max(28px, calc((100% - 780px) / 2 + 20px));
-      bottom: calc(var(--bar-h) + 20px);
-    }
-  }
-  .plus {
-    font: 300 26px/1 var(--font);
-    margin-top: -3px;
+  .plan {
+    transition:
+      opacity 400ms ease,
+      filter 400ms ease;
   }
   .failed {
     max-width: 480px;

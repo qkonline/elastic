@@ -11,7 +11,7 @@
   // New task modal and the task sheet.
   import { untrack } from 'svelte';
   import { dL } from '../lib/time';
-  import { HUES, isHex, type Hue } from '../lib/types';
+  import { HUES, hueName, isHex, type Hue } from '../lib/types';
 
   let {
     field,
@@ -111,7 +111,7 @@
   <div class="colour">
     <span class="label">Colour</span>
     {#each Object.entries(HUES) as [k, col] (k)}
-      <button class="sw" aria-label={k} aria-pressed={hue === k} onclick={() => onHue?.(k as Hue)}>
+      <button class="sw" aria-label={hueName(k as Hue)} aria-pressed={hue === k} onclick={() => onHue?.(k as Hue)}>
         <span
           style:background={col}
           style:box-shadow={hue === k ? `0 0 0 2px ${ringBg}, 0 0 0 4px var(--text)` : 'none'}
@@ -178,7 +178,7 @@
     min-width: 96px;
     padding: 0 34px 0 14px;
     border: none;
-    border-radius: 10px;
+    border-radius: var(--r-ctl);
     background: var(--sunk);
     color: var(--text);
     font: 400 15px/1 var(--font);
@@ -207,7 +207,7 @@
   .sw span {
     width: 28px;
     height: 28px;
-    border-radius: 99px;
+    border-radius: var(--r-sm);
   }
   .sw:has(input) {
     position: relative;
@@ -215,13 +215,13 @@
   /* A wheel of the five task colours; once a colour is picked it fills the middle. */
   .wheel {
     box-sizing: border-box;
-    background: conic-gradient(#fb923c, #fde047, #a3e635, #22d3ee, #818cf8, #fb923c);
+    background: conic-gradient(var(--hue-stops));
   }
   .wheel.set {
     border: 3px solid transparent;
     background:
       linear-gradient(var(--pick), var(--pick)) padding-box,
-      conic-gradient(#fb923c, #fde047, #a3e635, #22d3ee, #818cf8, #fb923c) border-box;
+      conic-gradient(var(--hue-stops)) border-box;
   }
   input[type='color'] {
     position: absolute;

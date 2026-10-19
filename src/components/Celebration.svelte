@@ -1,7 +1,7 @@
 <script lang="ts" module>
   /** The day's colours (Start my day) and the evening's (End my day). */
-  export const DAY = ['#fb923c', '#fde047', '#a3e635', '#22d3ee', '#818cf8'];
-  export const DUSK = ['#fdba74', '#fb7185', '#e879f9', '#a78bfa', '#60a5fa'];
+  export const DAY = ['#818cf8', '#a78bfa', '#c084fc', '#f472b6', '#f43f5e'];
+  export const DUSK = ['#a78bfa', '#c084fc', '#e879f9', '#fb7185', '#818cf8'];
 </script>
 
 <script lang="ts">
@@ -123,7 +123,7 @@
     background: radial-gradient(
       closest-side,
       rgba(253, 224, 71, 0.55),
-      rgba(251, 146, 60, 0.32) 38%,
+      rgba(244, 63, 94, 0.28) 38%,
       rgba(34, 211, 238, 0.12) 66%,
       transparent
     );
@@ -155,7 +155,7 @@
     margin-top: -6vh;
   }
   .big {
-    font: 300 56px/1 var(--font);
+    font: 600 56px/1 var(--font);
     letter-spacing: -0.035em;
     color: var(--text);
   }
@@ -170,7 +170,7 @@
     width: 168px;
     height: 5px;
     border-radius: 99px;
-    background: linear-gradient(90deg, #fb923c, #fde047, #a3e635, #22d3ee, #818cf8);
+    background: linear-gradient(90deg, var(--rainbow-stops));
     transform-origin: left;
     animation: draw 760ms cubic-bezier(0.6, 0, 0.2, 1) 300ms both;
   }

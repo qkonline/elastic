@@ -247,7 +247,7 @@
     align-items: center;
     height: 44px;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
     background: var(--raised);
     overflow: hidden;
   }
@@ -257,7 +257,7 @@
     border: none;
     background: transparent;
     color: var(--text);
-    font: 300 20px/1 var(--font);
+    font: 400 20px/1 var(--font);
     cursor: pointer;
   }
   .stepper button:disabled {
@@ -290,7 +290,7 @@
     height: 44px;
     padding: 0 12px;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
     background: var(--raised);
     color: var(--text);
     font: 400 15px/1 var(--font);
@@ -322,7 +322,7 @@
   }
   .props {
     border: 1px solid var(--border);
-    border-radius: 16px;
+    border-radius: var(--r-card);
     background: var(--raised);
     overflow: hidden;
   }
@@ -330,7 +330,7 @@
     height: 44px;
     padding: 0 12px;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
     background: var(--raised);
     color: var(--text);
     font: 400 16px/1 var(--font);

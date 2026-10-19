@@ -39,7 +39,7 @@
 <style>
   .panel {
     padding: 14px;
-    border-radius: 14px;
+    border-radius: var(--r-card);
     background: var(--sunk);
     border: 1px solid var(--border);
     display: flex;
@@ -62,10 +62,10 @@
   .now {
     height: 48px;
     padding: 0 14px;
-    border-radius: 12px;
-    background: #334155;
-    color: #f8fafc;
-    border: 1px solid #334155;
+    border-radius: var(--r-ctl);
+    background: var(--text);
+    color: var(--bg);
+    border: 1px solid var(--text);
     font: 400 15px/1.2 var(--font);
     cursor: pointer;
   }
@@ -90,7 +90,7 @@
     min-width: 0;
     height: 44px;
     padding: 0 10px;
-    border-radius: 10px;
+    border-radius: var(--r-ctl);
     border: 1px solid var(--border);
     background: var(--raised);
     color: var(--text);
@@ -103,7 +103,7 @@
   .b {
     height: 44px;
     padding: 0 16px;
-    border-radius: 10px;
+    border-radius: var(--r-ctl);
     border: 1px solid var(--border);
     background: var(--raised);
     color: var(--text);

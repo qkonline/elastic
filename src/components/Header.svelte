@@ -1,9 +1,10 @@
 <script lang="ts">
   import { planner as P, type View } from '../lib/planner.svelte';
   import { addDays, dayDiff, keyDate, mondayOf, monthShort, shortDate, weekdayLong } from '../lib/time';
+  import ScreenHeader from './ScreenHeader.svelte';
 
   // The title says what's on screen: the day, the week or the month. Day, Week and Month switch
-  // between them, beside the title on a computer and on a row of their own on a phone.
+  // between them, beside the title.
   const vDate = $derived(keyDate(P.viewKey));
   const diff = $derived(dayDiff(P.today, P.viewKey));
   const monthName = (d: Date) => d.toLocaleDateString('en-GB', { month: 'long' });
@@ -59,113 +60,61 @@
   ];
 </script>
 
-<header class="header">
-  <div class="left">
-    <div class="small">{heading.small}</div>
-    <h1 class="title">{heading.title}</h1>
-  </div>
-  {#if away}
-    <!-- The dot is the timeline's "now" marker: this takes you back to now. -->
-    <button class="today" onclick={() => P.backToToday()}><span class="now"></span>Back to today</button>
-  {/if}
+<ScreenHeader small={heading.small} title={heading.title}>
+  {#snippet aside()}
+    {#if away}
+      <!-- The dot is the timeline's "now" marker: this takes you back to now. -->
+      <button class="today" onclick={() => P.backToToday()}><span class="now"></span>Back to today</button>
+    {/if}
+  {/snippet}
   <div class="views" role="tablist" aria-label="Show">
     {#each VIEWS as [v, l] (v)}
       <button role="tab" class="seg" aria-selected={P.view === v} onclick={() => P.setView(v)}>{l}</button>
     {/each}
   </div>
-  <button class="settings" aria-label="Settings" onclick={() => P.openSheet({ type: 'settings' })}>
-    <span class="hex"><span class="hex-in"><span class="ring"></span></span></span>
-  </button>
-</header>
+</ScreenHeader>
 
 <style>
-  .header {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    grid-template-areas:
-      'left today settings'
-      'views views views';
-    align-items: center;
-    column-gap: 10px;
-    height: calc(var(--header-h) + env(safe-area-inset-top));
-    padding: env(safe-area-inset-top) var(--px) 0;
-    box-sizing: border-box;
-    position: sticky;
-    top: 0;
-    z-index: 4;
-    background: var(--bg);
-    box-shadow: 0 1px 0 var(--border);
-  }
-  .left {
-    grid-area: left;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .small {
-    font: 400 13px/16px var(--font);
-    height: 16px;
-    color: var(--muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
   .today {
-    grid-area: today;
-    height: 40px;
-    padding: 0 16px 0 14px;
-    border-radius: 999px;
+    flex: none;
+    height: 32px;
+    padding: 0 12px 0 10px;
+    border-radius: var(--r-ctl);
     border: 1px solid var(--border);
     background: var(--raised);
     color: var(--text);
-    font: 400 15px/1 var(--font);
+    font: 500 13px/1 var(--font);
     display: flex;
     align-items: center;
-    gap: 9px;
+    gap: 8px;
     cursor: pointer;
-    flex: none;
-    transition:
-      border-color 240ms,
-      background 240ms;
   }
   .now {
-    width: 8px;
-    height: 8px;
+    width: 7px;
+    height: 7px;
     border-radius: 99px;
     background: var(--now);
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--now) 22%, transparent);
   }
   @media (hover: hover) {
     .today:hover {
-      border-color: var(--line);
       background: var(--sunk);
     }
   }
-  .title {
-    margin: 0;
-    font: 400 26px/1.05 var(--font);
-    letter-spacing: -0.02em;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
   /* Day, Week, Month: one track, the chosen one raised on it. */
   .views {
-    grid-area: views;
-    justify-self: stretch;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    flex: none;
+    display: flex;
     gap: 2px;
     padding: 3px;
-    margin-bottom: 8px;
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
     background: var(--sunk);
   }
   .seg {
-    height: 30px;
+    height: 34px;
+    padding: 0 11px;
     border: none;
-    border-radius: 9px;
+    border-radius: var(--r-sm);
     background: transparent;
     color: var(--muted);
     font: 400 14px/1 var(--font);
@@ -177,58 +126,8 @@
   .seg[aria-selected='true'] {
     background: var(--raised);
     color: var(--text);
-    box-shadow:
-      0 0 0 1px var(--border),
-      0 1px 2px rgba(0, 0, 0, 0.06);
-  }
-  .settings {
-    grid-area: settings;
-    width: 44px;
-    height: 44px;
-    border-radius: 14px;
-    border: none;
-    background: transparent;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    flex: none;
-  }
-  .hex,
-  .hex-in {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0 50%);
-  }
-  .hex {
-    width: 22px;
-    height: 22px;
-    background: #818cf8;
-  }
-  .hex-in {
-    width: 17px;
-    height: 17px;
-    background: var(--bg);
-  }
-  @media (hover: hover) {
-    .settings:hover {
-      background: var(--sunk);
-    }
-    .settings:hover .hex-in {
-      background: var(--sunk);
-    }
-  }
-  /* A computer: everything on one row. */
-  @media (min-width: 768px) {
-    .header {
-      grid-template-columns: minmax(0, 1fr) auto auto auto;
-      grid-template-areas: 'left today views settings';
-    }
-    .views {
-      width: 240px;
-      margin: 0;
-    }
+    font-weight: 500;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
   }
   @media (prefers-reduced-motion: reduce) {
     .seg {

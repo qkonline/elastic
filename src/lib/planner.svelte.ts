@@ -51,17 +51,21 @@ import { DEFAULT_SETTINGS, untimed } from './types';
 export type Celebration =
   { kind: 'start'; at: number; first: string | null } | { kind: 'end'; stats: DayStats; moved: number };
 
+/** What fills the page: the plan (Today), or one of the screens the bottom bar and Settings open. */
+export type Screen =
+  | { type: 'today' }
+  | { type: 'habits' }
+  | { type: 'goals'; quarter?: string }
+  | { type: 'review'; id?: string }
+  | { type: 'settings' };
+/** What opens over the page. */
 export type Sheet =
   | { type: 'task'; id: string }
-  | { type: 'settings' }
   | { type: 'hours' }
   | { type: 'add'; at?: number; kind?: Kind }
   | { type: 'install' }
   | { type: 'wrapup' }
   | { type: 'account' }
-  | { type: 'habits' }
-  | { type: 'goals'; quarter?: string }
-  | { type: 'review'; id?: string }
   | { type: 'reorder'; id: string; anchor: string; dir: 'up' | 'down' };
 export type ConfirmType =
   'postpone' | 'delete' | 'clear' | 'erase' | 'sample' | 'finish' | 'signout' | 'unaccount' | 'goal';
@@ -81,9 +85,9 @@ export interface Drag {
   id: string;
   /** Index the task would be dropped before (null until the finger has moved). */
   over: number | null;
-  /** How far the lifted task has moved from its place (px). */
+  /** How far the lifted task has moved from its place, along the drag (px). */
   dy: number;
-  /** Height of the lifted task's row: the gap the other rows open for it (px). */
+  /** Size of the lifted task's row along the drag: the gap the other rows open for it (px). */
   h: number;
 }
 
@@ -166,6 +170,9 @@ export class Planner {
   clock = $state(Date.now());
 
   sheet = $state<Sheet | null>(null);
+  screen = $state<Screen>({ type: 'today' });
+  /** Where Settings goes back to. */
+  private screenBefore: Screen = { type: 'today' };
   confirm = $state<Confirm | null>(null);
   resched = $state<Resched | null>(null);
   drag = $state<Drag | null>(null);
@@ -208,6 +215,18 @@ export class Planner {
    */
   planDay: Day = $derived(this.planOf(this.day));
   sch = $derived(schedule(this.planDay, this.n));
+  /** Clock times on the plan: always on other days; on Today as the setting says. */
+  timesShown = $derived(
+    !this.isToday ||
+      this.settings.showTimes === 'always' ||
+      (this.settings.showTimes === 'started' && this.day.dayStarted != null),
+  );
+  /** Today still waits for Start my day (anything left to do but buffers, checks included). */
+  startPending = $derived(
+    this.isToday &&
+      this.day.dayStarted == null &&
+      this.day.items.some((i) => i.status === 'todo' && i.kind !== 'buffer'),
+  );
   /** First visit: show the welcome until it's been completed or skipped. */
   showWelcome = $derived(this.ready && !this.settings.onboarded);
   celebrate = $state<Celebration | null>(null);
@@ -365,6 +384,7 @@ export class Planner {
   private updateIfQuiet(): void {
     if (!this.updateReady || this.reloading) return;
     if (this.sheet || this.drag || this.confirm || this.resched || this.celebrate || this.showWelcome) return;
+    if (this.screen.type === 'settings') return;
     this.reloading = true;
     void this.flush().then(reloadToUpdate);
   }
@@ -856,6 +876,24 @@ export class Planner {
   shiftWeek(d: -1 | 1): void {
     this.weekOff += d;
     void this.loadWeek();
+  }
+
+  /** Show a screen in place of the plan (closing anything open over it). */
+  openScreen(s: Screen): void {
+    this.fixBlankTitle();
+    this.sheet = null;
+    this.confirm = null;
+    this.nudge = null;
+    this.importMsg = null;
+    this.drag = null;
+    if (s.type === 'settings' && this.screen.type !== 'settings') this.screenBefore = this.screen;
+    this.screen = s;
+    if (typeof window !== 'undefined') window.scrollTo(0, 0);
+  }
+
+  /** Back from Settings to the screen it was opened from. */
+  leaveSettings(): void {
+    this.openScreen(this.screenBefore.type === 'settings' ? { type: 'today' } : this.screenBefore);
   }
 
   openSheet(s: Sheet): void {

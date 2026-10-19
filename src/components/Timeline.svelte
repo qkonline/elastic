@@ -69,19 +69,22 @@
     min-height: 30px;
     align-items: center;
   }
+  /* Idle time: a hatched stretch of the colour bar. */
   .gline {
     align-self: stretch;
     display: flex;
     justify-content: center;
+    padding: 2px 0;
   }
   .gline span {
-    border-left: 2px dotted var(--faint);
-    opacity: 0.7;
+    width: 8px;
+    border-radius: var(--r-bar);
+    background: repeating-linear-gradient(135deg, var(--line) 0 3px, transparent 3px 6px);
   }
   .gtext {
-    font: 400 12px/1 var(--font);
-    color: var(--faint);
-    padding-left: 12px;
+    font: 400 13px/1 var(--font);
+    color: var(--muted);
+    padding-left: 10px;
   }
   .gtext span {
     color: var(--orT);

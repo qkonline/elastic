@@ -216,7 +216,7 @@
   }
   .h {
     flex: 1;
-    font: 400 21px/1.2 var(--font);
+    font: 600 21px/1.2 var(--font);
     letter-spacing: -0.01em;
   }
   .body {
@@ -234,7 +234,7 @@
   }
   .card {
     padding: 16px;
-    border-radius: 16px;
+    border-radius: var(--r-card);
     background: var(--raised);
     border: 1px solid var(--border);
     display: flex;
@@ -288,7 +288,7 @@
     min-width: 0;
     height: 40px;
     padding: 0 12px;
-    border-radius: 10px;
+    border-radius: var(--r-ctl);
     border: 1px solid var(--border);
     background: var(--bg);
     color: var(--text);

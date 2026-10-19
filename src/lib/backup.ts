@@ -174,6 +174,7 @@ export function normalizeSettings(raw: unknown): Settings {
     // A backup comes from someone who has used the app, so don't show them the welcome again.
     onboarded: true,
     habitsPlace: r.habitsPlace === 'separate' ? 'separate' : 'checklist',
+    checklistLayout: r.checklistLayout === 'row' ? 'row' : 'list',
     reviewDay:
       Number.isInteger(r.reviewDay) && (r.reviewDay as number) >= 0 && (r.reviewDay as number) <= 6
         ? (r.reviewDay as number)

@@ -23,7 +23,7 @@
   .heads-up {
     margin: 10px var(--px) 0;
     padding: 6px 6px 6px 16px;
-    border-radius: 16px;
+    border-radius: var(--r-card);
     background: color-mix(in oklab, var(--hue) 12%, transparent);
     box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--hue) 60%, transparent);
     display: flex;

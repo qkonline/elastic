@@ -30,7 +30,7 @@
     gap: 6px;
   }
   .h {
-    font: 400 21px/1.2 var(--font);
+    font: 600 21px/1.2 var(--font);
     letter-spacing: -0.01em;
   }
   .note {
@@ -46,7 +46,7 @@
   .foot button {
     flex: 1;
     height: 50px;
-    border-radius: 14px;
+    border-radius: var(--r-card);
     font: 400 15px/1 var(--font);
     cursor: pointer;
   }

@@ -206,7 +206,7 @@
   .icon {
     width: 48px;
     height: 48px;
-    border-radius: 14px;
+    border-radius: var(--r-card);
     border: 1px solid var(--border);
     background: var(--raised);
     display: flex;
@@ -232,7 +232,7 @@
     outline: none;
     background: transparent;
     padding: 4px 0;
-    font: 400 21px/1.2 var(--font);
+    font: 600 21px/1.2 var(--font);
     letter-spacing: -0.01em;
     color: var(--text);
   }
@@ -264,7 +264,7 @@
   }
   .card {
     padding: 16px;
-    border-radius: 16px;
+    border-radius: var(--r-card);
     background: var(--raised);
     border: 1px solid var(--border);
     display: flex;
@@ -298,7 +298,7 @@
   .pill {
     height: 44px;
     padding: 0 16px;
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
     border: 1px solid var(--border);
     background: var(--raised);
     color: var(--text);
@@ -308,7 +308,7 @@
   .pill.sq {
     width: 44px;
     padding: 0;
-    font: 300 20px/1 var(--font);
+    font: 400 20px/1 var(--font);
   }
   .pill.pri {
     border-color: var(--text);
@@ -324,7 +324,7 @@
   }
   .props {
     border: 1px solid var(--border);
-    border-radius: 16px;
+    border-radius: var(--r-card);
     overflow: hidden;
   }
   .row {
@@ -369,7 +369,7 @@
     align-items: center;
     gap: 10px;
     padding: 12px 14px;
-    border-radius: 14px;
+    border-radius: var(--r-card);
     background: rgba(248, 113, 113, 0.1);
     border: 1px solid rgba(248, 113, 113, 0.4);
     position: relative;
@@ -386,7 +386,7 @@
     width: 50px;
     height: 50px;
     flex: none;
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
     border: none;
     background: rgba(248, 113, 113, 0.12);
     color: var(--redT);

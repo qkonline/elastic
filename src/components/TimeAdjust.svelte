@@ -61,7 +61,7 @@
     flex: none;
     padding: 0 14px;
     height: 44px;
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
     border: 1px solid var(--border);
     background: var(--raised);
     color: var(--text);
@@ -77,7 +77,7 @@
     min-width: 0;
     height: 44px;
     padding: 0 8px;
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
     border: none;
     background: var(--sunk);
     color: var(--text);

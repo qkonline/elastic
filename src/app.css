@@ -1,93 +1,114 @@
-@import '@fontsource/geist-sans/300.css';
-@import '@fontsource/geist-sans/400.css';
+@import '@fontsource/instrument-sans/400.css';
+@import '@fontsource/instrument-sans/500.css';
+@import '@fontsource/instrument-sans/600.css';
+@import '@fontsource/space-grotesk/600.css';
 
 /* Theme tokens. Light by default; dark follows the device unless the user picked a theme
    (index.html sets data-theme before first paint). */
 :root {
-  --bg: #f6f7f9;
+  --bg: #f4f5f7;
   --raised: #ffffff;
   --sunk: #eceef2;
-  --border: #e2e5ea;
-  --line: #d8dce3;
+  --border: #e3e5ea;
+  --line: #dadde3;
   --text: #16181d;
-  --muted: #6b7280;
-  --faint: #9aa1ac;
-  --orT: #c2410c;
+  --muted: #5b6170;
+  --faint: #8a909c;
+  --orT: #be123c;
   --grT: #15803d;
   --redT: #dc2626;
   --yelT: #854d0e;
-  --scrim: rgba(22, 24, 29, 0.34);
+  --scrim: rgba(22, 24, 29, 0.38);
   --pfill: rgba(107, 114, 128, 0.24);
-  --now: #f97316;
-  --nowT: #c2410c;
+  --now: #f43f5e;
+  --nowT: #be123c;
+  --accent: #6366f1;
+  /* The inner edge of the open tab for the screen you're on. */
+  --tab-in: #e4e6eb;
+  /* Stripes along the top of Start my day and around Add task (soft), and End my day (evening).
+     Used as linear-gradient(90deg, var(--rainbow-stops)). */
+  --rainbow-stops: #818cf8, #a78bfa, #c084fc, #f472b6, #f43f5e;
+  --evening-stops: #4338ca, #6d28d9, #a21caf, #be123c, #881337;
+  /* The five task colours, for the custom-colour wheel. */
+  --hue-stops: #f43f5e, #facc15, #84cc16, #22d3ee, #818cf8, #f43f5e;
   color-scheme: light;
 
   /* Layout (phone). */
+  /* The plan's columns: times, colour bar, then the task, then its button. */
   --tc: 46px;
-  --sc: 44px;
-  --ac: 78px;
-  --cw: 40px;
+  --sc: 22px;
+  --ac: 84px;
   --px: 16px;
   --btn: 44px;
-  /* Two rows on a phone: the title, then Day / Week / Month. */
-  --header-h: 106px;
-  /* The bar at the bottom: Habits, Goals, Review. */
-  --bar-h: 58px;
+  /* Two rows: the date with the theme and Settings buttons, then the title. */
+  --header-h: 104px;
+  /* The bar at the bottom: Today, Habits, Add task, Goals, Review. */
+  --bar-h: 64px;
 
-  --font: 'Geist Sans', 'Geist', system-ui, -apple-system, sans-serif;
+  /* Corners: cards, controls (buttons, chips, fields), small marks, colour bars. */
+  --r-card: 10px;
+  --r-ctl: 8px;
+  --r-sm: 6px;
+  --r-bar: 2px;
+
+  --font: 'Instrument Sans', system-ui, -apple-system, sans-serif;
+  /* Only the two big day buttons (Start my day, End my day), in capitals. */
+  --font-display: 'Space Grotesk', 'Instrument Sans', system-ui, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --bg: #0e1014;
-    --raised: #1a1d24;
-    --sunk: #15181e;
-    --border: #262a33;
-    --line: #2b303a;
-    --text: #f2f3f5;
-    --muted: #8d95a3;
-    --faint: #626b7a;
-    --orT: #fb923c;
+    --bg: #0f1115;
+    --raised: #181b21;
+    --sunk: #22262d;
+    --border: #2a2e36;
+    --line: #343943;
+    --text: #eceef2;
+    --muted: #9aa1ae;
+    --faint: #6e7480;
+    --orT: #fda4af;
     --grT: #4ade80;
     --redT: #f87171;
     --yelT: #fde047;
-    --scrim: rgba(0, 0, 0, 0.55);
+    --scrim: rgba(0, 0, 0, 0.6);
     --pfill: rgba(141, 149, 163, 0.3);
-    --now: #fb923c;
-    --nowT: #fdba74;
+    --now: #fb7185;
+    --nowT: #fda4af;
+    --accent: #a5b4fc;
+    --tab-in: #08090b;
     color-scheme: dark;
   }
 }
 
 :root[data-theme='dark'] {
-  --bg: #0e1014;
-  --raised: #1a1d24;
-  --sunk: #15181e;
-  --border: #262a33;
-  --line: #2b303a;
-  --text: #f2f3f5;
-  --muted: #8d95a3;
-  --faint: #626b7a;
-  --orT: #fb923c;
+  --bg: #0f1115;
+  --raised: #181b21;
+  --sunk: #22262d;
+  --border: #2a2e36;
+  --line: #343943;
+  --text: #eceef2;
+  --muted: #9aa1ae;
+  --faint: #6e7480;
+  --orT: #fda4af;
   --grT: #4ade80;
   --redT: #f87171;
   --yelT: #fde047;
-  --scrim: rgba(0, 0, 0, 0.55);
+  --scrim: rgba(0, 0, 0, 0.6);
   --pfill: rgba(141, 149, 163, 0.3);
-  --now: #fb923c;
-  --nowT: #fdba74;
+  --now: #fb7185;
+  --nowT: #fda4af;
+  --accent: #a5b4fc;
+  --tab-in: #08090b;
   color-scheme: dark;
 }
 
 @media (min-width: 768px) {
   :root {
-    --tc: 74px;
-    --sc: 54px;
+    --tc: 64px;
+    --sc: 26px;
     --ac: 96px;
-    --cw: 48px;
     --px: 28px;
     --btn: 40px;
-    --header-h: 80px;
   }
 }
 
@@ -125,6 +146,28 @@ select {
 button {
   -webkit-appearance: none;
   appearance: none;
+}
+
+/* Everything you can press gives a little as you press it. Individual translate/scale (not
+   transform) so it adds to any transform an element already has. */
+button,
+a,
+[role='button'] {
+  transition:
+    translate 90ms ease,
+    scale 90ms ease,
+    filter 90ms ease;
+}
+:is(button, a, [role='button']):active:not(:disabled):not([aria-disabled='true']) {
+  translate: 0 1px;
+  scale: 0.97;
+  filter: brightness(0.92);
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(button, a, [role='button']):active:not(:disabled):not([aria-disabled='true']) {
+    translate: none;
+    scale: none;
+  }
 }
 
 /* iOS zooms the page into any form field with text under 16px; on touch screens bring the
@@ -166,7 +209,7 @@ a {
 .chip {
   height: 40px;
   padding: 0 14px;
-  border-radius: 10px;
+  border-radius: var(--r-ctl);
   border: none;
   display: inline-flex;
   align-items: center;
@@ -190,9 +233,9 @@ a {
 
 /* On/off switch: a button (or a span inside one) with a knob span; .on when on. */
 .switch {
-  width: 52px;
-  height: 32px;
-  border-radius: 99px;
+  width: 48px;
+  height: 30px;
+  border-radius: var(--r-sm);
   border: none;
   background: var(--line);
   position: relative;
@@ -208,15 +251,15 @@ a {
   position: absolute;
   top: 3px;
   left: 3px;
-  width: 26px;
-  height: 26px;
-  border-radius: 99px;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
   background: var(--raised);
   transition: left 160ms;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 .switch.on span {
-  left: 23px;
+  left: 21px;
 }
 .switch:disabled {
   opacity: 0.45;
@@ -226,7 +269,7 @@ a {
 .btn-plain {
   height: 40px;
   padding: 0 14px;
-  border-radius: 10px;
+  border-radius: var(--r-ctl);
   border: 1px solid var(--border);
   background: var(--raised);
   color: var(--text);
@@ -249,7 +292,7 @@ a {
   height: var(--btn);
   flex: 1 1 0;
   padding: 0 16px;
-  border-radius: 12px;
+  border-radius: var(--r-ctl);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -269,21 +312,18 @@ a {
 .ctl .g {
   font-size: 12px;
 }
-.ctl.primary {
-  background: #334155;
-  color: #f8fafc;
-  border-color: #334155;
-}
+.ctl.primary,
 .ctl.done {
-  background: #22c55e;
-  color: #ffffff;
-  border-color: #16a34a;
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+  font-weight: 500;
 }
 .ctl.ghost {
   flex: 1 1 100%;
   height: 40px;
   background: transparent;
-  border: 1.5px solid #fb923c;
+  border: 1.5px solid var(--now);
   color: var(--orT);
 }
 
@@ -291,7 +331,7 @@ a {
 .opt {
   height: var(--btn);
   padding: 0 14px;
-  border-radius: 12px;
+  border-radius: var(--r-ctl);
   border: 1px solid var(--border);
   background: var(--raised);
   color: var(--text);
@@ -315,7 +355,7 @@ a {
 .btn-no {
   height: 40px;
   padding: 0 12px;
-  border-radius: 10px;
+  border-radius: var(--r-ctl);
   font: 400 13px/1 var(--font);
   cursor: pointer;
 }
@@ -330,17 +370,20 @@ a {
   color: var(--text);
 }
 
-/* Round × in sheet headers. */
+/* × in sheet headers. */
 .close-x {
   width: 44px;
   height: 44px;
   flex: none;
-  border-radius: 99px;
+  border-radius: var(--r-ctl);
   border: none;
-  background: var(--sunk);
-  color: var(--muted);
-  font: 400 20px/1 var(--font);
+  background: transparent;
+  color: var(--text);
+  font: 400 22px/1 var(--font);
   cursor: pointer;
+}
+.close-x:hover {
+  background: var(--sunk);
 }
 
 /* Grows a small control's tap area (to 44px on phones) without changing how it looks.

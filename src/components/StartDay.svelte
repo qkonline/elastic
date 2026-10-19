@@ -6,11 +6,9 @@
   import { reducedMotion } from '../lib/ui.svelte';
 
   // Today's plan waits here until the day is started; the tasks' Start buttons and the
-  // checklist stay off until then (so a day of only checks needs it too). Once pressed, the row
-  // folds away and the tasks slide up into its place.
-  const show = $derived(
-    P.isToday && P.day.dayStarted == null && P.day.items.some((i) => i.status === 'todo' && i.kind !== 'buffer'),
-  );
+  // checklist stay off until then (so a day of only checks needs it too), and the plan below is
+  // dimmed (still editable). Once pressed, the button folds away and the plan comes up to colour.
+  const show = $derived(P.startPending);
   const fold = () => ({ duration: reducedMotion.current ? 0 : 280, easing: cubicOut });
 
   // Tapping a check or a Start button too early (P.nudge) calls this button out: it comes into
@@ -49,9 +47,17 @@
 
 {#if show}
   <div class="start-row" transition:slide={fold()}>
-    <button class="start-day" class:called bind:this={btn} onclick={() => P.startDay()}
-      ><span>▶</span>Start my day</button
-    >
+    <button class="start-day" class:called bind:this={btn} onclick={() => P.startDay()}>
+      <span class="stripe" aria-hidden="true"></span>
+      <span class="in">
+        <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"
+          ><path d="M5.8 14.5a4.2 4.2 0 0 1 8.4 0" /><path
+            d="M2.5 14.5h15M6.5 17.3h7M10 5.4v2M4.6 8.2l1.3 1.3M15.4 8.2l-1.3 1.3"
+          /></svg
+        >
+        <span class="word">Start my day</span>
+      </span>
+    </button>
   </div>
 {/if}
 
@@ -61,42 +67,76 @@
     isolation: isolate;
     display: flex;
     justify-content: center;
-    padding: 14px var(--px) 4px;
+    padding: 16px var(--px) 4px;
   }
-  /* The same five colours as the task palette, which also ring the Add task button. */
+  /* A raised key: a solid edge under it that it presses down onto. */
   .start-day {
-    height: 44px;
-    padding: 0 22px;
-    border-radius: 999px;
-    border: 2px solid #ffffff;
-    background: linear-gradient(90deg, #fb923c, #fde047, #a3e635, #22d3ee, #818cf8);
-    color: #16181d;
-    font: 400 15px/1 var(--font);
+    position: relative;
+    width: 248px;
+    height: 58px;
+    padding: 0;
+    border: none;
+    border-radius: 10px;
+    background: var(--text);
+    color: var(--bg);
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+    cursor: pointer;
+    box-shadow:
+      0 4px 0 #000,
+      0 10px 20px -8px rgba(22, 24, 29, 0.55);
+    transition:
+      translate 90ms ease,
+      box-shadow 90ms ease,
+      filter 200ms;
+  }
+  .start-day:active {
+    translate: 0 4px !important;
+    scale: none !important;
+    filter: none !important;
+    box-shadow:
+      0 0 0 #000,
+      0 2px 6px -2px rgba(22, 24, 29, 0.4);
+  }
+  .stripe {
+    height: 4px;
+    border-radius: 10px 10px 0 0;
+    background: linear-gradient(90deg, var(--rainbow-stops));
+  }
+  .in {
+    flex: 1;
     display: flex;
     align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    white-space: nowrap;
-    position: relative;
-    box-shadow: 0 8px 22px -10px rgba(15, 23, 42, 0.45);
-    transition:
-      filter 200ms,
-      box-shadow 240ms ease;
+    justify-content: center;
+    gap: 10px;
   }
-  /* Called out: a ring in the ink colour, set off by a gap, and the day's colours glowing behind. */
+  .in svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .word {
+    font: 600 16px/1 var(--font-display);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  /* Called out: a ring in the ink colour, set off by a gap, and the stripe's colours glowing behind. */
   .start-day.called {
     box-shadow:
+      0 4px 0 #000,
       0 0 0 3px var(--bg),
-      0 0 0 5.5px var(--text),
-      0 10px 26px -10px rgba(15, 23, 42, 0.5);
+      0 0 0 5.5px var(--text);
   }
   .start-day::before {
     content: '';
     position: absolute;
     inset: -12px;
     z-index: -1;
-    border-radius: inherit;
-    background: linear-gradient(90deg, #fb923c, #fde047, #a3e635, #22d3ee, #818cf8);
+    border-radius: 16px;
+    background: linear-gradient(90deg, var(--rainbow-stops));
     filter: blur(16px);
     opacity: 0;
     transition: opacity 300ms ease;
@@ -118,13 +158,13 @@
     .start-day.called::before {
       animation: none;
     }
-  }
-  .start-day span {
-    font-size: 11px;
+    .start-day:active {
+      translate: none !important;
+    }
   }
   @media (hover: hover) {
     .start-day:hover {
-      filter: saturate(1.15) brightness(1.04);
+      filter: brightness(1.12);
     }
   }
 </style>

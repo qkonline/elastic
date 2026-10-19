@@ -1,6 +1,6 @@
 <script lang="ts">
   // Subtask checkbox. Colours cycle through the palette by position; checked = solid + ✓.
-  const COLOURS = ['#fb923c', '#22d3ee', '#a3e635', '#818cf8', '#fde047'];
+  const COLOURS = ['#f43f5e', '#22d3ee', '#84cc16', '#818cf8', '#facc15'];
   let { index, done }: { index: number; done: boolean } = $props();
   const c = $derived(COLOURS[index % COLOURS.length]);
 </script>

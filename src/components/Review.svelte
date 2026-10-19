@@ -7,13 +7,14 @@
   import type { Goal, Review } from '../lib/types';
   import GoalCard from './GoalCard.svelte';
   import ReviewNumbers from './ReviewNumbers.svelte';
+  import ScreenHeader from './ScreenHeader.svelte';
 
   // The weekly or quarterly review that's due (or this week so far), and past reviews to read
   // back. A week's review is its numbers and a check-in on the quarter's goals; a quarter's is
   // how each goal went, the quarter's numbers, and the next quarter's goals.
   // Opening a review that's due counts as having done it: it's saved straight away (so the card
-  // on Today goes), and saved again on closing, with whatever was checked in on meanwhile. The
-  // sheet keeps showing that review after it's saved.
+  // on Today goes), and saved again on leaving, with whatever was checked in on meanwhile. The
+  // screen keeps showing that review after it's saved.
   let { id }: { id?: string } = $props();
 
   const past = $derived(id ? P.reviews.find((r) => r.id === id) : undefined);
@@ -36,6 +37,14 @@
   const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const titleOf = (r: { kind: 'week' | 'quarter'; id: string; from: string; to: string }) =>
     r.kind === 'quarter' ? quarterLabel(r.id) : weekSpan(r.from, r.to);
+  const small = $derived.by(() => {
+    if (due)
+      return due.kind === 'quarter'
+        ? quarterLabel(due.id)
+        : `${due.to >= P.today ? 'This week' : 'Last week'}, ${titleOf(due)}`;
+    const [from, to] = P.thisWeek();
+    return `This week, ${weekSpan(from, to)}`;
+  });
   const STATUS: [Goal['status'], string][] = [
     ['hit', 'Hit'],
     ['partly', 'Partly'],
@@ -53,13 +62,11 @@
   }
 </script>
 
-<div class="head">
-  {#if past}
-    <button class="back" aria-label="Back to reviews" onclick={() => P.openSheet({ type: 'review' })}>‹</button>
-  {/if}
-  <span class="h">{past ? titleOf(past) : 'Review'}</span>
-  <button class="close-x" aria-label="Close" onclick={() => P.closeSheet()}>×</button>
-</div>
+{#if past}
+  <ScreenHeader title={titleOf(past)} back={() => P.openScreen({ type: 'review' })} />
+{:else}
+  <ScreenHeader {small} title="Review" />
+{/if}
 <div class="body">
   {#if past}
     <p class="when">
@@ -101,7 +108,7 @@
           {/each}
         {:else}
           <p class="muted">
-            No goals for this quarter yet. <button class="link" onclick={() => P.openSheet({ type: 'goals' })}
+            No goals for this quarter yet. <button class="link" onclick={() => P.openScreen({ type: 'goals' })}
               >Set some</button
             >
           </p>
@@ -142,7 +149,7 @@
                 ? `${nextGoals.length} ${nextGoals.length === 1 ? 'goal' : 'goals'} so far.`
                 : 'No goals yet.'}</span
             >
-            <button class="pill" onclick={() => P.openSheet({ type: 'goals', quarter: nextQ })}
+            <button class="pill" onclick={() => P.openScreen({ type: 'goals', quarter: nextQ })}
               >Set next quarter's goals</button
             >
           </section>
@@ -150,7 +157,7 @@
       {/if}
 
       <div class="acts">
-        <button class="pill pri" onclick={() => P.closeSheet()}>Done</button>
+        <button class="pill pri" onclick={() => P.openScreen({ type: 'today' })}>Done</button>
       </div>
     {:else}
       <section class="card">
@@ -170,7 +177,7 @@
       <ul class="hist">
         {#each history as r (r.id)}
           <li>
-            <button onclick={() => P.openSheet({ type: 'review', id: r.id })}>
+            <button onclick={() => P.openScreen({ type: 'review', id: r.id })}>
               <span>{titleOf(r)}</span>
               <span class="k">{r.kind === 'week' ? 'Week' : 'Quarter'}</span>
             </button>
@@ -182,33 +189,8 @@
 </div>
 
 <style>
-  .head {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 14px 16px;
-  }
-  .h {
-    flex: 1;
-    font: 400 21px/1.2 var(--font);
-    letter-spacing: -0.01em;
-  }
-  .back {
-    width: 36px;
-    height: 36px;
-    border: none;
-    border-radius: 10px;
-    background: transparent;
-    color: var(--text);
-    font: 300 24px/1 var(--font);
-    cursor: pointer;
-  }
   .body {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    padding: 0 16px calc(28px + env(safe-area-inset-bottom));
+    padding: 16px var(--px) 0;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -217,10 +199,10 @@
     flex-shrink: 0;
   }
   .card {
-    padding: 16px;
-    border-radius: 16px;
+    padding: 14px;
+    border-radius: var(--r-card);
     background: var(--raised);
-    border: 1px solid var(--border);
+    border: none;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -228,12 +210,12 @@
   .lead {
     background:
       linear-gradient(var(--raised), var(--raised)) padding-box,
-      linear-gradient(120deg, #fb923c, #fde047, #a3e635, #22d3ee, #818cf8) border-box;
+      linear-gradient(120deg, var(--rainbow-stops)) border-box;
     border: 1.5px solid transparent;
     gap: 4px;
   }
   .kind {
-    font: 400 16px/1.3 var(--font);
+    font: 600 16px/1.3 var(--font);
   }
   .range,
   .when,
@@ -286,7 +268,7 @@
   .pill {
     height: 48px;
     padding: 0 18px;
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
     border: 1px solid var(--border);
     background: var(--raised);
     color: var(--text);
@@ -333,7 +315,7 @@
     list-style: none;
     margin: 0;
     padding: 0;
-    border-radius: 16px;
+    border-radius: var(--r-card);
     border: 1px solid var(--border);
     background: var(--raised);
     overflow: hidden;

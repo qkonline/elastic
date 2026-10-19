@@ -94,7 +94,7 @@
     width: 30px;
   }
   .dn {
-    font: 300 22px/1 var(--font);
+    font: 400 22px/1 var(--font);
     letter-spacing: -0.02em;
     font-variant-numeric: tabular-nums;
   }
@@ -116,11 +116,11 @@
     --hit-y: 6px;
     width: 32px;
     height: 32px;
-    border-radius: 10px;
+    border-radius: var(--r-ctl);
     border: 1px solid var(--border);
     background: var(--raised);
     color: var(--text);
-    font: 300 20px/1 var(--font);
+    font: 400 20px/1 var(--font);
     cursor: pointer;
     flex: none;
   }

@@ -106,7 +106,7 @@
     gap: 4px;
   }
   .big {
-    font: 300 32px/1 var(--font);
+    font: 600 32px/1 var(--font);
     letter-spacing: -0.02em;
     font-variant-numeric: tabular-nums;
   }
@@ -127,10 +127,10 @@
     width: 36px;
     height: 36px;
     border: none;
-    border-radius: 10px;
+    border-radius: var(--r-ctl);
     background: transparent;
     color: var(--text);
-    font: 300 20px/1 var(--font);
+    font: 400 20px/1 var(--font);
     cursor: pointer;
   }
   .nav:disabled {

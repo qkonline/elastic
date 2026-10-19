@@ -50,7 +50,7 @@
   .card {
     margin: 10px var(--px) 0;
     padding: 14px 14px 12px 16px;
-    border-radius: 16px;
+    border-radius: var(--r-card);
     background: var(--raised);
     border: 1px solid var(--border);
     display: flex;
@@ -78,15 +78,15 @@
   button {
     height: var(--btn);
     padding: 0 14px;
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
     font: 400 14px/1 var(--font);
     cursor: pointer;
     white-space: nowrap;
   }
   .pri {
-    border: 1px solid #334155;
-    background: #334155;
-    color: #f8fafc;
+    border: 1px solid var(--text);
+    background: var(--text);
+    color: var(--bg);
   }
   .plain {
     border: 1px solid var(--border);

@@ -184,7 +184,7 @@
 <style>
   .goal {
     padding: 16px;
-    border-radius: 16px;
+    border-radius: var(--r-card);
     background: var(--raised);
     border: 1px solid var(--border);
     display: flex;
@@ -210,8 +210,8 @@
   }
   .status {
     font: 400 12px/1 var(--font);
-    padding: 5px 9px;
-    border-radius: 99px;
+    padding: 5px 8px;
+    border-radius: var(--r-sm);
     background: var(--sunk);
     color: var(--muted);
   }
@@ -244,7 +244,7 @@
     display: block;
     height: 100%;
     border-radius: 3px;
-    background: linear-gradient(90deg, #fb923c, #fde047, #a3e635, #22d3ee, #818cf8);
+    background: linear-gradient(90deg, var(--rainbow-stops));
     transition: width 300ms ease-out;
   }
   .tline {
@@ -269,7 +269,7 @@
     height: 38px;
     padding: 0 10px;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--r-ctl);
     background: var(--bg);
     color: var(--text);
     font: 400 15px/1.3 var(--font);
@@ -307,7 +307,7 @@
     width: 22px;
     height: 22px;
     flex: none;
-    border-radius: 7px;
+    border-radius: var(--r-sm);
     border: 1.5px solid var(--line);
     background: transparent;
     color: var(--bg);
@@ -395,7 +395,7 @@
   .foot .done {
     height: 40px;
     padding: 0 18px;
-    border-radius: 10px;
+    border-radius: var(--r-ctl);
     border: none;
     background: var(--text);
     color: var(--bg);

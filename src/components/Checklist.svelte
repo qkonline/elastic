@@ -11,7 +11,8 @@
   // of the timeline. Habits sit among the checks in the Checklist, or in a Habits section of
   // their own (Settings), as `mode` says. Like a task's Start button, ticking waits for the day
   // to start (unticking never does); tapping one before then says so. Entries are in the day's
-  // order: press and hold one (or drag it with a mouse) to move it.
+  // order: press and hold one (or drag it with a mouse) to move it. Settings shows them as a
+  // list that folds above three, or as a row of chips that scrolls sideways.
   let { mode }: { mode: 'both' | 'checks' | 'habits' } = $props();
 
   const entries = $derived(
@@ -44,11 +45,65 @@
     return out;
   });
   const lifted = (it: Item) => !!P.drag && P.drag.id === it.id;
+  const row = $derived(P.settings.checklistLayout === 'row');
   const grab = (e: PointerEvent, id: string) =>
-    pickUp(P, e, id, () => list, e.pointerType === 'mouse' ? 'capsule' : 'row');
+    pickUp(P, e, id, () => list, e.pointerType === 'mouse' ? 'capsule' : 'row', row ? 'x' : 'y');
+  const along = (px: number) => (row ? `translateX(${px}px)` : `translateY(${px}px)`);
+  const tick = (it: Item, waiting: boolean) =>
+    justDragged() ? null : P.locked ? P.sayLocked() : waiting ? P.askToStartDay('check') : P.toggleCheck(it.id);
 </script>
 
-{#if entries.length}
+{#snippet entry(it: Item, idx: number, hidden: boolean)}
+  {@const moved = it.status === 'postponed'}
+  {@const waiting = P.waiting && it.status === 'todo'}
+  {@const off = waiting || P.locked}
+  <li
+    class:done={it.kind === 'check' && it.status === 'done'}
+    class:moved
+    class:lifted={lifted(it)}
+    class:sorting={!!P.drag}
+    data-drag-idx={idx}
+    inert={hidden}
+    style:transform={lifted(it) ? `${along(P.drag!.dy)} scale(1.02)` : shifts[it.id] ? along(shifts[it.id]) : undefined}
+    onpointerdown={(e) => grab(e, it.id)}
+  >
+    {#if isHabit(it)}
+      <HabitRow {it} />
+    {:else}
+      <button
+        class="box hit"
+        role="checkbox"
+        aria-checked={it.status === 'done'}
+        aria-label={it.title}
+        disabled={moved}
+        aria-disabled={off}
+        style:--c={hueColor(it.hue)}
+        style:--ink={inkOn(it.hue)}
+        onclick={() => tick(it, waiting)}>{it.status === 'done' ? '✓' : ''}</button
+      >
+      <button class="title" onclick={() => tapped(P, it.id)}>{it.title}</button>
+      {#if moved && it.movedKey}
+        <span class="meta">Moved to {shortDate(keyDate(it.movedKey))}</span>
+      {:else if it.repeat !== 'Once' && !row}
+        <span class="meta">↻ {it.repeat}</span>
+      {/if}
+    {/if}
+  </li>
+{/snippet}
+
+{#if entries.length && row}
+  <section class="rowsec {mode === 'habits' ? 'habits' : 'checklist'}" aria-label={title}>
+    <div class="rhead">
+      <h2>{title}</h2>
+      <span class="count">{done} of {entries.length}</span>
+    </div>
+    <ul class="chips" bind:this={list} data-no-swipe>
+      {#each entries as { it, idx } (it.id)}
+        {@render entry(it, idx, false)}
+      {/each}
+    </ul>
+  </section>
+{:else if entries.length}
   <Collapsible
     id={mode}
     label={title}
@@ -62,52 +117,7 @@
     {/snippet}
     {#snippet children(shut)}
       {#each entries as { it, idx }, i (it.id)}
-        {@const moved = it.status === 'postponed'}
-        {@const waiting = P.waiting && it.status === 'todo'}
-        {@const off = waiting || P.locked}
-        <li
-          class:done={it.kind === 'check' && it.status === 'done'}
-          class:moved
-          class:lifted={lifted(it)}
-          class:sorting={!!P.drag}
-          data-drag-idx={idx}
-          inert={shut && i >= 3}
-          style:transform={lifted(it)
-            ? `translateY(${P.drag!.dy}px) scale(1.02)`
-            : shifts[it.id]
-              ? `translateY(${shifts[it.id]}px)`
-              : undefined}
-          onpointerdown={(e) => grab(e, it.id)}
-        >
-          {#if isHabit(it)}
-            <HabitRow {it} />
-          {:else}
-            <button
-              class="box hit"
-              role="checkbox"
-              aria-checked={it.status === 'done'}
-              aria-label={it.title}
-              disabled={moved}
-              aria-disabled={off}
-              style:--c={hueColor(it.hue)}
-              style:--ink={inkOn(it.hue)}
-              onclick={() =>
-                justDragged()
-                  ? null
-                  : P.locked
-                    ? P.sayLocked()
-                    : waiting
-                      ? P.askToStartDay('check')
-                      : P.toggleCheck(it.id)}>{it.status === 'done' ? '✓' : ''}</button
-            >
-            <button class="title" onclick={() => tapped(P, it.id)}>{it.title}</button>
-            {#if moved && it.movedKey}
-              <span class="meta">Moved to {shortDate(keyDate(it.movedKey))}</span>
-            {:else if it.repeat !== 'Once'}
-              <span class="meta">↻ {it.repeat}</span>
-            {/if}
-          {/if}
-        </li>
+        {@render entry(it, idx, shut && i >= 3)}
       {/each}
     {/snippet}
   </Collapsible>
@@ -137,16 +147,16 @@
   li.lifted {
     z-index: 2;
     transition: none;
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   }
   .box {
     --hit-x: 10px;
     --hit-y: 10px;
-    width: 24px;
-    height: 24px;
+    width: 22px;
+    height: 22px;
     flex: none;
-    border-radius: 99px;
+    border-radius: 5px;
     border: 1.5px solid var(--c);
     background: color-mix(in oklab, var(--c) 14%, transparent);
     color: var(--ink);
@@ -195,6 +205,69 @@
     font: 400 12px/1.2 var(--font);
     color: var(--muted);
     white-space: nowrap;
+  }
+  /* As a row of chips that scrolls sideways. */
+  .rowsec {
+    margin: 14px 0 0;
+  }
+  .rhead {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 0 calc(var(--px) + 4px) 8px;
+  }
+  .rhead h2 {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .chips {
+    position: relative; /* entries measure their place (offsetLeft) from the row */
+    list-style: none;
+    margin: 0;
+    padding: 2px var(--px) 4px;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+  }
+  .chips::-webkit-scrollbar {
+    display: none;
+  }
+  .chips li {
+    flex: none;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 12px 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-ctl);
+    box-sizing: border-box;
+  }
+  .chips li.done {
+    background: var(--text);
+    border-color: var(--text);
+  }
+  .chips li.done .title {
+    color: var(--bg);
+    text-decoration: none;
+  }
+  .chips .box {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    font-size: 11px;
+  }
+  .chips .title {
+    flex: none;
+    white-space: nowrap;
+    font-size: 14px;
+  }
+  .chips :global(.text) {
+    padding: 4px 0;
+  }
+  .chips :global(.text .title) {
+    white-space: nowrap;
+    font-size: 14px;
   }
   @media (prefers-reduced-motion: reduce) {
     li.sorting {

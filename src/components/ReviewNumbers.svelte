@@ -117,7 +117,7 @@
     gap: 4px;
   }
   .big {
-    font: 300 28px/1 var(--font);
+    font: 600 28px/1 var(--font);
     letter-spacing: -0.02em;
     font-variant-numeric: tabular-nums;
   }

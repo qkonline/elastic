@@ -8,8 +8,8 @@
   import HabitRing from './HabitRing.svelte';
 
   // The month the anchor day falls in, Monday first. Each day shows how full it is: on a
-  // computer its first tasks by name, on a phone a dot per task, plus a bar of time planned
-  // and logged, and a ring for the habits kept. On a computer a click opens the day and tasks
+  // computer its first tasks by name, a bar of time planned and logged and a ring for the
+  // habits kept; on a phone a small strip of its tasks and a line for the habits kept. On a computer a click opens the day and tasks
   // can be dragged to another day; on a phone a tap picks the day and lists it underneath.
   const wide = new MediaQuery('(min-width: 768px)', false);
   const month = $derived(P.viewKey.slice(0, 7));
@@ -111,7 +111,7 @@
       >
         <div class="top">
           <span class="dn">{c.d.getDate()}</span>
-          {#if c.habits}
+          {#if c.habits && wide.current}
             <span class="hab" title="Habits {c.habits.habitsMet} of {c.habits.habits}">
               <HabitRing
                 hue="lime"
@@ -139,14 +139,25 @@
               <li class="moreN">+{c.rows.length - SHOW} more</li>
             {/if}
           </ul>
-        {:else if c.rows.length}
-          <div class="dots" aria-hidden="true">
-            {#each c.rows.slice(0, 4) as r (r.it.id)}
-              <i class:faded={r.state === 'done' || r.state === 'missed'} style:background={hueColor(r.it.hue)}></i>
-            {/each}
+        {:else}
+          <div class="foot" aria-hidden="true">
+            {#if c.rows.length}
+              <div class="mini">
+                {#each c.rows as r (r.it.id)}
+                  <i
+                    class:faded={r.state === 'todo' || r.state === 'missed'}
+                    style:flex-grow={Math.max(1, r.end - r.start)}
+                    style:background={r.it.kind === 'buffer' ? 'var(--line)' : hueColor(r.it.hue)}
+                  ></i>
+                {/each}
+              </div>
+            {/if}
+            {#if c.habits}
+              <span class="hline" style:width="{(c.habits.habitsMet / c.habits.habits) * 100}%"></span>
+            {/if}
           </div>
         {/if}
-        {#if c.planned > 0 || c.logged > 0}
+        {#if wide.current && (c.planned > 0 || c.logged > 0)}
           <div class="hours" title={dL(Math.round(c.hours))}>
             <span class="planned" style:width="{c.planned * 100}%"></span>
             <span class="logged" style:width="{c.logged * 100}%"></span>
@@ -171,6 +182,30 @@
 {/if}
 
 <style>
+  .foot {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .mini {
+    display: flex;
+    gap: 1px;
+    height: 6px;
+  }
+  .mini i {
+    flex: 1 1 0;
+    min-width: 1px;
+    border-radius: 1px;
+  }
+  .mini i.faded {
+    opacity: 0.35;
+  }
+  .hline {
+    height: 2px;
+    border-radius: 1px;
+    background: #84cc16;
+  }
   .month {
     padding: 8px var(--px) 120px;
   }
@@ -183,7 +218,7 @@
     width: 44px;
     height: 40px;
     border: none;
-    border-radius: 10px;
+    border-radius: var(--r-ctl);
     background: transparent;
     color: var(--muted);
     font: 400 22px/1 var(--font);
@@ -204,11 +239,11 @@
     color: var(--muted);
   }
   .cell {
-    min-height: 58px;
+    min-height: 62px;
     padding: 6px 5px 6px;
-    border-radius: 12px;
+    border-radius: var(--r-sm);
     background: var(--raised);
-    border: 1px solid var(--border);
+    border: none;
     display: flex;
     flex-direction: column;
     gap: 5px;
@@ -247,7 +282,7 @@
     min-width: 22px;
     height: 22px;
     padding: 0 4px;
-    border-radius: 11px;
+    border-radius: var(--r-ctl);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -260,20 +295,6 @@
   }
   .hab {
     display: flex;
-  }
-  .dots {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 3px;
-    padding: 0 2px;
-  }
-  .dots i {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-  }
-  .dots i.faded {
-    opacity: 0.35;
   }
   .hours {
     margin-top: auto;
@@ -354,7 +375,7 @@
     margin-top: 10px;
     width: 100%;
     height: 44px;
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
     border: 1px solid var(--border);
     background: var(--raised);
     color: var(--text);

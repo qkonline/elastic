@@ -32,7 +32,7 @@
 <style>
   .confirm {
     padding: 10px 10px 12px 14px;
-    border-radius: 14px;
+    border-radius: var(--r-card);
     background: var(--sunk);
     border: 1px solid var(--border);
     display: flex;

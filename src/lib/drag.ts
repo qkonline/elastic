@@ -4,9 +4,10 @@
 //   click event (see `tapped`): opening it on pointerup would let the same tap's click land on
 //   whatever the new sheet puts under the finger.
 // - The rest of the row, on touch screens: press and hold. A quick move there scrolls as usual.
-// While dragging, the task follows the finger, an orange line marks where it will land, and the
-// page scrolls when the finger nears the top or bottom of the screen. An ended day can't be
-// rearranged: trying to pick a task up there says so instead.
+// While dragging, the task follows the finger, a rose line marks where it will land, and the
+// page scrolls when the finger nears the top or bottom of the screen. A row that runs sideways
+// (the Checklist as a row of chips) drags along x instead, scrolling the row itself near its
+// ends. An ended day can't be rearranged: trying to pick a task up there says so instead.
 
 import { vibrate } from './alert';
 import type { Planner } from './planner.svelte';
@@ -36,15 +37,20 @@ export function pickUp(
   id: string,
   list: () => HTMLElement | null,
   from: 'capsule' | 'row',
+  axis: 'x' | 'y' = 'y',
 ): void {
   if ((e.button && e.button !== 0) || p.drag) return;
   const touch = e.pointerType !== 'mouse';
   if (from === 'row' && !touch) return; // with a mouse, drag the capsule
   const x0 = e.clientX,
-    y0 = e.clientY,
-    scroll0 = window.scrollY;
+    y0 = e.clientY;
+  // Along the drag: the pointer's position, and how far the page (or the row) has scrolled.
+  const at = (ev: PointerEvent) => (axis === 'x' ? ev.clientX : ev.clientY);
+  const scrolled = () => (axis === 'x' ? (list()?.scrollLeft ?? 0) : window.scrollY);
+  const p0 = at(e),
+    scroll0 = scrolled();
   let started = false,
-    lastY = y0,
+    last = p0,
     frame = 0;
 
   const begin = () => {
@@ -54,7 +60,7 @@ export function pickUp(
       return;
     }
     started = true;
-    p.drag = { id, over: null, dy: 0, h: rowHeight(p, list(), id) };
+    p.drag = { id, over: null, dy: 0, h: rowSize(p, list(), id, axis) };
     vibrate(15);
   };
   const hold = setTimeout(() => {
@@ -63,24 +69,34 @@ export function pickUp(
 
   // Place the task under the finger and work out where it would land.
   const follow = () => {
-    p.dragMove(lastY - y0 + (window.scrollY - scroll0), dropIndex(p, lastY, list(), id));
+    p.dragMove(last - p0 + (scrolled() - scroll0), dropIndex(p, last, list(), id, axis));
   };
   // Keep scrolling while the finger rests near an edge, not only while it moves.
   const edgeScroll = () => {
     frame = 0;
     if (!started) return;
-    const top = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--header-h')) || 62;
-    const up = top + EDGE - lastY,
-      down = lastY - (window.innerHeight - EDGE);
-    const v = up > 0 ? -Math.min(SPEED, up / 4) : down > 0 ? Math.min(SPEED, down / 4) : 0;
+    let lo: number, hi: number;
+    if (axis === 'x') {
+      const r = list()?.getBoundingClientRect();
+      if (!r) return;
+      lo = r.left;
+      hi = r.right;
+    } else {
+      lo = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--header-h')) || 62;
+      hi = window.innerHeight;
+    }
+    const back = lo + EDGE - last,
+      ahead = last - (hi - EDGE);
+    const v = back > 0 ? -Math.min(SPEED, back / 4) : ahead > 0 ? Math.min(SPEED, ahead / 4) : 0;
     if (!v) return;
-    window.scrollBy(0, v);
+    if (axis === 'x') list()?.scrollBy(v, 0);
+    else window.scrollBy(0, v);
     follow();
     frame = requestAnimationFrame(edgeScroll);
   };
 
   const move = (ev: PointerEvent) => {
-    lastY = ev.clientY;
+    last = at(ev);
     if (!started) {
       const d = Math.hypot(ev.clientX - x0, ev.clientY - y0);
       if (from === 'capsule' && d > MOVE) begin();
@@ -125,11 +141,15 @@ export function pickUp(
 const rowOf = (p: Planner, root: HTMLElement | null, id: string) =>
   root?.querySelector<HTMLElement>(`[data-drag-idx="${p.day.items.findIndex((i) => i.id === id)}"]`) ?? null;
 
-/** The lifted row's full height, margins included: the size of the gap the others open. */
-function rowHeight(p: Planner, root: HTMLElement | null, id: string): number {
+/** The lifted row's full size along the drag, margins included: the gap the others open. */
+function rowSize(p: Planner, root: HTMLElement | null, id: string, axis: 'x' | 'y'): number {
   const el = rowOf(p, root, id);
   if (!el) return 60;
   const cs = getComputedStyle(el);
+  if (axis === 'x') {
+    const gap = root ? parseFloat(getComputedStyle(root).columnGap) || 0 : 0;
+    return el.offsetWidth + parseFloat(cs.marginLeft) + parseFloat(cs.marginRight) + gap;
+  }
   return el.offsetHeight + parseFloat(cs.marginTop) + parseFloat(cs.marginBottom);
 }
 
@@ -138,14 +158,16 @@ function rowHeight(p: Planner, root: HTMLElement | null, id: string): number {
  * place in the layout (offsetTop), which the sliding animation doesn't change, so the answer
  * doesn't flicker while rows move out of the way.
  */
-function dropIndex(p: Planner, y: number, root: HTMLElement | null, id: string): number {
+function dropIndex(p: Planner, pos: number, root: HTMLElement | null, id: string, axis: 'x' | 'y'): number {
   const self = p.day.items.findIndex((i) => i.id === id);
   if (!root) return self;
-  const top = root.getBoundingClientRect().top;
+  const r = root.getBoundingClientRect();
+  const along = axis === 'x' ? pos - r.left + root.scrollLeft : pos - r.top;
   for (const el of root.querySelectorAll<HTMLElement>('[data-drag-idx]')) {
     const idx = Number(el.dataset.dragIdx);
     if (idx === self) continue; // the lifted task moves with the finger; measure the others
-    if (y - top < el.offsetTop + el.offsetHeight / 2) return idx;
+    const mid = axis === 'x' ? el.offsetLeft + el.offsetWidth / 2 : el.offsetTop + el.offsetHeight / 2;
+    if (along < mid) return idx;
   }
   return p.day.items.length;
 }

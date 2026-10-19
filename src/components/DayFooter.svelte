@@ -1,6 +1,7 @@
 <script lang="ts">
   import { planner as P } from '../lib/planner.svelte';
-  import { keyDate, shortDate } from '../lib/time';
+  import { dayStats } from '../lib/schedule';
+  import { dL, keyDate, shortDate } from '../lib/time';
   import DisarmBar from './DisarmBar.svelte';
 
   const count = $derived(P.day.items.length);
@@ -8,17 +9,30 @@
   const dateLabel = $derived(shortDate(keyDate(P.viewKey)));
   const armed = $derived(P.armed('clear', 'day'));
   const started = $derived(P.isToday && P.day.dayStarted != null);
+  const st = $derived(dayStats(P.day, P.n));
 </script>
 
 {#if started}
-  <div class="end-row">
+  <div class="end">
+    <div class="tiles">
+      <div class="tile"><span class="big">{st.logged >= 1 ? dL(st.logged) : '0m'}</span><span>logged</span></div>
+      <div class="tile"><span class="big">{st.tasksDone} of {st.tasks}</span><span>tasks done</span></div>
+      {#if st.checks}
+        <div class="tile"><span class="big">{st.checksDone} of {st.checks}</span><span>checks</span></div>
+      {/if}
+    </div>
     {#if P.day.dayEnded == null}
       <!-- The evening's colours, where Start my day has the day's. -->
       <button class="end-day" onclick={() => P.openSheet({ type: 'wrapup' })}>
-        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"
-          ><path d="M10.6 1.6A6.6 6.6 0 1 0 14.4 11 5.4 5.4 0 0 1 10.6 1.6Z" /></svg
-        >End my day
+        <span class="stripe" aria-hidden="true"></span>
+        <span class="in">
+          <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"
+            ><path d="M15.5 12.5A6.5 6.5 0 0 1 7.5 4.5a6.5 6.5 0 1 0 8 8z" /></svg
+          >
+          <span class="word">End my day</span>
+        </span>
       </button>
+      <p class="cap">Move what's left to tomorrow, or let it go</p>
     {:else}
       <button class="reopen" onclick={() => P.reopenDay()}>Reopen day</button>
     {/if}
@@ -38,51 +52,115 @@
         <DisarmBar />
       </div>
     {:else}
-      <div class="text">
-        <span class="t">Clear this day</span>
-        <span class="hint"
-          >Removes all {tasks} from {dateLabel} and resets its timers. Your settings and other days aren't affected.</span
-        >
-      </div>
-      <button class="btn" onclick={() => P.arm('clear', 'day')}>Clear all tasks</button>
+      <button class="clear-link" onclick={() => P.arm('clear', 'day')}>Clear this day</button>
     {/if}
   </div>
 {/if}
 
 <style>
-  .end-row {
+  .end {
     display: flex;
-    justify-content: center;
-    padding: 28px var(--px) 8px;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 24px var(--px) 4px;
   }
+  .tiles {
+    align-self: stretch;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .tile {
+    padding: 10px 12px;
+    border-radius: var(--r-ctl);
+    background: var(--raised);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font: 400 12px/1.2 var(--font);
+    color: var(--muted);
+  }
+  .big {
+    font: 600 20px/1.1 var(--font);
+    letter-spacing: -0.02em;
+    color: var(--text);
+  }
+  /* A raised key in the evening's colours, pressing down onto its edge. */
   .end-day {
-    height: 44px;
-    padding: 0 22px;
-    border-radius: 999px;
-    border: 2px solid #ffffff;
-    background: linear-gradient(90deg, #fdba74, #fb7185, #e879f9, #a78bfa, #60a5fa);
-    color: #16181d;
-    font: 400 15px/1 var(--font);
+    width: 248px;
+    height: 58px;
+    padding: 0;
+    border: none;
+    border-radius: 10px;
+    background: #1e1b3a;
+    color: #ffffff;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    cursor: pointer;
+    box-shadow:
+      0 4px 0 #0b0920,
+      0 10px 20px -8px rgba(30, 27, 58, 0.6);
+    transition:
+      translate 90ms ease,
+      box-shadow 90ms ease,
+      filter 200ms;
+  }
+  .end-day:active {
+    translate: 0 4px !important;
+    scale: none !important;
+    filter: none !important;
+    box-shadow:
+      0 0 0 #0b0920,
+      0 2px 6px -2px rgba(30, 27, 58, 0.4);
+  }
+  .stripe {
+    height: 4px;
+    flex: none;
+    background: linear-gradient(90deg, var(--evening-stops));
+  }
+  .in {
+    flex: 1;
     display: flex;
     align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    white-space: nowrap;
-    box-shadow: 0 8px 22px -10px rgba(15, 23, 42, 0.45);
-    transition: filter 200ms;
+    justify-content: center;
+    gap: 10px;
   }
-  .end-day svg {
-    fill: currentColor;
+  .in svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .word {
+    font: 600 16px/1 var(--font-display);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
   }
   @media (hover: hover) {
     .end-day:hover {
-      filter: saturate(1.15) brightness(1.04);
+      filter: brightness(1.15);
     }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .end-day:active {
+      translate: none !important;
+    }
+  }
+  .cap {
+    margin: 2px 0 0;
+    font: 400 12px/1.3 var(--font);
+    color: var(--muted);
+    text-align: center;
   }
   .reopen {
     height: 44px;
     padding: 0 18px;
-    border-radius: 999px;
+    border-radius: var(--r-ctl);
     border: 1px solid var(--border);
     background: var(--raised);
     color: var(--text);
@@ -90,50 +168,25 @@
     cursor: pointer;
   }
   .clear {
-    margin: 20px var(--px) 24px;
-    padding: 18px 0 0;
-    border-top: 1px solid var(--border);
+    margin: 8px var(--px) 20px;
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 12px 20px;
+    justify-content: center;
   }
-  .text {
-    flex: 1 1 240px;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-  }
-  .t {
-    font: 400 15px/1.3 var(--font);
-  }
-  .hint {
-    font: 400 13px/1.45 var(--font);
-    color: var(--muted);
-    text-wrap: pretty;
-  }
-  .btn {
-    height: 48px;
-    flex: 1 1 100%;
-    padding: 0 18px;
-    border-radius: 12px;
-    border: 1px solid rgba(248, 113, 113, 0.6);
+  .clear-link {
+    height: 44px;
+    padding: 0 12px;
+    border: none;
     background: transparent;
-    color: var(--redT);
-    font: 400 15px/1 var(--font);
+    color: var(--muted);
+    font: 400 14px/1 var(--font);
+    text-decoration: underline;
+    text-underline-offset: 3px;
     cursor: pointer;
-  }
-  @media (min-width: 768px) {
-    .btn {
-      height: 44px;
-      flex: none;
-    }
   }
   .armed {
     flex: 1 1 100%;
     padding: 14px;
-    border-radius: 14px;
+    border-radius: var(--r-card);
     background: rgba(248, 113, 113, 0.1);
     border: 1px solid rgba(248, 113, 113, 0.4);
     display: flex;
@@ -153,7 +206,7 @@
   .yes,
   .no {
     height: 44px;
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
     font: 400 14px/1 var(--font);
     cursor: pointer;
   }

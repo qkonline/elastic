@@ -201,7 +201,7 @@
     right: 0;
     bottom: var(--kb, 0px);
     max-height: min(88dvh, calc(var(--vvh, 100dvh) - 12px));
-    border-radius: 22px 22px 0 0;
+    border-radius: 12px 12px 0 0;
     box-shadow:
       0 var(--kb, 0px) 0 var(--bg),
       0 -10px 40px rgba(0, 0, 0, 0.2);
@@ -218,7 +218,7 @@
     transform: translate(-50%, -50%);
     width: min(480px, calc(100% - 32px));
     max-height: calc(100dvh - 64px);
-    border-radius: 20px;
+    border-radius: 12px;
     border: 1px solid var(--border);
     box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.35);
   }
@@ -245,7 +245,7 @@
   .handle span {
     width: 40px;
     height: 5px;
-    border-radius: 9px;
+    border-radius: var(--r-sm);
     background: var(--line);
   }
 </style>

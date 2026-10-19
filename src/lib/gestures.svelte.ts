@@ -55,7 +55,8 @@ export function dayGestures(p: Planner) {
         dy = e.touches[0].clientY - y0;
       if (!mode) {
         if (Math.abs(dx) < DECIDE && Math.abs(dy) < DECIDE) return;
-        if (Math.abs(dx) > Math.abs(dy) * 1.3) mode = 'swipe';
+        // Only the plan changes day with a swipe; the other screens just scroll.
+        if (Math.abs(dx) > Math.abs(dy) * 1.3) mode = p.screen.type === 'today' ? 'swipe' : 'scroll';
         else if (dy > 0 && window.scrollY <= 0) mode = 'pull';
         else mode = 'scroll';
         gestures.dragging = mode !== 'scroll';

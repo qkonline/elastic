@@ -58,7 +58,7 @@
     gap: 6px;
   }
   .h {
-    font: 400 21px/1.2 var(--font);
+    font: 600 21px/1.2 var(--font);
     letter-spacing: -0.01em;
   }
   .note {
@@ -77,7 +77,7 @@
   .stat {
     flex: 1;
     padding: 12px 14px;
-    border-radius: 14px;
+    border-radius: var(--r-card);
     background: var(--raised);
     border: 1px solid var(--border);
     display: flex;
@@ -85,7 +85,7 @@
     gap: 4px;
   }
   .num {
-    font: 300 26px/1 var(--font);
+    font: 600 26px/1 var(--font);
     letter-spacing: -0.02em;
   }
   .what {
@@ -115,7 +115,7 @@
   }
   .foot button {
     height: 48px;
-    border-radius: 14px;
+    border-radius: var(--r-card);
     font: 400 15px/1 var(--font);
     cursor: pointer;
   }

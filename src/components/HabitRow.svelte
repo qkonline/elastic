@@ -241,7 +241,7 @@
     height: 34px;
     padding: 0 10px;
     border: 1px solid var(--line);
-    border-radius: 10px;
+    border-radius: var(--r-ctl);
     background: var(--bg);
     color: var(--text);
     font: 400 16px/1 var(--font);

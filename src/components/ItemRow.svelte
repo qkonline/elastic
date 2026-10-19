@@ -48,20 +48,7 @@
     return null;
   });
 
-  const boxBg = $derived(
-    v.s === 'paused'
-      ? 'color-mix(in oklab, var(--muted) 9%, transparent)'
-      : v.isOver
-        ? 'rgba(248,113,113,.08)'
-        : 'rgba(250,204,21,.12)',
-  );
-  const boxRing = $derived(
-    v.s === 'paused'
-      ? 'color-mix(in oklab, var(--muted) 45%, transparent)'
-      : v.isOver
-        ? 'rgba(248,113,113,.55)'
-        : 'rgba(234,179,8,.6)',
-  );
+  const boxRing = $derived(v.isOver ? 'rgba(248,113,113,.6)' : 'var(--border)');
 
   // Press and hold anywhere on the task's text to pick it up (touch). A pointer-only shortcut:
   // keyboard and screen-reader users move tasks with Earlier / Later in the task sheet.
@@ -90,7 +77,6 @@
   style:opacity={lifted ? 1 : v.op}
   style:transform={lifted ? `translateY(${P.drag!.dy}px) scale(1.02)` : shift ? `translateY(${shift}px)` : undefined}
   style:min-height="{v.h + 8}px"
-  style:--box-bg={boxBg}
   style:--box-ring={boxRing}
   onmouseenter={() => desktop.current && P.hover !== id && (P.hover = id)}
   onmouseleave={() => P.hover === id && (P.hover = null)}
@@ -103,7 +89,6 @@
   </div>
 
   <div class="spine">
-    <span class="line"></span>
     <span
       role="button"
       tabindex="0"
@@ -112,18 +97,13 @@
       class="cap"
       class:buffer={it.kind === 'buffer'}
       style:height="{v.h}px"
-      style:background={v.capBg}
-      style:border={v.capBorder}
+      style:--bar={v.capBg}
+      style:--bar-edge={v.capBorder}
       onpointerdown={(e) => pickUp(P, e, id, list, 'capsule')}
       onclick={() => tapped(P, id)}
       onkeydown={capKey}
       oncontextmenu={(e) => e.preventDefault()}
     >
-      {#if v.s === 'paused'}
-        <span class="pglyph">‖</span>
-      {:else}
-        <span class="dot" style:background={v.hue}></span>
-      {/if}
     </span>
   </div>
 
@@ -142,7 +122,15 @@
         <button class="hover-btn pp" onclick={() => P.arm('postpone', id)}>Postpone</button>
       {/if}
     </div>
-    <button class="title" class:muted={v.mutedT} class:struck={v.s === 'skipped'} onclick={open}>{it.title}</button>
+    <button class="title" class:muted={v.mutedT} class:struck={v.s === 'skipped' || v.s === 'done'} onclick={open}
+      >{it.title}</button
+    >
+    {#if v.active}
+      <div class="clock">
+        <span class="count" style:color={v.countColor}>{v.count}</span>
+        <span class="cl">{v.countSub ?? (v.isOver ? 'over' : 'left')}</span>
+      </div>
+    {/if}
     {#if v.badges.length || v.flags.length}
       <div class="badges">
         {#each v.badges as b (b)}<span class="badge">{b}</span>{/each}
@@ -155,19 +143,16 @@
     {#if v.aStart}
       <button
         class="start"
-        style:border-color={v.hue}
         aria-label="Start {it.title}"
         aria-disabled={!dayStarted}
         onclick={(e) => {
           e.stopPropagation();
           if (dayStarted) P.startItem(id);
           else P.askToStartDay('timer');
-        }}>Start</button
+        }}
+        ><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.6v8.8L10.4 6z" /></svg
+        >Start</button
       >
-    {/if}
-    {#if v.active}
-      <span class="count" style:color={v.countColor}>{v.count}</span>
-      {#if v.countSub}<span class="count-sub">{v.countSub}</span>{/if}
     {/if}
     {#if v.aCheck}
       <button class="check hit" aria-label="Reopen {it.title}" onclick={() => P.reopen(id)}>✓</button>
@@ -229,7 +214,7 @@
     display: grid;
     grid-template-columns: var(--tc) var(--sc) minmax(0, 1fr) var(--ac);
     align-content: start;
-    border-radius: 12px;
+    border-radius: var(--r-card);
     position: relative;
     transition:
       opacity 200ms,
@@ -241,7 +226,7 @@
     z-index: 5;
     background: var(--raised);
     box-shadow: 0 14px 32px -10px rgba(0, 0, 0, 0.35);
-    border-radius: 16px;
+    border-radius: var(--r-card);
     transition: box-shadow 150ms;
   }
   /* Long-press on a task picks it up, so don't let the phone select its text or pop a menu. */
@@ -254,17 +239,37 @@
   .row.hovered {
     background: var(--sunk);
   }
+  /* The task under way: its text, clock and controls on a card beside its colour bar. */
   .row.active {
-    background: var(--box-bg);
-    box-shadow: inset 0 0 0 1.5px var(--box-ring);
-    border-radius: 16px;
-    margin: 8px -12px;
-    padding: 6px 16px 2px;
+    margin: 4px 0;
+  }
+  .row.active::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    left: calc(var(--tc) + var(--sc) + 2px);
+    border-radius: var(--r-card);
+    background: var(--raised);
+    box-shadow: inset 0 0 0 1px var(--box-ring);
+    pointer-events: none;
+  }
+  .row.active > * {
+    position: relative;
+  }
+  .row.active .acts {
+    padding-right: 12px;
+  }
+  /* The bar runs the full height of the card beside it. */
+  .row.active .cap {
+    height: auto !important;
+    align-self: stretch;
   }
 
   .times {
     grid-row: 1 / span 4;
-    padding: 13px 10px 0 0;
+    padding: 11px 10px 0 0;
     display: flex;
     flex-direction: column;
     align-items: flex-end;
@@ -294,23 +299,13 @@
     justify-content: center;
     padding: 4px 0;
   }
-  .line {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 50%;
-    width: 2px;
-    margin-left: -1px;
-    background: var(--line);
-  }
+  /* The colour bar, as tall as the task is long. The whole column is its handle: tap to edit,
+     move to pick it up. */
   .cap {
-    width: var(--cw);
-    border-radius: 999px;
+    width: var(--sc);
     box-sizing: border-box;
     display: flex;
     justify-content: center;
-    align-items: flex-start;
-    padding-top: 15px;
     position: relative;
     z-index: 1;
     flex: none;
@@ -319,28 +314,31 @@
     user-select: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;
-    transition:
-      border-color 240ms ease,
-      background 240ms ease;
   }
-  .cap.buffer {
-    width: calc(var(--cw) - 16px);
+  .cap::before {
+    content: '';
+    width: 8px;
+    height: 100%;
+    border-radius: var(--r-bar);
+    background: var(--bar);
+    outline: var(--bar-edge);
+    outline-offset: 1px;
+    box-sizing: border-box;
+    transition: background 240ms ease;
   }
-  .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 99px;
-    pointer-events: none;
+  .cap.buffer::before {
+    outline-offset: -1.5px;
   }
-  .pglyph {
-    font: 400 13px/1 var(--font);
-    color: var(--muted);
-    margin-top: -2px;
-    pointer-events: none;
+  .cap:focus-visible {
+    outline: none;
+  }
+  .cap:focus-visible::before {
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
   }
 
   .content {
-    padding: 9px 0 12px 12px;
+    padding: 8px 0 12px 10px;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -365,7 +363,7 @@
   .fixed {
     font: 400 11px/1 var(--font);
     padding: 4px 8px;
-    border-radius: 99px;
+    border-radius: var(--r-sm);
     background: var(--sunk);
     color: var(--text);
     border: 1px solid var(--border);
@@ -381,7 +379,7 @@
   .hover-btn {
     font: 400 13px/1 var(--font);
     padding: 6px 10px;
-    border-radius: 8px;
+    border-radius: var(--r-ctl);
     background: var(--raised);
     cursor: pointer;
   }
@@ -392,11 +390,11 @@
   }
   .hover-btn.pp {
     color: var(--orT);
-    border: 1.5px solid #fb923c;
+    border: 1.5px solid var(--now);
   }
   .title {
     all: unset;
-    font: 400 16px/1.3 var(--font);
+    font: 400 15px/1.3 var(--font);
     color: var(--text);
     text-wrap: pretty;
     cursor: pointer;
@@ -426,8 +424,8 @@
   }
   .flag {
     font: 400 12px/1 var(--font);
-    padding: 5px 9px;
-    border-radius: 99px;
+    padding: 5px 8px;
+    border-radius: var(--r-sm);
     white-space: nowrap;
     background: rgba(253, 224, 71, 0.3);
     color: var(--yelT);
@@ -445,38 +443,47 @@
     gap: 5px;
   }
   .start {
-    height: var(--btn);
-    min-width: 60px;
-    padding: 0 12px;
-    border-radius: 12px;
-    border: 1.5px solid;
+    height: 40px;
+    padding: 0 12px 0 10px;
+    border-radius: var(--r-ctl);
+    border: 1px solid var(--line);
     background: var(--raised);
     color: var(--text);
     font: 400 14px/1 var(--font);
+    display: flex;
+    align-items: center;
+    gap: 6px;
     cursor: pointer;
+  }
+  .start svg {
+    fill: currentColor;
   }
   .start[aria-disabled='true'] {
     opacity: 0.4;
     cursor: not-allowed;
   }
+  .clock {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-top: 4px;
+  }
   .count {
-    font: 400 21px/1 var(--font);
-    letter-spacing: -0.01em;
-    padding-top: 3px;
+    font: 500 38px/1 var(--font);
+    letter-spacing: -0.03em;
     transition: color 240ms;
   }
-  .count-sub {
-    font: 400 11px/1.2 var(--font);
+  .cl {
+    font: 400 13px/1.2 var(--font);
     color: var(--muted);
-    text-align: right;
   }
   .check {
     width: 32px;
     height: 32px;
     margin: 2px 4px 0 0;
-    border-radius: 99px;
+    border-radius: var(--r-ctl);
     border: none;
-    background: #a3e635;
+    background: #84cc16;
     color: #1a2e05;
     display: flex;
     align-items: center;
@@ -487,7 +494,7 @@
   .restore {
     height: 36px;
     padding: 0 10px;
-    border-radius: 10px;
+    border-radius: var(--r-ctl);
     border: 1px solid var(--border);
     background: var(--raised);
     color: var(--text);
@@ -509,7 +516,7 @@
     grid-column: 3 / span 2;
   }
   .subs {
-    padding: 0 0 10px 12px;
+    padding: 0 12px 10px 10px;
     display: flex;
     flex-direction: column;
   }
@@ -532,13 +539,13 @@
     text-decoration-color: var(--faint);
   }
   .ctls {
-    padding: 0 0 14px 12px;
+    padding: 2px 12px 12px 10px;
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
   }
   .confirm {
-    margin: 0 0 14px 12px;
+    margin: 0 12px 14px 10px;
   }
   .now-in {
     position: absolute;

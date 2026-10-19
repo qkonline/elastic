@@ -31,7 +31,7 @@
   .banner {
     margin: 10px var(--px) 0;
     padding: 10px 10px 10px 16px;
-    border-radius: 16px;
+    border-radius: var(--r-card);
     background: rgba(250, 204, 21, 0.12);
     box-shadow: inset 0 0 0 1.5px rgba(234, 179, 8, 0.6);
     display: flex;
@@ -76,7 +76,7 @@
   .go {
     height: var(--btn);
     padding: 0 14px;
-    border-radius: 12px;
+    border-radius: var(--r-ctl);
     border: 1px solid var(--border);
     background: var(--raised);
     color: var(--text);

@@ -5,12 +5,13 @@ import { apOf, cd, dL, fT, fTs, keyDate, shortDate } from './time';
 import type { Day, Item, Status } from './types';
 import { hueColor, untimed } from './types';
 
-// Running colour: orange ring, orange countdown text while within time (red once over).
-export const RUN = '#fb923c';
+// Running colour: rose ring, rose countdown text while within time (red once over).
+export const RUN = '#f43f5e';
 export const RUN_T = 'var(--orT)';
-const runFill = (p: number) =>
-  `linear-gradient(to bottom, rgba(251,146,60,.30) 0 ${p}%, rgba(251,146,60,.10) ${p}% 100%)`;
-const pausedFill = (p: number) => `linear-gradient(to bottom, var(--pfill) 0 ${p}%, var(--raised) ${p}% 100%)`;
+// The colour bar beside a task fills from the top as it's worked on: its colour so far, a pale
+// version of it for what's left.
+const workedFill = (c: string, p: number) =>
+  `linear-gradient(to bottom, ${c} 0 ${p}%, color-mix(in oklab, ${c} 30%, var(--raised)) ${p}% 100%)`;
 
 export interface Flag {
   t: string;
@@ -97,22 +98,18 @@ export function itemVM(r: Row, c: Ctx): ItemVM {
   const pausedTot = pausedTotal(it, n);
   const h = capHeight(it.min);
 
-  let capBg = 'var(--raised)',
-    capBorder = '1px solid var(--border)';
+  // capBg fills the colour bar; capBorder is an outline around it ('none' for most).
+  const hue = hueColor(it.hue);
+  let capBg = hue,
+    capBorder = 'none';
   if (it.kind === 'buffer') {
-    capBg = 'var(--bg)';
+    capBg = 'transparent';
     capBorder = '1.5px dashed var(--faint)';
   }
   if (r.pastEnd) capBorder = '1.5px dashed #f87171';
   if (missed) capBorder = '1.5px dashed #eab308';
-  if (s === 'running') {
-    capBg = isOver ? 'rgba(248,113,113,.16)' : runFill(p);
-    capBorder = isOver ? '2px solid #f87171' : `2px solid ${RUN}`;
-  }
-  if (s === 'paused') {
-    capBg = pausedFill(p);
-    capBorder = '2px solid var(--muted)';
-  }
+  if (s === 'running') capBg = isOver ? '#f87171' : workedFill(hue, p);
+  if (s === 'paused') capBg = workedFill('var(--muted)', p);
 
   let sub: string | null = null,
     subTone = 'var(--muted)';
@@ -245,7 +242,7 @@ export function dragShifts(
   return out;
 }
 
-/** Week-strip dot: lime = all done, orange = some pending, faint = planned, none = empty. */
+/** Week-strip dot: lime = all done, rose = some pending, faint = planned, none = empty. */
 export function dayDot(d: Day | undefined, key: string, today: string): string | null {
   if (!d) return null;
   // Habits come back every day: they don't make a day look planned or pending.
@@ -261,6 +258,6 @@ export function dayDot(d: Day | undefined, key: string, today: string): string |
   const done = real.filter((i) => i.status === 'done' || isPartial(i)).length;
   const pending = real.length - done;
   if (key === today && done === 0) return 'var(--faint)';
-  if (pending === 0) return '#a3e635';
-  return '#fb923c';
+  if (pending === 0) return '#84cc16';
+  return '#f43f5e';
 }

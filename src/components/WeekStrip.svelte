@@ -61,7 +61,7 @@
     min-width: 0;
     height: 56px;
     border: none;
-    border-radius: 14px;
+    border-radius: var(--r-card);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -93,7 +93,7 @@
   .dot {
     width: 5px;
     height: 5px;
-    border-radius: 9px;
+    border-radius: var(--r-sm);
   }
   .dot.ringed {
     box-shadow: 0 0 0 1.5px var(--text);
