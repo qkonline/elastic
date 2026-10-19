@@ -60,7 +60,11 @@
     <GoalCard goal={g} startEditing={g.id === fresh} />
   {/each}
   {#if quarter >= current}
-    <button class="add" onclick={add}>Add a goal</button>
+    <button class="btn-add" onclick={add}
+      ><span class="plus" aria-hidden="true"
+        ><svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 2.5v9M2.5 7h9" /></svg></span
+      >Add a goal</button
+    >
   {/if}
 </div>
 
@@ -108,15 +112,5 @@
     margin: 6px 2px;
     font: 400 14px/1.5 var(--font);
     color: var(--muted);
-  }
-  .add {
-    height: 48px;
-    padding: 0 16px;
-    border-radius: var(--r-ctl);
-    border: 1px dashed var(--faint);
-    background: transparent;
-    color: var(--text);
-    font: 400 15px/1 var(--font);
-    cursor: pointer;
   }
 </style>

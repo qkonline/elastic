@@ -397,6 +397,52 @@ a {
   background: var(--sunk);
 }
 
+/* "Add a habit", "Add a goal": a raised white key with a solid edge, a + in a coloured square. */
+.btn-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  height: 52px;
+  padding: 0 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  background: var(--raised);
+  color: var(--text);
+  font: 500 15px/1 var(--font);
+  cursor: pointer;
+  box-shadow: 0 2px 0 var(--line);
+  transition:
+    translate 90ms ease,
+    box-shadow 90ms ease;
+}
+.btn-add:active {
+  translate: 0 2px !important;
+  scale: none !important;
+  box-shadow: 0 0 0 var(--line);
+}
+.btn-add .plus {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-sm);
+  background: var(--text);
+  color: var(--bg);
+  display: grid;
+  place-items: center;
+}
+.btn-add .plus svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+@media (hover: hover) {
+  .btn-add:hover {
+    border-color: var(--faint);
+  }
+}
+
 /* Grows a small control's tap area (to 44px on phones) without changing how it looks.
    Set --hit-x / --hit-y to how far the area should reach past each edge. */
 .hit {

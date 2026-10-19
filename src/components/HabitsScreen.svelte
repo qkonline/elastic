@@ -78,7 +78,11 @@
   {#if !habits.length}
     <section class="card empty">
       <p>No habits yet. Add one to track something you want to do regularly, like drinking water or reading.</p>
-      <button class="add" onclick={() => P.openSheet({ type: 'add', kind: 'habit' })}>Add a habit</button>
+      <button class="btn-add" onclick={() => P.openSheet({ type: 'add', kind: 'habit' })}
+        ><span class="plus" aria-hidden="true"
+          ><svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 2.5v9M2.5 7h9" /></svg></span
+        >Add a habit</button
+      >
     </section>
   {:else}
     {#if week.share != null}
@@ -137,7 +141,11 @@
         </div>
       {/each}
     </section>
-    <button class="add wide" onclick={() => P.openSheet({ type: 'add', kind: 'habit' })}>Add a habit</button>
+    <button class="btn-add" onclick={() => P.openSheet({ type: 'add', kind: 'habit' })}
+      ><span class="plus" aria-hidden="true"
+        ><svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 2.5v9M2.5 7h9" /></svg></span
+      >Add a habit</button
+    >
   {/if}
 </div>
 
@@ -307,21 +315,5 @@
     padding-left: 40px;
     font: 400 12px/1.4 var(--font);
     color: var(--muted);
-  }
-  .add {
-    height: 44px;
-    padding: 0 16px;
-    border-radius: var(--r-ctl);
-    border: 1px solid var(--border);
-    background: var(--raised);
-    color: var(--text);
-    font: 400 14px/1 var(--font);
-    cursor: pointer;
-  }
-  .add.wide {
-    height: 48px;
-    border: 1px dashed var(--faint);
-    background: transparent;
-    font-size: 15px;
   }
 </style>
