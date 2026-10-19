@@ -27,7 +27,16 @@
   const done = $derived(
     entries.filter(({ it }) => (isHabit(it) ? habitMet(P.day, it, P.n) : it.status === 'done')).length,
   );
-  const title = $derived(mode === 'habits' ? 'Habits' : 'Checklist');
+  // In the combined list the title says what's in it: checks, habits, or both.
+  const hasHabits = $derived(entries.some(({ it }) => it.kind === 'habit'));
+  const hasChecks = $derived(entries.some(({ it }) => it.kind === 'check'));
+  const title = $derived(
+    mode === 'habits' || (mode === 'both' && hasHabits && !hasChecks)
+      ? 'Habits'
+      : mode === 'both' && hasHabits
+        ? 'Checklist + Habits'
+        : 'Checklist',
+  );
 
   let list: HTMLUListElement | null = $state(null);
 
