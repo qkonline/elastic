@@ -49,7 +49,7 @@
   <div class="start-row" transition:slide={fold()}>
     <button class="start-day" class:called bind:this={btn} onclick={() => P.startDay()}>
       <span class="in">
-        <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"
+        <svg width="20" height="20" viewBox="0 1.9 20 20" aria-hidden="true"
           ><path d="M5.8 14.5a4.2 4.2 0 0 1 8.4 0" /><path
             d="M2.5 14.5h15M6.5 17.3h7M10 5.4v2M4.6 8.2l1.3 1.3M15.4 8.2l-1.3 1.3"
           /></svg

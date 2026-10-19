@@ -25,7 +25,7 @@
       <button class="end-day" onclick={() => P.openSheet({ type: 'wrapup' })}>
         <span class="stripe" aria-hidden="true"></span>
         <span class="in">
-          <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"
+          <svg width="18" height="18" viewBox="0 1.5 20 20" aria-hidden="true"
             ><path d="M15.5 12.5A6.5 6.5 0 0 1 7.5 4.5a6.5 6.5 0 1 0 8 8z" /></svg
           >
           <span class="word">End my day</span>
@@ -49,7 +49,14 @@
         <button class="no" onclick={() => P.disarm()}>Cancel</button>
       </div>
     {:else}
-      <button class="clear-link" onclick={() => P.arm('clear', 'day')}>Clear this day</button>
+      <button class="clear-btn" onclick={() => P.arm('clear', 'day')}>
+        <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"
+          ><path
+            d="M4 7h16M9.5 7V4.5h5V7M6 7l1 12.2A1.5 1.5 0 0 0 8.5 20.5h7a1.5 1.5 0 0 0 1.5-1.3L18 7M10 11v5.5M14 11v5.5"
+          /></svg
+        >
+        Clear this day
+      </button>
       <span class="hint"
         >Removes all {tasks} from {dateLabel} and resets its timers. Other days and your settings stay.</span
       >
@@ -174,16 +181,32 @@
     text-align: center;
     text-wrap: pretty;
   }
-  .clear-link {
+  /* Clearing a day can't be undone: a red button, set apart from the day's own actions. */
+  .clear-btn {
     height: 44px;
-    padding: 0 12px;
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    font: 400 14px/1 var(--font);
-    text-decoration: underline;
-    text-underline-offset: 3px;
+    margin-bottom: 8px;
+    padding: 0 18px 0 14px;
+    border: 1px solid color-mix(in oklab, #ef4444 45%, transparent);
+    border-radius: var(--r-ctl);
+    background: color-mix(in oklab, #ef4444 12%, var(--raised));
+    color: var(--redT);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font: 500 14px/1 var(--font);
     cursor: pointer;
+  }
+  .clear-btn svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  @media (hover: hover) {
+    .clear-btn:hover {
+      background: color-mix(in oklab, #ef4444 18%, var(--raised));
+    }
   }
   .armed {
     flex: 1 1 100%;
@@ -198,8 +221,9 @@
     position: relative;
     overflow: hidden;
   }
+  /* The question on its own line, then Clear and Cancel side by side. */
   .q {
-    flex: 1 1 200px;
+    flex: 1 1 100%;
     font: 400 14px/1.4 var(--font);
   }
   .q span {
@@ -215,8 +239,9 @@
   .yes {
     padding: 0 18px;
     border: none;
-    background: #f87171;
-    color: #16181d;
+    background: #dc2626;
+    color: #ffffff;
+    font-weight: 500;
   }
   .no {
     padding: 0 16px;
