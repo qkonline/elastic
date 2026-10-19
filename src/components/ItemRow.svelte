@@ -23,15 +23,15 @@
   const rsOpen = $derived(!!P.resched && P.resched.id === id && v.missed);
   const showSkip = $derived(P.isToday && !P.locked && hovered && v.s === 'todo' && !v.missed);
 
-  type Ctl = { g: string; l: string; k?: 'primary' | 'done' | 'ghost'; on: () => void };
+  type Ctl = { g: string; l: string; k?: 'primary' | 'done' | 'ghost' | 'resched' | 'mark'; on: () => void };
   const controls: Ctl[] | null = $derived.by(() => {
     if (postponeArmed || finishArmed) return null;
     if (v.missed)
       return rsOpen
         ? null
         : [
-            { g: '↻', l: 'Reschedule', k: 'primary', on: () => P.openResched(id) },
-            { g: '✓', l: 'Mark done', k: 'done', on: () => P.markDone(id, v.start, v.end) },
+            { g: '↻', l: 'Reschedule', k: 'resched', on: () => P.openResched(id) },
+            { g: '✓', l: 'Mark done', k: 'mark', on: () => P.markDone(id, v.start, v.end) },
           ];
     if (v.s === 'running')
       return [

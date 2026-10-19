@@ -100,8 +100,6 @@
     height: 59px;
     padding-top: 7px;
     box-sizing: border-box;
-    border: 1px solid var(--border);
-    border-top: none;
     border-radius: 0 0 10px 10px;
     background: var(--bg);
     box-shadow:
