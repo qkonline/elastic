@@ -8,8 +8,8 @@
   // switched on in Settings).
   const install = needsInstallForNotifications();
   const reach = pushConfigured()
-    ? 'even when Elastic Day is closed or your phone is locked'
-    : 'while Elastic Day is in the background';
+    ? 'even when Elastic is closed or your phone is locked'
+    : 'while Elastic is in the background';
 </script>
 
 {#if P.notifyPrompt}
@@ -28,7 +28,7 @@
       </p>
       <p class="body">
         {#if install}
-          On iPhone and iPad, notifications work once Elastic Day is on your Home Screen.
+          On iPhone and iPad, notifications work once Elastic is on your Home Screen.
         {:else}
           You'll hear about it {reach}.
         {/if}

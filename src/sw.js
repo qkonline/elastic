@@ -1,4 +1,4 @@
-// Elastic Day service worker. Generated into dist/sw.js at build time (see vite.config.ts),
+// Elastic service worker. Generated into dist/sw.js at build time (see vite.config.ts),
 // which fills in the cache version, the build's file list and the worker's address.
 // Pages: network first, falling back to the cached copy offline. Build files: cache first.
 

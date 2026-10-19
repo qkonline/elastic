@@ -53,7 +53,7 @@ async function call<T>(path: string, body: object = {}, token?: string): Promise
       body: JSON.stringify(body),
     });
   } catch {
-    throw new ApiError(0, "Can't reach Elastic Day. Check your connection and try again.");
+    throw new ApiError(0, "Can't reach Elastic. Check your connection and try again.");
   }
   if (res.status === 204) return undefined as T;
   const data = await res.json().catch(() => ({}));

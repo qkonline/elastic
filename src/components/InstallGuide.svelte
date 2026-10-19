@@ -9,10 +9,10 @@
 
 <div class="head">
   <span class="h">{mac ? 'Add to your Dock' : 'Add to your Home Screen'}</span>
-  <span class="note">Elastic Day then opens from its own icon, in its own window, like any other app.</span>
+  <span class="note">Elastic then opens from its own icon, in its own window, like any other app.</span>
 </div>
 {#if install.installed}
-  <p class="done">It's installed. You can open Elastic Day from its icon now.</p>
+  <p class="done">It's installed. You can open Elastic from its icon now.</p>
 {:else if mac}
   <ol>
     <li>In Safari's menu bar, open <b>File</b>.</li>

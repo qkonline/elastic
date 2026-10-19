@@ -1,4 +1,4 @@
-// Elastic Day's worker.
+// Elastic's worker.
 //
 // Notifications for a browser that isn't signed in: when the app goes into the background, it
 // asks for a push at each moment it wants to notify (time's up, heads-ups before fixed times);

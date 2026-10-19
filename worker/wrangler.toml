@@ -1,4 +1,4 @@
-# Elastic Day's worker: notifications, and accounts that sync the plan across devices. Deploy
+# Elastic's worker: notifications, and accounts that sync the plan across devices. Deploy
 # with `npx wrangler deploy` from this folder (Wrangler needs Node 22+). The private key is a
 # secret: `npx wrangler secret put VAPID_PRIVATE_KEY`. Database changes go in migrations/ and are
 # applied with `npx wrangler d1 migrations apply elastic-day --remote`.
@@ -39,7 +39,7 @@ migrations_dir = "migrations"
 # [[send_email]]
 # name = "EMAIL"
 # remote = true
-# and add EMAIL_FROM to [vars], e.g. EMAIL_FROM = "Elastic Day <hello@kaiserkhan.com>".
+# and add EMAIL_FROM to [vars], e.g. EMAIL_FROM = "Elastic <hello@kaiserkhan.com>".
 
 [observability]
 enabled = true

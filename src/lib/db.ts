@@ -53,7 +53,7 @@ function open(): Promise<IDBDatabase> {
       resolve(db);
     };
     req.onerror = () => reject(req.error);
-    req.onblocked = () => reject(new Error('Elastic Day is open in another tab that is blocking an upgrade.'));
+    req.onblocked = () => reject(new Error('Elastic is open in another tab that is blocking an upgrade.'));
   });
   dbp.catch(() => (dbp = null));
   return dbp;

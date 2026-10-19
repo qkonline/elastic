@@ -23,16 +23,16 @@
   const notifyOn = $derived(S.notify && permission === 'granted');
   const notifyText = $derived.by(() => {
     if (needsInstallForNotifications())
-      return 'On iPhone and iPad, notifications work once Elastic Day is on your Home Screen.';
+      return 'On iPhone and iPad, notifications work once Elastic is on your Home Screen.';
     if (!permission) return "This browser can't show notifications; the chime and vibration still work.";
     if (permission === 'denied')
       return "Notifications are blocked for this site. Allow them in your browser's site settings to turn them on here.";
     const what = S.fixedLead ? "when time's up and before fixed times" : "when time's up";
     if (notifyOn)
       return pushConfigured()
-        ? `You'll get one ${what}, even with Elastic Day closed or your phone locked.`
-        : `You'll get one ${what} while Elastic Day is in the background.`;
-    return `Get a notification ${what}, even when you're not looking at Elastic Day.`;
+        ? `You'll get one ${what}, even with Elastic closed or your phone locked.`
+        : `You'll get one ${what} while Elastic is in the background.`;
+    return `Get a notification ${what}, even when you're not looking at Elastic.`;
   });
 
   function toggleNotify() {
@@ -140,7 +140,7 @@
 
   {#if install.method}
     <section class="card g12" aria-label="Install">
-      <span class="ct">Install Elastic Day</span>
+      <span class="ct">Install Elastic</span>
       <span class="muted">
         Add it to your {install.method === 'mac'
           ? 'Dock'
@@ -284,7 +284,7 @@
     {/if}
   </section>
 
-  <div class="foot">Elastic Day · v2.4<br />The order is the plan.</div>
+  <div class="foot">Elastic · v2.4<br />The order is the plan.</div>
 </div>
 
 <style>

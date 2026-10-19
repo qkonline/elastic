@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build and publish Elastic Day to kaiserkhan.com/planner/ (Hostinger shared hosting over SSH).
+# Build and publish Elastic to kaiserkhan.com/planner/ (Hostinger shared hosting over SSH).
 #
 #   npm run deploy               # test, build, upload
 #   npm run deploy -- --dry-run  # show what would change on the server

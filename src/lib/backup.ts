@@ -294,7 +294,7 @@ export function parseBackup(text: string): Parsed | { error: string } {
   } catch {
     return { error: 'Could not read that file.' };
   }
-  if (d.app !== 'elastic-day') return { error: 'That file is not an Elastic Day backup.' };
+  if (d.app !== 'elastic-day') return { error: 'That file is not an Elastic backup.' };
   if ((d.version === 2 || d.version === 3) && Array.isArray(d.days)) {
     return {
       kind: 'full',
@@ -314,13 +314,13 @@ export function parseBackup(text: string): Parsed | { error: string } {
       wrap: num(d.wrap, 1020)!,
     };
   }
-  return { error: 'That file is not an Elastic Day backup.' };
+  return { error: 'That file is not an Elastic backup.' };
 }
 
 export function download(data: Backup): void {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
-  a.download = `elastic-day-${dkey(new Date())}.json`;
+  a.download = `elastic-${dkey(new Date())}.json`;
   document.body.appendChild(a);
   a.click();
   a.remove();

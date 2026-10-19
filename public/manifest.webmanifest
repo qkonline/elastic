@@ -1,7 +1,7 @@
 {
-  "name": "Elastic Day",
-  "short_name": "Elastic Day",
-  "description": "A one-day planner where the order of the list is the plan.",
+  "name": "Elastic",
+  "short_name": "Elastic",
+  "description": "Plan the day you actually have, keep your habits and work towards your goals.",
   "id": "/planner/",
   "start_url": "/planner/",
   "scope": "/planner/",

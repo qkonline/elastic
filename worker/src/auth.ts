@@ -16,7 +16,7 @@ export interface AuthEnv {
   DB: D1Database;
   /** Cloudflare Email Service. Without it, email codes are switched off. */
   EMAIL?: SendEmail;
-  /** Who the codes come from, e.g. "Elastic Day <hello@example.com>". */
+  /** Who the codes come from, e.g. "Elastic <hello@example.com>". */
   EMAIL_FROM?: string;
 }
 
@@ -153,7 +153,7 @@ async function takeChallenge(env: AuthEnv, id: unknown, purpose: string) {
 export async function registerStart(env: AuthEnv, origin: string, userId: string | null) {
   const { rpID } = rpOf(origin);
   const uid = userId ?? randomId();
-  let userName = 'Elastic Day';
+  let userName = 'Elastic';
   let exclude: { id: string; transports?: string[] }[] = [];
   if (userId) {
     const user = await env.DB.prepare('SELECT email FROM users WHERE id = ?')
@@ -167,7 +167,7 @@ export async function registerStart(env: AuthEnv, origin: string, userId: string
     exclude = keys.results.map((k) => ({ id: k.id, transports: k.transports ? JSON.parse(k.transports) : undefined }));
   }
   const options = await generateRegistrationOptions({
-    rpName: 'Elastic Day',
+    rpName: 'Elastic',
     rpID,
     userName,
     userDisplayName: userName,
@@ -321,8 +321,8 @@ export async function emailSend(env: AuthEnv, body: { email?: unknown }, userId:
   await env.EMAIL.send({
     from: env.EMAIL_FROM,
     to: email,
-    subject: `Your Elastic Day code is ${code}`,
-    text: `Your Elastic Day code is ${code}\n\nIt works for 10 minutes. If you didn't ask for it, you can ignore this email.`,
+    subject: `Your Elastic code is ${code}`,
+    text: `Your Elastic code is ${code}\n\nIt works for 10 minutes. If you didn't ask for it, you can ignore this email.`,
   });
 }
 

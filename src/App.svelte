@@ -130,7 +130,7 @@
 
 {#if P.failed}
   <div class="failed">
-    <h1>Elastic Day can't start here</h1>
+    <h1>Elastic can't start here</h1>
     <p>
       This browser won't let the planner store anything (private browsing or blocked site data can do this), so there is
       nowhere to keep your plan. Try a normal window, or allow site data for this page.

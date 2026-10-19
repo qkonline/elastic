@@ -1,6 +1,6 @@
-# Elastic Day worker
+# Elastic worker
 
-Sends Elastic Day's notifications (time's up, and heads-ups before fixed-time tasks) while the app is closed or the phone is locked, and holds accounts for using one plan on several devices.
+Sends Elastic's notifications (time's up, and heads-ups before fixed-time tasks) while the app is closed or the phone is locked, and holds accounts for using one plan on several devices.
 
 ## Notifications without an account
 

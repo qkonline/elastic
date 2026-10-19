@@ -40,15 +40,15 @@
           <img class="mark" src={icon} alt="" width="64" height="64" />
           <h1>Plan the day you actually have.</h1>
           <p class="lead">
-            Add what you want to do and how long it takes. Elastic Day works out the times, and when something runs
-            long, the rest of your day moves with it.
+            Add what you want to do and how long it takes. Elastic works out the times, and when something runs long,
+            the rest of your day moves with it.
           </p>
           <div class="actions">
             <button class="pri" onclick={() => (step = 1)}>Get started</button>
             <button class="text" onclick={() => finish()}>Skip for now</button>
             {#if accountsAvailable()}
               <button class="text" disabled={P.accountBusy} onclick={() => P.signIn()}
-                >I use Elastic Day on another device</button
+                >I use Elastic on another device</button
               >
             {/if}
           </div>

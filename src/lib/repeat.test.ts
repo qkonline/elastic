@@ -102,7 +102,7 @@ describe('repeat rules', () => {
 describe('backup parsing', () => {
   it('rejects non-JSON and foreign files', () => {
     expect(parseBackup('nope')).toEqual({ error: 'Could not read that file.' });
-    expect(parseBackup('{"app":"other"}')).toEqual({ error: 'That file is not an Elastic Day backup.' });
+    expect(parseBackup('{"app":"other"}')).toEqual({ error: 'That file is not an Elastic backup.' });
   });
 
   it('reads an older single-day (version 1) export', () => {
