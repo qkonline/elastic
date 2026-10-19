@@ -281,9 +281,16 @@
     padding: 8px 10px;
     resize: vertical;
   }
-  .title-in {
-    height: 44px;
-    font-size: 18px;
+  /* Like New task's name field. `input.` outranks the field rule above, which otherwise made it
+     small, and its 15px text made iOS zoom in (large-text is left out of the 16px rule). */
+  input.title-in {
+    height: 54px;
+    padding: 0 16px;
+    font-size: 17px;
+  }
+  input.title-in:focus {
+    outline: none;
+    border: 1.5px solid var(--text);
   }
   .ms {
     list-style: none;
