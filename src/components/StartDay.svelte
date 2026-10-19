@@ -48,7 +48,6 @@
 {#if show}
   <div class="start-row" transition:slide={fold()}>
     <button class="start-day" class:called bind:this={btn} onclick={() => P.startDay()}>
-      <span class="stripe" aria-hidden="true"></span>
       <span class="in">
         <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"
           ><path d="M5.8 14.5a4.2 4.2 0 0 1 8.4 0" /><path
@@ -77,7 +76,10 @@
     padding: 0;
     border: none;
     border-radius: 10px;
-    background: var(--text);
+    /* The soft stripe along the top, painted inside the key so its corners follow the key's. */
+    background:
+      linear-gradient(90deg, var(--rainbow-stops)) top / 100% 4px no-repeat,
+      var(--text);
     color: var(--bg);
     display: flex;
     flex-direction: column;
@@ -99,13 +101,9 @@
       0 0 0 #000,
       0 2px 6px -2px rgba(22, 24, 29, 0.4);
   }
-  .stripe {
-    height: 4px;
-    border-radius: 10px 10px 0 0;
-    background: linear-gradient(90deg, var(--rainbow-stops));
-  }
   .in {
     flex: 1;
+    padding-top: 4px;
     display: flex;
     align-items: center;
     justify-content: center;
