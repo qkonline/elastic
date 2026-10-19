@@ -80,7 +80,7 @@ self.addEventListener('push', (e) => {
           } catch {
             /* can't list them here; the tag has to do */
           }
-          await self.registration.showNotification(n.title, { body: n.body, icon: 'icon-192.png?v=3', tag: n.tag });
+          await self.registration.showNotification(n.title, { body: n.body, icon: 'icon-192.png?v=4', tag: n.tag });
         }
       }),
   );
