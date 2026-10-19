@@ -3,17 +3,18 @@
   import { habitMet, habitValue, isHabit, progressText } from '../lib/habits';
   import { planner as P } from '../lib/planner.svelte';
   import { worked } from '../lib/schedule';
-  import { dL } from '../lib/time';
+  import { dL, fT } from '../lib/time';
+  import { hueColor, hueName } from '../lib/types';
   import DisarmBar from './DisarmBar.svelte';
-  import Fields from './Fields.svelte';
-  import HabitFields, { oftenText } from './HabitFields.svelte';
+  import HabitEdit from './HabitEdit.svelte';
+  import { oftenText } from './HabitFields.svelte';
   import HabitHistory from './HabitHistory.svelte';
   import HabitRing from './HabitRing.svelte';
   import KindMark from './KindMark.svelte';
-  import SwitchRow from './SwitchRow.svelte';
 
-  // A habit's sheet: today's progress, its record, and its settings. Settings changes reach later
-  // days like any repeating task's; deleting asks about later days too.
+  // A habit's sheet: today's progress, its record, and what it's set to. Changing it happens
+  // behind Edit habit (changes reach later days like any repeating task's); deleting asks about
+  // later days too.
   let { id: idProp }: { id: string } = $props();
   const id = untrack(() => idProp);
 
@@ -38,24 +39,33 @@
   const delArmed = $derived(P.armed('delete', id));
   const repeatsLater = $derived(!!series && (series.until == null || series.until > P.viewKey));
   const waits = $derived(P.waiting);
-  const quarterGoals = $derived(
-    P.goals.filter((g) => g.quarter === P.quarterOf(P.viewKey) && g.title.trim()).sort((a, b) => a.order - b.order),
+  const goal = $derived(it?.goalId ? P.goals.find((g) => g.id === it.goalId) : undefined);
+  // How much it asks for each time, in words.
+  const asks = $derived(
+    !h
+      ? ''
+      : h.type === 'amount'
+        ? `${h.target} ${h.unit}`.trim()
+        : h.type === 'time'
+          ? dL(h.target)
+          : h.type === 'quit'
+            ? 'Stay clear of it'
+            : 'Done or not',
   );
+  let editing = $state(false);
+  $effect(() => {
+    if (P.locked) editing = false;
+  });
 </script>
 
-{#if it && h}
+{#if it && h && editing}
+  <HabitEdit item={{ ...it, habit: h }} ondone={() => (editing = false)} />
+{:else if it && h}
   <div class="head">
     <span class="icon" aria-hidden="true"><KindMark kind="habit" hue={it.hue} size={16} /></span>
     <div class="ht">
       <span class="summary">Habit, {oftenText(h, it.repeat).toLowerCase()}</span>
-      <input
-        class="title large-text"
-        value={it.title}
-        readonly={P.locked}
-        aria-label="Title"
-        oninput={(e) => P.edit(id, { title: e.currentTarget.value })}
-        onblur={(e) => !e.currentTarget.value.trim() && P.edit(id, { title: 'Untitled' })}
-      />
+      <h2 class="title">{it.title}</h2>
     </div>
     <button class="close-x" aria-label="Close" onclick={() => P.closeSheet()}>×</button>
   </div>
@@ -89,8 +99,10 @@
           {:else if waits && it.status !== 'skipped'}
             <span class="sub">You can tick it off once your day starts.</span>
           {/if}
-          {#if it.status !== 'skipped'}
-            <div class="ctls">
+          <div class="ctls">
+            {#if it.status === 'skipped'}
+              <button class="pill" onclick={() => P.restore(id)}>Restore</button>
+            {:else}
               {#if h.type === 'check'}
                 <button class="pill" class:pri={!met} disabled={waits && !met} onclick={() => P.tapHabit(id)}
                   >{met ? 'Undo' : 'Mark done'}</button
@@ -111,8 +123,10 @@
                   >+ {step}{h.type === 'time' ? ' min' : ''}</button
                 >
               {/if}
-            </div>
-          {/if}
+              <button class="pill quiet" onclick={() => P.skip(id)}>{P.isToday ? 'Skip today' : 'Skip this day'}</button
+              >
+            {/if}
+          </div>
         </div>
       </div>
 
@@ -122,40 +136,37 @@
         </div>
       {/if}
 
-      <div class="card">
-        <Fields field="colour" hue={it.hue} onHue={(c) => P.edit(id, { hue: c })} />
-        <HabitFields habit={h} repeat={it.repeat} typeLocked onchange={(nh, r) => P.editHabit(id, nh, r)} />
-        {#if quarterGoals.length}
-          <div class="props">
-            <SwitchRow
-              label="Counts towards a goal"
-              note={it.goalId
-                ? `Each day it's kept adds to ${quarterGoals.find((g) => g.id === it.goalId)?.title ?? 'a goal'}`
-                : "Days it's kept add to one of this quarter's goals"}
-              on={!!it.goalId}
-              ontoggle={() => P.edit(id, { goalId: it.goalId ? null : quarterGoals[0].id })}
-            >
-              <div class="row">
-                {#each quarterGoals as g (g.id)}
-                  <button class="chip" aria-pressed={it.goalId === g.id} onclick={() => P.edit(id, { goalId: g.id })}
-                    >{g.title}</button
-                  >
-                {/each}
-              </div>
-            </SwitchRow>
+      <dl class="card facts">
+        <div>
+          <dt>Colour</dt>
+          <dd><i class="sw" style:background={hueColor(it.hue)}></i>{hueName(it.hue)}</dd>
+        </div>
+        <div>
+          <dt>Asks for</dt>
+          <dd>{asks}</dd>
+        </div>
+        <div>
+          <dt>How often</dt>
+          <dd>{oftenText(h, it.repeat)}</dd>
+        </div>
+        <div>
+          <dt>Reminder</dt>
+          <dd>{h.remindAt != null ? fT(h.remindAt, P.settings.clock24) : 'Off'}</dd>
+        </div>
+        {#if goal}
+          <div>
+            <dt>Goal</dt>
+            <dd>{goal.title}</dd>
           </div>
         {/if}
-      </div>
+      </dl>
 
-      <div class="card notes">
-        <span class="label">Notes</span>
-        <textarea
-          rows="3"
-          placeholder={P.locked ? '' : 'Why it matters, or what helps'}
-          aria-label="Notes"
-          value={it.note}
-          oninput={(e) => P.edit(id, { note: e.currentTarget.value })}></textarea>
-      </div>
+      {#if it.note.trim()}
+        <div class="card notes">
+          <span class="label">Notes</span>
+          <p class="note">{it.note}</p>
+        </div>
+      {/if}
     </fieldset>
   </div>
 
@@ -187,11 +198,14 @@
           /></svg
         >
       </button>
-      {#if it.status === 'skipped'}
-        <button class="ctl" onclick={() => P.restore(id)}>Restore</button>
-      {:else}
-        <button class="ctl" onclick={() => P.skip(id)}>{P.isToday ? 'Skip today' : 'Skip this day'}</button>
-      {/if}
+      <button class="edit" onclick={() => (editing = true)}>
+        <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"
+          ><path
+            d="M12.6 4.2l3.2 3.2M3.5 16.5l.8-3.9 9.4-9.4a1.6 1.6 0 0 1 2.3 0l.8.8a1.6 1.6 0 0 1 0 2.3l-9.4 9.4z"
+          /></svg
+        >
+        Edit habit
+      </button>
     {/if}
   </div>
 {/if}
@@ -227,14 +241,12 @@
     color: var(--muted);
   }
   .title {
-    width: 100%;
-    border: none;
-    outline: none;
-    background: transparent;
-    padding: 4px 0;
+    margin: 0;
+    padding: 2px 0;
     font: 600 21px/1.2 var(--font);
     letter-spacing: -0.01em;
     color: var(--text);
+    overflow-wrap: anywhere;
   }
   .body {
     flex: 1;
@@ -315,6 +327,13 @@
     background: var(--text);
     color: var(--bg);
   }
+  .pill.quiet {
+    margin-left: auto;
+    border-color: transparent;
+    background: transparent;
+    color: var(--muted);
+    padding: 0 8px;
+  }
   .pill:disabled {
     opacity: 0.45;
     cursor: not-allowed;
@@ -322,26 +341,77 @@
   .card.notes {
     gap: 8px;
   }
-  .props {
-    border: 1px solid var(--border);
-    border-radius: var(--r-card);
-    overflow: hidden;
+  .note {
+    margin: 0;
+    font: 400 15px/1.5 var(--font);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
-  .row {
+  /* What it's set to: a quiet list, label on the left, value on the right. */
+  .facts {
+    margin: 0;
+    padding: 4px 16px;
+    gap: 0;
+  }
+  .facts > div {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 46px;
+    border-top: 1px solid var(--border);
   }
-  textarea {
-    width: 100%;
-    box-sizing: border-box;
+  .facts > div:first-child {
+    border-top: none;
+  }
+  dt {
+    font: 400 14px/1.3 var(--font);
+    color: var(--muted);
+  }
+  dd {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font: 500 14px/1.3 var(--font);
+    text-align: right;
+  }
+  .sw {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+  }
+  /* Edit habit: the ink key, pressing down onto its edge. */
+  .edit {
+    flex: 1;
+    height: 50px;
     border: none;
-    outline: none;
-    resize: vertical;
-    background: transparent;
-    font: 400 15px/1.45 var(--font);
-    color: var(--text);
-    padding: 0;
+    border-radius: var(--r-ctl);
+    background: var(--text);
+    color: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font: 500 15px/1 var(--font);
+    cursor: pointer;
+    box-shadow: 0 3px 0 color-mix(in oklab, var(--text) 60%, #000);
+    transition:
+      translate 90ms ease,
+      box-shadow 90ms ease;
+  }
+  .edit:active {
+    translate: 0 3px !important;
+    scale: none !important;
+    filter: none !important;
+    box-shadow: 0 0 0 color-mix(in oklab, var(--text) 60%, #000);
+  }
+  .edit svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
   .foot {
     flex: none;
@@ -350,10 +420,6 @@
     padding: 14px 16px calc(28px + env(safe-area-inset-bottom));
     border-top: 1px solid var(--border);
     background: var(--bg);
-  }
-  .foot .ctl {
-    height: 50px;
-    font-size: 15px;
   }
   .ended {
     flex: 1;

@@ -116,7 +116,7 @@
   const timed = $derived(P.day.items.some((i) => !untimed(i.kind)));
 
   const LABELS = {
-    task: 'Edit task',
+    task: 'Task',
     hours: 'Day hours',
     add: 'New task',
     install: 'Install',

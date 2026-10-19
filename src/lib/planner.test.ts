@@ -7,6 +7,7 @@ import * as db from './db';
 import type { Series } from './types';
 import * as A from './actions';
 import { Planner } from './planner.svelte';
+import { itemFromSeries } from './repeat';
 import { isMissed } from './schedule';
 
 const TODAY = '2026-09-25'; // a Friday
@@ -139,6 +140,68 @@ describe('Planner', () => {
       ['Inbox', 30],
       ['Other', 30],
     ]);
+  });
+
+  it('pushes edits of a repeating item to earlier days not yet started, but not past or started ones', async () => {
+    const p = await boot();
+    add(p, 'Email', 45);
+    await p.setRepeat(byTitle(p, 'Email').id, 'Every day');
+    await p.switchDay(TOMORROW);
+    add(p, 'Other');
+    // A started day (stood in for: a future day can't be started from the app).
+    const email = p.series[0];
+    await db.putDays([
+      {
+        key: '2026-09-27',
+        dayStart: 540,
+        wrap: 1020,
+        dayStarted: 540,
+        items: [itemFromSeries(email), A.newItem({ title: 'Started', min: 30 })],
+      },
+    ]);
+    await p.switchDay('2026-09-29');
+    p.edit(byTitle(p, 'Email').id, { title: 'Inbox', min: 30 });
+    await new Promise((r) => setTimeout(r, 700));
+    await p.flush();
+    expect((await db.getDay(TODAY))?.items.map((i) => [i.title, i.min])).toEqual([['Inbox', 30]]);
+    expect((await db.getDay(TOMORROW))?.items.map((i) => i.title)).toEqual(['Inbox', 'Other']);
+    expect((await db.getDay('2026-09-27'))?.items.map((i) => i.title)).toEqual(['Email', 'Started']);
+    await p.switchDay('2026-09-28'); // never stored: built from the edited series
+    expect(p.day.items.map((i) => i.title)).toEqual(['Inbox']);
+  });
+
+  it('saves the Edit form in one go: fields, repeat, and a check turned into a timed task', async () => {
+    const p = await boot();
+    p.addTask({ title: 'Call', min: 0, kind: 'check', hue: 'cyan', fixedAt: null });
+    const it = byTitle(p, 'Call');
+    await p.saveTask(it.id, {
+      title: '  Call the bank ',
+      kind: 'task',
+      min: 20,
+      hue: 'lime',
+      fixedAt: null,
+      repeat: 'Weekdays',
+      note: 'Ask about fees',
+      subtasks: [{ id: 's1', t: 'Find the number', d: false }],
+      goalId: null,
+      habitId: null,
+    });
+    await p.flush();
+    const saved = p.item(it.id)!;
+    expect([saved.title, saved.kind, saved.min, saved.hue, saved.note, saved.repeat, saved.status]).toEqual([
+      'Call the bank',
+      'task',
+      20,
+      'lime',
+      'Ask about fees',
+      'Weekdays',
+      'todo',
+    ]);
+    expect(saved.subtasks.map((x) => x.t)).toEqual(['Find the number']);
+    expect(p.series.find((s) => s.id === saved.seriesId)?.repeat).toBe('Weekdays');
+    expect((await db.getDay('2026-09-28'))?.items.map((i) => i.title) ?? []).toEqual([]); // never stored: built from the series
+    await p.switchDay('2026-09-28');
+    expect(p.day.items.map((i) => [i.title, i.min])).toEqual([['Call the bank', 20]]);
   });
 
   it('keeps a repeating-item edit when the user switches day straight away', async () => {

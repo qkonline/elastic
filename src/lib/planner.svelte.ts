@@ -58,6 +58,11 @@ export type Screen =
   | { type: 'goals'; quarter?: string }
   | { type: 'review'; id?: string }
   | { type: 'settings' };
+/** What the task sheet's Edit form saves. */
+export type TaskForm = Pick<
+  Item,
+  'title' | 'kind' | 'min' | 'hue' | 'fixedAt' | 'repeat' | 'note' | 'subtasks' | 'goalId' | 'habitId'
+>;
 /** What opens over the page. */
 export type Sheet =
   | { type: 'task'; id: string }
@@ -1275,6 +1280,34 @@ export class Planner {
       this.queueSeriesSync(it.seriesId, this.viewKey);
   }
 
+  /**
+   * Save the task sheet's Edit form: every changed field in one change, then the repeat (which
+   * may start or end a series). Turning a check into a timed task puts it back to do; turning a
+   * task into a check keeps it done if it was.
+   */
+  async saveTask(id: string, form: TaskForm): Promise<void> {
+    if (this.locked) return;
+    const it = this.item(id);
+    if (!it) return;
+    const title = form.title.trim() || 'Untitled';
+    const f = { ...form, title };
+    const patch: Partial<Item> = {};
+    const keys = ['title', 'kind', 'min', 'hue', 'fixedAt', 'note', 'subtasks', 'goalId', 'habitId'] as const;
+    for (const k of keys)
+      if (JSON.stringify(f[k] ?? null) !== JSON.stringify(it[k] ?? null)) Object.assign(patch, { [k]: f[k] });
+    if ('kind' in patch && f.kind === 'check') Object.assign(patch, { status: it.status === 'done' ? 'done' : 'todo' });
+    else if ('kind' in patch && it.kind === 'check') Object.assign(patch, { status: 'todo', endedAt: null });
+    if (Object.keys(patch).length) {
+      this.update((d) => {
+        const next = A.patchItem(d, id, patch);
+        return 'fixedAt' in patch || 'kind' in patch ? A.placeFixed(next, id, this.n) : next;
+      }, `Updated ${title}`);
+      if (it.seriesId) this.queueSeriesSync(it.seriesId, this.viewKey);
+    }
+    if (f.repeat !== it.repeat) await this.setRepeat(id, f.repeat);
+    if (f.kind === 'fixed' && it.kind !== 'fixed') this.offerNotifications('fixed');
+  }
+
   setKind(id: string, k: Kind): void {
     const it = this.item(id);
     this.update((d) => A.placeFixed(A.setKind(d, id, k), id, this.n));
@@ -1404,9 +1437,13 @@ export class Planner {
     await this.propagate(s, old, sid, key);
   }
 
-  /** Apply a series change (`prev` → `next`) to stored days after `key` (never past days) not yet started. */
+  /**
+   * Apply a series change (`prev` → `next`) to the other stored days not yet started, from today
+   * on: earlier ones as well as later ones, so editing next Saturday's copy also changes the
+   * copies on the days before it. Past days are never touched.
+   */
   private async propagate(next: Series, prev: Series | null, sid: string, key: string): Promise<void> {
-    for (const d of await this.laterDays(key)) {
+    for (const d of await this.openDays(key)) {
       const synced = syncSeriesInto(d, next, prev, sid);
       if (synced !== d) this.put(synced);
     }
@@ -1415,13 +1452,21 @@ export class Planner {
 
   /** Stored days after `key` (never past days) that haven't been started. */
   private async laterDays(key: string): Promise<Day[]> {
-    await this.flush();
     const after = addDays(key, 1);
-    const from = after > this.today ? after : this.today;
-    const later = new Map((await db.getDays(from, '9999-12-31')).map((d) => [d.key, d]));
+    return this.unstartedFrom(after > this.today ? after : this.today);
+  }
+
+  /** Stored days from today on, other than `key`, that haven't been started. */
+  private async openDays(key: string): Promise<Day[]> {
+    return (await this.unstartedFrom(this.today)).filter((d) => d.key !== key);
+  }
+
+  private async unstartedFrom(from: string): Promise<Day[]> {
+    await this.flush();
+    const days = new Map((await db.getDays(from, '9999-12-31')).map((d) => [d.key, d]));
     // Include stored days held in memory, and prefer them: they're never older than the database.
-    for (const [k, d] of Object.entries(this.days)) if (k >= from && this.stored.has(k)) later.set(k, d);
-    return [...later.values()].filter((d) => d.dayStarted == null);
+    for (const [k, d] of Object.entries(this.days)) if (k >= from && this.stored.has(k)) days.set(k, d);
+    return [...days.values()].filter((d) => d.dayStarted == null);
   }
 
   /**

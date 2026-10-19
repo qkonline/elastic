@@ -261,3 +261,35 @@ export function dayDot(d: Day | undefined, key: string, today: string): string |
   if (pending === 0) return '#84cc16';
   return '#f43f5e';
 }
+
+/** One piece of a small day strip: a timed task (or the idle gap before it), as long as it takes. */
+export interface StripSeg {
+  key: string;
+  id: string | null;
+  min: number;
+  c: string;
+  gap: boolean;
+  faded: boolean;
+}
+
+/**
+ * The day's timed tasks as a strip (New task's preview, the task sheet): skipped and moved ones
+ * left out, idle gaps shown once the day has started, done ones faded.
+ */
+export function stripSegs(rows: Row[], started: boolean): StripSeg[] {
+  return rows
+    .filter(
+      (r) => !untimed(r.it.kind) && r.it.status !== 'skipped' && !(r.it.status === 'postponed' && !isPartial(r.it)),
+    )
+    .flatMap((r) => [
+      ...(started && r.gap >= 1 ? [{ key: r.it.id + '-g', id: null, min: r.gap, c: '', gap: true, faded: false }] : []),
+      {
+        key: r.it.id,
+        id: r.it.id,
+        min: Math.max(1, r.end - r.start),
+        c: r.it.kind === 'buffer' ? 'var(--line)' : hueColor(r.it.hue),
+        gap: false,
+        faded: r.it.status === 'done' || isPartial(r.it),
+      },
+    ]);
+}

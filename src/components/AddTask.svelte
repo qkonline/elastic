@@ -5,6 +5,7 @@
   import { planner as P } from '../lib/planner.svelte';
   import { clockToDay, fT, hhmm, hm, keyDate, shortDate, weekdayLong } from '../lib/time';
   import { habitDefaults } from '../lib/habits';
+  import { stripSegs } from '../lib/rows';
   import { isPartial } from '../lib/schedule';
   import type { Habit, Hue, Kind } from '../lib/types';
   import { hueColor, untimed } from '../lib/types';
@@ -49,17 +50,7 @@
       (r) => !untimed(r.it.kind) && r.it.status !== 'skipped' && !(r.it.status === 'postponed' && !isPartial(r.it)),
     );
     if (!rows.length) return null;
-    const started = P.planDay.dayStarted != null;
-    const segs = rows.flatMap((r) => [
-      ...(started && r.gap >= 1 ? [{ key: r.it.id + '-g', min: r.gap, c: '', gap: true, faded: false }] : []),
-      {
-        key: r.it.id,
-        min: Math.max(1, r.end - r.start),
-        c: r.it.kind === 'buffer' ? 'var(--line)' : hueColor(r.it.hue),
-        gap: false,
-        faded: r.it.status === 'done' || isPartial(r.it),
-      },
-    ]);
+    const segs = stripSegs(P.sch.rows, P.planDay.dayStarted != null);
     return { segs, end: Math.max(P.sch.finish, ...rows.map((r) => r.end)) + min };
   });
   const sel = $derived(hue ?? (kind === 'fixed' ? 'indigo' : kind === 'habit' ? 'lime' : 'cyan'));
