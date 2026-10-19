@@ -475,7 +475,8 @@ export class Planner {
     this.clock = Date.now();
     const tk = activeDayKey(todayKey(), this.days, this.clock);
     if (tk !== this.today) this.rollover(tk);
-    if (this.confirm && Date.now() - this.confirm.at > CONFIRM_MS) this.confirm = null;
+    // Clearing a day waits for an answer; the other confirms give up after a while.
+    if (this.confirm && this.confirm.type !== 'clear' && Date.now() - this.confirm.at > CONFIRM_MS) this.confirm = null;
     if (this.nudge && Date.now() - this.nudge.at > NUDGE_MS) this.nudge = null;
     if (Date.now() - this.updateCheckedAt > UPDATE_EVERY_MS) void this.checkForUpdate(false);
     if (this.session && this.clock - this.alertsCheckedAt > ALERTS_EVERY_MS) {

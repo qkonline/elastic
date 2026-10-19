@@ -2,7 +2,6 @@
   import { planner as P } from '../lib/planner.svelte';
   import { dayStats } from '../lib/schedule';
   import { dL, keyDate, shortDate } from '../lib/time';
-  import DisarmBar from './DisarmBar.svelte';
 
   const count = $derived(P.day.items.length);
   const tasks = $derived(`${count} task${count === 1 ? '' : 's'}`);
@@ -32,7 +31,6 @@
           <span class="word">End my day</span>
         </span>
       </button>
-      <p class="cap">Move what's left to tomorrow, or let it go</p>
     {:else}
       <button class="reopen" onclick={() => P.reopenDay()}>Reopen day</button>
     {/if}
@@ -49,10 +47,12 @@
         >
         <button class="yes" onclick={() => P.clearDay()} {@attach (el) => el.focus()}>Clear</button>
         <button class="no" onclick={() => P.disarm()}>Cancel</button>
-        <DisarmBar />
       </div>
     {:else}
       <button class="clear-link" onclick={() => P.arm('clear', 'day')}>Clear this day</button>
+      <span class="hint"
+        >Removes all {tasks} from {dateLabel} and resets its timers. Other days and your settings stay.</span
+      >
     {/if}
   </div>
 {/if}
@@ -151,12 +151,6 @@
       translate: none !important;
     }
   }
-  .cap {
-    margin: 2px 0 0;
-    font: 400 12px/1.3 var(--font);
-    color: var(--muted);
-    text-align: center;
-  }
   .reopen {
     height: 44px;
     padding: 0 18px;
@@ -170,7 +164,15 @@
   .clear {
     margin: 8px var(--px) 20px;
     display: flex;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
+  }
+  .hint {
+    max-width: 34ch;
+    font: 400 12px/1.4 var(--font);
+    color: var(--muted);
+    text-align: center;
+    text-wrap: pretty;
   }
   .clear-link {
     height: 44px;
