@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { completion, habitMet, history, isHabit, periodCount, streak } from '../lib/habits';
   import { planner as P } from '../lib/planner.svelte';
-  import { addDays, keyDate, mondayOf, weekdayShort } from '../lib/time';
+  import { addDays, keyDate, mondayOf, shortDate, weekdayShort } from '../lib/time';
   import { hueColor, type Habit, type Item, type Series } from '../lib/types';
   import { oftenText } from './HabitFields.svelte';
   import HabitRow from './HabitRow.svelte';
@@ -120,7 +120,7 @@
               <span class="notdue"><KindMark kind="habit" hue={s.hue} size={18} /></span>
               <div class="text">
                 <button class="title" onclick={() => edit(s)}>{s.title}</button>
-                <span class="meta">Not due today</span>
+                <span class="meta">{s.from > P.today ? `Starts ${shortDate(keyDate(s.from))}` : 'Not due today'}</span>
               </div>
             </div>
           {/if}
