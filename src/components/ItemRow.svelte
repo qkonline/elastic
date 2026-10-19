@@ -200,9 +200,9 @@
     <div
       class="now-in"
       aria-hidden="true"
-      style:left={v.active ? '16px' : '0'}
-      style:right={v.active ? '16px' : '0'}
-      style:top="{(v.active ? 6 : 0) + 4 + v.nowIn * v.h}px"
+      style:left="0"
+      style:right={v.active ? 'calc(100% - var(--tc) - var(--sc) - 2px)' : '0'}
+      style:top="calc(4px + {v.nowIn} * (100% - 8px))"
     >
       <NowLine />
     </div>
@@ -255,7 +255,7 @@
     box-shadow: inset 0 0 0 1px var(--box-ring);
     pointer-events: none;
   }
-  .row.active > * {
+  .row.active > :not(.now-in) {
     position: relative;
   }
   .row.active .acts {
