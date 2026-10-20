@@ -1364,7 +1364,7 @@ export class Planner {
     if (!it || !add.length || this.locked) return;
     this.edit(id, { subtasks: [...it.subtasks, ...add.map((t) => ({ id: A.uid(), t, d: false }))] });
     if (it.seriesId) this.queueSeriesSync(it.seriesId, this.viewKey);
-    if (add.length > 1) this.say(`Added ${add.length} steps`);
+    if (add.length > 1) this.say(`Added ${add.length} subtasks`);
   }
 
   removeSub(id: string, sid: string): void {

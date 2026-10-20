@@ -234,8 +234,8 @@
         <div class="card">
           <span class="label"
             >{it.subtasks.length
-              ? `Steps, ${it.subtasks.filter((x) => x.d).length} of ${it.subtasks.length} done`
-              : 'Steps'}</span
+              ? `Subtasks, ${it.subtasks.filter((x) => x.d).length} of ${it.subtasks.length} done`
+              : 'Subtasks'}</span
           >
           {#each it.subtasks as x, xi (x.id)}
             <div class="step">
@@ -245,7 +245,7 @@
                 style:--hit-y="4px"
                 role="checkbox"
                 aria-checked={x.d}
-                aria-label="Toggle step: {x.t}"
+                aria-label="Toggle subtask: {x.t}"
                 disabled={P.locked}
                 onclick={() => P.toggleSub(id, x.id)}
               >
@@ -269,8 +269,8 @@
                   }
                 }}
                 onblur={addStep}
-                placeholder="Add a step"
-                aria-label="Add a step"
+                placeholder="Add a subtask"
+                aria-label="Add a subtask"
               />
             </div>
           {/if}

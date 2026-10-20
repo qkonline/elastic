@@ -212,12 +212,12 @@
   </div>
 
   <div class="card">
-    <span class="label">Steps</span>
+    <span class="label">Subtasks</span>
     {#each steps as x, i (x.id)}
       <div class="step">
         <span class="n" aria-hidden="true">{i + 1}</span>
-        <input class="st" bind:value={x.t} onpaste={(e) => pasteInto(e, i)} aria-label="Step {i + 1}" />
-        <button class="rm hit" aria-label="Remove step: {x.t}" onclick={() => steps.splice(i, 1)}>×</button>
+        <input class="st" bind:value={x.t} onpaste={(e) => pasteInto(e, i)} aria-label="Subtask {i + 1}" />
+        <button class="rm hit" aria-label="Remove subtask: {x.t}" onclick={() => steps.splice(i, 1)}>×</button>
       </div>
     {/each}
     <div class="step">
@@ -227,8 +227,8 @@
         bind:value={newStep}
         onkeydown={(e) => e.key === 'Enter' && !e.isComposing && addStep()}
         onpaste={(e) => pasteInto(e, null)}
-        placeholder="Add a step"
-        aria-label="Add a step"
+        placeholder="Add a subtask"
+        aria-label="Add a subtask"
       />
     </div>
   </div>
