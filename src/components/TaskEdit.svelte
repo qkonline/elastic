@@ -5,6 +5,7 @@
   import { uid } from '../lib/actions';
   import { planner as P } from '../lib/planner.svelte';
   import { isActive } from '../lib/schedule';
+  import { pastedSteps } from '../lib/steps';
   import { clockToDay, hhmm, hm, keyDate, weekdayLong } from '../lib/time';
   import type { Item, Kind } from '../lib/types';
   import { reducedMotion } from '../lib/ui.svelte';
@@ -57,6 +58,20 @@
     if (!newStep.trim()) return;
     steps.push({ id: uid(), t: newStep.trim(), d: false });
     newStep = '';
+  }
+  // Several pasted lines become several steps: in a step's own field the first line stays in it
+  // and the rest follow it.
+  function pasteInto(e: ClipboardEvent, i: number | null) {
+    const lines = pastedSteps(e);
+    if (!lines) return;
+    const made = (t: string) => ({ id: uid(), t, d: false });
+    if (i == null) {
+      steps.push(...lines.map(made));
+      newStep = '';
+    } else {
+      steps[i].t = lines[0] ?? '';
+      steps.splice(i + 1, 0, ...lines.slice(1).map(made));
+    }
   }
 
   // A fixed time that wasn't touched stays exactly as it was (a time past midnight keeps its day).
@@ -201,7 +216,7 @@
     {#each steps as x, i (x.id)}
       <div class="step">
         <span class="n" aria-hidden="true">{i + 1}</span>
-        <input class="st" bind:value={x.t} aria-label="Step {i + 1}" />
+        <input class="st" bind:value={x.t} onpaste={(e) => pasteInto(e, i)} aria-label="Step {i + 1}" />
         <button class="rm hit" aria-label="Remove step: {x.t}" onclick={() => steps.splice(i, 1)}>×</button>
       </div>
     {/each}
@@ -211,6 +226,7 @@
         class="st"
         bind:value={newStep}
         onkeydown={(e) => e.key === 'Enter' && !e.isComposing && addStep()}
+        onpaste={(e) => pasteInto(e, null)}
         placeholder="Add a step"
         aria-label="Add a step"
       />

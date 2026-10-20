@@ -1357,11 +1357,14 @@ export class Planner {
     this.edit(id, { subtasks: it.subtasks.map((y) => (y.id === sid ? { ...y, d: !y.d } : y)) });
   }
 
-  addSub(id: string, t: string): void {
+  // Steps added from the task sheet without going through Edit task (several at once when pasted).
+  addSubs(id: string, ts: string[]): void {
     const it = this.item(id);
-    if (!it || !t.trim()) return;
-    this.edit(id, { subtasks: [...it.subtasks, { id: A.uid(), t: t.trim(), d: false }] });
+    const add = ts.map((t) => t.trim()).filter(Boolean);
+    if (!it || !add.length || this.locked) return;
+    this.edit(id, { subtasks: [...it.subtasks, ...add.map((t) => ({ id: A.uid(), t, d: false }))] });
     if (it.seriesId) this.queueSeriesSync(it.seriesId, this.viewKey);
+    if (add.length > 1) this.say(`Added ${add.length} steps`);
   }
 
   removeSub(id: string, sid: string): void {

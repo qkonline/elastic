@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { planner as P } from '../lib/planner.svelte';
   import { itemVM, RUN, stripSegs } from '../lib/rows';
+  import { pastedSteps } from '../lib/steps';
   import { dL, fT } from '../lib/time';
   import { hueColor, hueName } from '../lib/types';
   import DisarmBar from './DisarmBar.svelte';
@@ -19,6 +20,13 @@
   // The sheet is keyed by task, so the id never changes while it's open.
   const id = untrack(() => idProp);
   let editing = $state(false);
+  // Steps can be added right here; everything else about the task changes behind Edit task.
+  let newStep = $state('');
+  function addStep() {
+    if (!newStep.trim()) return;
+    P.addSubs(id, [newStep]);
+    newStep = '';
+  }
 
   const row = $derived(P.sch.rows.find((r) => r.it.id === id));
   const v = $derived(
@@ -222,9 +230,13 @@
         </div>
       {/if}
 
-      {#if it.subtasks.length}
+      {#if it.subtasks.length || !P.locked}
         <div class="card">
-          <span class="label">Steps, {it.subtasks.filter((x) => x.d).length} of {it.subtasks.length} done</span>
+          <span class="label"
+            >{it.subtasks.length
+              ? `Steps, ${it.subtasks.filter((x) => x.d).length} of ${it.subtasks.length} done`
+              : 'Steps'}</span
+          >
           {#each it.subtasks as x, xi (x.id)}
             <div class="step">
               <button
@@ -242,6 +254,26 @@
               <span class="st" class:done={x.d}>{x.t}</span>
             </div>
           {/each}
+          {#if !P.locked}
+            <div class="step add">
+              <span class="plus" aria-hidden="true">+</span>
+              <input
+                class="new"
+                bind:value={newStep}
+                onkeydown={(e) => e.key === 'Enter' && !e.isComposing && addStep()}
+                onpaste={(e) => {
+                  const lines = pastedSteps(e);
+                  if (lines) {
+                    P.addSubs(id, lines);
+                    newStep = '';
+                  }
+                }}
+                onblur={addStep}
+                placeholder="Add a step"
+                aria-label="Add a step"
+              />
+            </div>
+          {/if}
         </div>
       {/if}
 
@@ -604,6 +636,35 @@
     color: var(--muted);
     text-decoration: line-through;
     text-decoration-color: var(--faint);
+  }
+  .step.add {
+    min-height: 44px;
+  }
+  .plus {
+    width: 20px;
+    height: 20px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    box-sizing: border-box;
+    border: 1px dashed var(--line);
+    border-radius: 6px;
+    color: var(--muted);
+    font: 500 13px/1 var(--font);
+  }
+  .new {
+    flex: 1;
+    min-width: 0;
+    height: 40px;
+    border: none;
+    outline: none;
+    background: transparent;
+    padding: 0;
+    font: 400 15px/1 var(--font);
+    color: var(--text);
+  }
+  .new::placeholder {
+    color: var(--faint);
   }
   .note {
     margin: 0;
