@@ -1158,7 +1158,12 @@ export class Planner {
   }
 
   reopen(id: string): void {
-    this.update((d) => A.reopen(d, id), `${this.item(id)?.title} reopened`);
+    const had = new Set(this.day.items.map((i) => i.id));
+    this.update((d) => A.reopen(d, id, this.n), `${this.item(id)?.title} reopened`);
+    // Reopened from its sheet with time worked: the sheet follows the "continued" copy, the part
+    // still to do.
+    const copy = this.day.items.find((i) => !had.has(i.id));
+    if (copy && this.sheet?.type === 'task' && this.sheet.id === id) this.sheet = { type: 'task', id: copy.id };
   }
 
   skip(id: string): void {

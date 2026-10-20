@@ -1,7 +1,7 @@
 // Pure transformations of a Day. Each returns a new Day and never mutates its input.
 // `n` is "now" in minutes since the day's local midnight.
 
-import { isActive, isMissed, isPartial, schedule } from './schedule';
+import { isActive, isMissed, isPartial, schedule, worked } from './schedule';
 import type { Day, Item, Kind } from './types';
 import { untimed } from './types';
 
@@ -262,7 +262,25 @@ export function markDone(day: Day, id: string, start: number, end: number): Day 
   }));
 }
 
-export function reopen(day: Day, id: string): Day {
+/**
+ * Reopen a done item. Time actually worked stays on the record: the task becomes partly done (like
+ * Postpone part-way, "worked 1h · rest later today") and a "continued" copy goes at the current
+ * point, planned from now. A task only marked done, or a check, simply goes back to the plan.
+ */
+export function reopen(day: Day, id: string, n: number): Day {
+  const it = find(day, id);
+  if (it && it.status === 'done' && it.startedAt != null && !it.marked && !untimed(it.kind)) {
+    const missed = new Set(
+      schedule(day, n)
+        .rows.filter((r) => isMissed(r, n))
+        .map((r) => r.it.id),
+    );
+    const w = worked(it, n);
+    const copy = { ...restOf(it, w), min: Math.max(REOPEN_MIN, Math.round(it.min - w)), planFrom: n };
+    const items = day.items.map((i): Item => (i.id === id ? { ...i, status: 'postponed', laterCopy: true } : i));
+    items.push(copy);
+    return { ...day, items: toCurrentPoint(items, copy.id, missed) };
+  }
   return mapItem(day, id, () => ({
     status: 'todo',
     startedAt: null,
@@ -334,6 +352,9 @@ export function placeFixed(day: Day, id: string, n: number): Day {
   return rest.every((x, k) => x === day.items[k]) ? day : { ...day, items: rest };
 }
 
+/** A reopened task that had used up its time gets this long to finish. */
+export const REOPEN_MIN = 15;
+
 /** Remaining minutes for a remainder copy (never less than 5). */
 const remainder = (it: Item, w: number) => Math.max(5, Math.round(it.min - w));
 
@@ -346,6 +367,8 @@ function restOf(it: Item, w: number): Item {
     kind: it.kind === 'fixed' ? 'task' : it.kind,
     note: it.note,
     subtasks: it.subtasks,
+    goalId: it.goalId ?? null,
+    habitId: it.habitId ?? null,
     continued: true,
   });
 }

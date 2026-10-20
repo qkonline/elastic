@@ -98,6 +98,9 @@ export function normalizeItem(raw: unknown): Item {
     marked: !!r.marked,
     continued: !!r.continued,
     laterCopy: !!r.laterCopy,
+    ...(status === 'todo' && typeof r.planFrom === 'number' && Number.isFinite(r.planFrom)
+      ? { planFrom: r.planFrom }
+      : {}),
     movedKey: typeof r.movedKey === 'string' && KEY.test(r.movedKey) ? r.movedKey : null,
     movedId: typeof r.movedId === 'string' ? r.movedId : null,
     ...(kind === 'habit' ? { habit, progress: Math.max(0, num(r.progress, 0)!) } : {}),

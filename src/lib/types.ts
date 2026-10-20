@@ -64,6 +64,8 @@ export interface Item {
   continued?: boolean;
   /** On the original item when its remainder went to later today. */
   laterCopy?: boolean;
+  /** Not planned before this minute while still to do: a reopened task's rest starts from when it was reopened. */
+  planFrom?: number | null;
   /** Day this item was moved to, and the id of the copy there (for Undo). */
   movedKey?: string | null;
   movedId?: string | null;

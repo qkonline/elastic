@@ -82,6 +82,83 @@ describe('postpone', () => {
     expect(d.items[2]).toMatchObject({ title: 'a', min: 25, continued: true, status: 'todo' });
   });
 
+  it('reopening a task worked on keeps its logged time and continues it from now', () => {
+    // "a" ran 9:00 to 10:00, "b" 10:00 to 10:30; at 11:00 "a" turns out not to be finished.
+    const d0 = day(
+      [
+        t('a', 60, { status: 'done', startedAt: 540, endedAt: 600, goalId: 'g' }),
+        t('b', 30, { status: 'done', startedAt: 600, endedAt: 630 }),
+        t('c', 30),
+      ],
+      { dayStarted: 463 },
+    );
+    const d = A.reopen(d0, 'a', 660);
+    expect(d.items[0]).toMatchObject({ id: 'a', status: 'postponed', startedAt: 540, endedAt: 600, laterCopy: true });
+    // "c" was already missed (planned 10:30 to 11:00), so it stays where it was.
+    expect(d.items.map((i) => i.title)).toEqual(['a', 'b', 'c', 'a']);
+    expect(d.items[3]).toMatchObject({
+      status: 'todo',
+      continued: true,
+      min: A.REOPEN_MIN,
+      goalId: 'g',
+      planFrom: 660,
+    });
+    const rows = schedule(d, 660).rows;
+    // The rest is planned from now, not from where the last task ended.
+    expect(rows.map((r) => [r.start, r.end])).toEqual([
+      [540, 600],
+      [600, 630],
+      [630, 660],
+      [660, 675],
+    ]);
+    expect(isMissed(rows[3], 670)).toBe(false);
+  });
+
+  it('a reopened task goes in front of what is still to come, planned from now', () => {
+    // At 10:40 "c" (planned 10:30 to 11:30) isn't missed yet: the rest goes in front of it.
+    const d0 = day(
+      [
+        t('a', 60, { status: 'done', startedAt: 540, endedAt: 600 }),
+        t('b', 30, { status: 'done', startedAt: 600, endedAt: 630 }),
+        t('c', 60),
+      ],
+      { dayStarted: 540 },
+    );
+    const d = A.reopen(d0, 'a', 640);
+    expect(d.items.map((i) => i.title)).toEqual(['a', 'b', 'a', 'c']);
+    const rows = schedule(d, 640).rows;
+    expect(rows.map((r) => [r.start, r.end])).toEqual([
+      [540, 600],
+      [600, 630],
+      [640, 655],
+      [655, 715],
+    ]);
+    expect(rows[2].gap).toBe(10);
+  });
+
+  it('reopening a task finished early leaves it the time it had left', () => {
+    const d = A.reopen(
+      day([t('a', 60, { status: 'done', startedAt: 540, endedAt: 580 })], { dayStarted: 540 }),
+      'a',
+      600,
+    );
+    expect(d.items[1]).toMatchObject({ title: 'a', min: 20, continued: true });
+  });
+
+  it('reopening a task only marked done, or a check, puts it back in the plan', () => {
+    const d0 = day(
+      [
+        t('a', 30, { status: 'done', startedAt: 540, endedAt: 570, marked: true }),
+        t('k', 0, { kind: 'check', status: 'done', endedAt: 560 }),
+      ],
+      { dayStarted: 540 },
+    );
+    let d = A.reopen(d0, 'a', 600);
+    d = A.reopen(d, 'k', 600);
+    expect(st(d)).toEqual(['a:todo', 'k:todo']);
+    expect(d.items[0]).toMatchObject({ startedAt: null, endedAt: null, marked: false });
+  });
+
   it('moving a not-started item to another day leaves an undoable marker', () => {
     const res = A.moveOut(day([t('a', 30, { subtasks: [{ id: 's', t: 'x', d: true }] })]), 'a', '2026-09-26', 540)!;
     expect(res.day.items[0]).toMatchObject({

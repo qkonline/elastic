@@ -105,7 +105,12 @@ export function schedule(day: Day, n: number): { rows: Row[]; finish: number } {
       plan = end;
       lined = timing = false;
     } else {
-      start = cur;
+      // A reopened task's rest isn't planned before it was reopened.
+      start = Math.max(cur, it.planFrom ?? cur);
+      if (start > cur) {
+        gap = idle(start);
+        plan = Math.max(plan, start);
+      }
       end = start + it.min;
       cur = end;
       plan = timing ? cur : plan + it.min;
