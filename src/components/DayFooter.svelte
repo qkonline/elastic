@@ -174,6 +174,12 @@
     flex-direction: column;
     align-items: center;
   }
+  /* Below End my day, clearing is a section of its own: well apart, behind a rule. */
+  .end + .clear {
+    margin-top: 44px;
+    padding-top: 32px;
+    border-top: 1px solid var(--border);
+  }
   .hint {
     max-width: 34ch;
     font: 400 12px/1.4 var(--font);
