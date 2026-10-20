@@ -78,7 +78,8 @@
     grid-auto-flow: column;
     grid-auto-columns: minmax(0, 1fr);
     gap: 6px;
-    margin-bottom: 8px;
+    /* As much room above End my day as below it, before the clearing section. */
+    margin-bottom: 34px;
   }
   .tile {
     padding: 10px 12px;
