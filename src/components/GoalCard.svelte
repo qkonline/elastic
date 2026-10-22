@@ -354,7 +354,7 @@
   }
   .nums {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
   }
   .nums label {
