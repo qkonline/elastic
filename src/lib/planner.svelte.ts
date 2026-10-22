@@ -1016,6 +1016,8 @@ export class Planner {
 
   closeSheet(): void {
     this.fixBlankTitle();
+    // Closing the account sheet past the passkey offer is a "Not now".
+    if (this.sheet?.type === 'account' && complete(this.session?.user)) this.offerPasskey = false;
     this.sheet = null;
     this.confirm = null;
   }

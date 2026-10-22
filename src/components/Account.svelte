@@ -3,6 +3,7 @@
   import { onMount } from 'svelte';
   import { type AccountInfo, accountsAvailable, passkeysAvailable } from '../lib/account';
   import { planner as P } from '../lib/planner.svelte';
+  import AccountYou from './AccountYou.svelte';
   import DisarmBar from './DisarmBar.svelte';
   import SaveRow from './SaveRow.svelte';
 
@@ -14,8 +15,8 @@
   let info = $state<AccountInfo | null>(null);
   /** Signed out: which step of signing in by code. */
   let step = $state<'email' | 'code'>('email');
-  /** Signed in: changing the name or the email, or (email) waiting for its code. */
-  let editing = $state<'name' | 'email' | 'code' | null>(null);
+  /** Setting up an account from before emails: waiting for the code. */
+  let editing = $state<'code' | null>(null);
   let email = $state('');
   let code = $state('');
   let name = $state('');
@@ -191,59 +192,7 @@
 
     <section class="card">
       <span class="ct">You</span>
-      {#if editing === 'name'}
-        <form class="col" onsubmit={(e) => (e.preventDefault(), saveName())}>
-          <input class="field" autocomplete="name" aria-label="Name" bind:value={name} {@attach (el) => el.focus()} />
-          <SaveRow
-            ok={!!name.trim() && name.trim() !== S.user.name && !P.accountBusy}
-            onsave={saveName}
-            oncancel={() => (editing = null)}
-          />
-        </form>
-      {:else}
-        <div class="line">
-          <span class="lv"><span class="ll">Name</span>{S.user.name}</span>
-          <button
-            class="btn-plain"
-            onclick={() => {
-              name = S.user.name ?? '';
-              editing = 'name';
-            }}>Change</button
-          >
-        </div>
-      {/if}
-      {#if editing === 'email'}
-        <span class="muted">We'll send a code to the new address to confirm it.</span>
-        <form class="col" onsubmit={(e) => (e.preventDefault(), sendChange())}>
-          <input
-            class="field"
-            type="email"
-            autocomplete="email"
-            aria-label="New email"
-            bind:value={email}
-            {@attach (el) => el.focus()}
-          />
-          <SaveRow
-            label="Send code"
-            ok={okEmail && email.trim().toLowerCase() !== S.user.email && !P.accountBusy}
-            onsave={sendChange}
-            oncancel={() => (editing = null)}
-          />
-        </form>
-      {:else if editing === 'code'}
-        {@render codeField('Save', confirmChange, () => (editing = 'email'))}
-      {:else}
-        <div class="line">
-          <span class="lv"><span class="ll">Email</span>{S.user.email}</span>
-          <button
-            class="btn-plain"
-            onclick={() => {
-              email = '';
-              editing = 'email';
-            }}>Change</button
-          >
-        </div>
-      {/if}
+      <AccountYou />
     </section>
 
     <section class="card">
@@ -426,7 +375,6 @@
   .col .field {
     flex: none;
   }
-  .line,
   .keys li {
     display: flex;
     align-items: center;

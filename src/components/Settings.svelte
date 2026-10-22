@@ -7,6 +7,7 @@
   import { pushConfigured } from '../lib/push';
   import { dL, fT, hhmm, hm, keyDate, shortDate } from '../lib/time';
   import { FIXED_LEADS, type ShowTimes, type ThemePref } from '../lib/types';
+  import AccountYou from './AccountYou.svelte';
   import DayShape, { describe, type Shape } from './DayShape.svelte';
   import DisarmBar from './DisarmBar.svelte';
   import SaveRow from './SaveRow.svelte';
@@ -147,6 +148,13 @@
       </div>
     </div>
   </section>
+
+  {#if P.session && !P.needsSetup}
+    <section class="group" aria-label="Your account">
+      <span class="gl">Your account</span>
+      <div class="card g12"><AccountYou notes /></div>
+    </section>
+  {/if}
 
   {#if accountsAvailable() || P.session}
     <section class="group" aria-label="Sync across devices">
