@@ -41,7 +41,7 @@
     if (!list) return;
     full = list.scrollHeight;
     const third = list.children[FOLD_AT - 1] as HTMLElement | undefined;
-    short = third ? third.offsetTop + third.offsetHeight * 0.6 : full;
+    short = third ? third.offsetTop + third.offsetHeight * 0.55 : full;
   }
   $effect(() => {
     if (!list) return;
@@ -68,8 +68,12 @@
     </ul>
   </div>
   {#if can}
-    <button class="more hit" class:over={shut} aria-expanded={!shut} aria-controls={uid} onclick={() => (folded = !folded)}
-      >{shut ? `Show all ${count}` : 'Show fewer'}</button
+    <button
+      class="more hit"
+      class:over={shut}
+      aria-expanded={!shut}
+      aria-controls={uid}
+      onclick={() => (folded = !folded)}>{shut ? `Show all ${count}` : 'Show fewer'}</button
     >
   {/if}
 </section>
@@ -88,8 +92,8 @@
     transition: height 280ms cubic-bezier(0.2, 0.7, 0.2, 1);
   }
   .clip.shut {
-    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 30px), transparent);
-    mask-image: linear-gradient(to bottom, #000 calc(100% - 30px), transparent);
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 34px), transparent 85%);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 34px), transparent 85%);
   }
   .clip.still {
     transition: none;

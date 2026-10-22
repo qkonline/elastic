@@ -33,7 +33,9 @@
   const moved = (key: string) => (shifts[key] ? `translateY(${shifts[key]}px)` : undefined);
 </script>
 
-<div class="thead"><SectionHead icon="timed" title="Timed tasks" tally={tasks.length ? `${done}/${tasks.length}` : ''} /></div>
+<div class="thead">
+  <SectionHead icon="timed" title="Timed tasks" tally={tasks.length ? `${done}/${tasks.length}` : ''} />
+</div>
 <ol
   class="timeline"
   class:no-times={!showTimes}

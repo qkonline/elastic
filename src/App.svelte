@@ -8,7 +8,7 @@
   import ComingUp from './components/ComingUp.svelte';
   import DayFooter from './components/DayFooter.svelte';
   import DayHours from './components/DayHours.svelte';
-  import DayStrip from './components/DayStrip.svelte';
+  import DayTimes from './components/DayTimes.svelte';
   import EmptyState from './components/EmptyState.svelte';
   import HabitSheet from './components/HabitSheet.svelte';
   import Header from './components/Header.svelte';
@@ -183,7 +183,7 @@
             {:else}
               <!-- Before Start my day the plan is dimmed, but stays editable. -->
               <div class="plan" class:waiting={P.startPending}>
-                <DayStrip />
+                <DayTimes />
                 {#if P.settings.habitsPlace === 'separate'}
                   <Checklist mode="habits" />
                   <Checklist mode="checks" />
