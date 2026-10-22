@@ -8,7 +8,7 @@
   // likely done, the day between them as a ribbon of its tasks (each as long as it takes, in its
   // colour; buffers and idle time left clear; done ones faded; a dot for now), and the time
   // worked and left beneath. Tapping a stretch of the ribbon lifts it and says which task it is.
-  // Edit opens the day's hours.
+  // The pencil beside the start opens the day's hours.
   const c24 = $derived(P.settings.clock24);
   const d = $derived(P.planDay);
   const started = $derived(d.dayStarted != null);
@@ -146,20 +146,20 @@
           <span class="l"
             >{#if i === 0}{@render sun()}{/if}{l}{#if i === 1}{@render moon()}{/if}</span
           >
-          <span class="v">{v}</span>
+          <span class="vrow">
+            <span class="v">{v}</span>
+            {#if i === 0 && !P.locked}
+              <button class="edit hit" aria-label="Edit the day's hours" onclick={() => P.openSheet({ type: 'hours' })}>
+                <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"
+                  ><path d="M3.5 16.5l.8-3.9 9.4-9.4a1.6 1.6 0 0 1 2.3 0l.8.8a1.6 1.6 0 0 1 0 2.3l-9.4 9.4z" /><path
+                    class="nib"
+                    d="M12.6 4.2l3.2 3.2"
+                  /></svg
+                >
+              </button>
+            {/if}
+          </span>
         </span>
-        {#if i === 0}
-          {#if !P.locked}
-            <button class="edit hit" aria-label="Edit the day's hours" onclick={() => P.openSheet({ type: 'hours' })}>
-              <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"
-                ><path d="M3.5 16.5l.8-3.9 9.4-9.4a1.6 1.6 0 0 1 2.3 0l.8.8a1.6 1.6 0 0 1 0 2.3l-9.4 9.4z" /><path
-                  class="nib"
-                  d="M12.6 4.2l3.2 3.2"
-                /></svg
-              >Edit
-            </button>
-          {:else}<span></span>{/if}
-        {/if}
       {/each}
     </div>
     {#if segs.length}
@@ -220,7 +220,7 @@
   }
   .top {
     display: grid;
-    grid-template-columns: 1fr auto 1fr;
+    grid-template-columns: 1fr auto;
     align-items: start;
     gap: 10px;
   }
@@ -261,23 +261,26 @@
   .moon {
     stroke: var(--accent);
   }
-  .edit {
-    --hit-y: 7px;
+  .vrow {
     display: flex;
     align-items: center;
-    gap: 5px;
-    height: 30px;
-    padding: 0 9px 0 7px;
+    gap: 6px;
+  }
+  .edit {
+    --hit-x: 8px;
+    --hit-y: 8px;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
     border: none;
     border-radius: var(--r-ctl);
     background: color-mix(in oklab, var(--text) 5%, transparent);
-    color: var(--muted);
-    font: 400 13px/1 var(--font);
     cursor: pointer;
   }
   .edit:hover {
-    color: var(--text);
-    background: color-mix(in oklab, var(--text) 9%, transparent);
+    background: color-mix(in oklab, var(--text) 10%, transparent);
   }
   .edit svg {
     fill: none;
