@@ -77,6 +77,11 @@ export interface Item {
   habitId?: string | null;
   /** A task or habit that counts towards this goal. */
   goalId?: string | null;
+  /**
+   * Work on a Boardo card (see boardo.ts): the card and its board, and the timer session open
+   * while it runs. Such an item has `min: 0`, so it counts up.
+   */
+  card?: { id: string; board: string; session?: string | null };
 }
 
 export interface Day {

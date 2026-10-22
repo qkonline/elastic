@@ -106,7 +106,17 @@ export function normalizeItem(raw: unknown): Item {
     ...(kind === 'habit' ? { habit, progress: Math.max(0, num(r.progress, 0)!) } : {}),
     ...(typeof r.habitId === 'string' && r.habitId ? { habitId: r.habitId } : {}),
     ...(typeof r.goalId === 'string' && r.goalId ? { goalId: r.goalId } : {}),
+    ...(cardLink(r.card) ? { card: cardLink(r.card)! } : {}),
   });
+}
+
+const ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** A link to a Boardo card, checked like the rest of an import. */
+function cardLink(v: unknown): Item['card'] | null {
+  const c = obj(v);
+  if (typeof c.id !== 'string' || !ID.test(c.id) || typeof c.board !== 'string' || !ID.test(c.board)) return null;
+  return { id: c.id, board: c.board, session: typeof c.session === 'string' && ID.test(c.session) ? c.session : null };
 }
 
 export function normalizeDay(raw: unknown): Day | null {

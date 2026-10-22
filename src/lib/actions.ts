@@ -90,6 +90,8 @@ export function startItem(day: Day, id: string, n: number): Day {
   const items = day.items.map((i): Item => {
     if (i.id === id)
       return { ...i, status: 'running', startedAt: n, endedAt: null, pausedAt: null, pausedFor: 0, marked: false };
+    // Work on a Boardo card is never finished by starting something else: it's set aside.
+    if (i.card && isActive(i)) return setAside(i, n);
     if (i.status === 'running') return { ...i, status: 'done', endedAt: n };
     if (i.status === 'paused') {
       const w = i.pausedAt! - i.startedAt! - i.pausedFor;
@@ -153,8 +155,22 @@ export function setProgress(day: Day, id: string, value: number, n: number): Day
 /** "End my day": finish whatever is running or paused, and mark the day as ended. */
 export function endDay(day: Day, n: number): Day {
   const act = activeItem(day);
-  const d = act ? finish(day, act.id, n) : day;
+  const d = act ? (act.card ? mapItem(day, act.id, (i) => setAside(i, n)) : finish(day, act.id, n)) : day;
   return { ...d, dayEnded: n };
+}
+
+/**
+ * A Boardo card's work stopped without finishing it (another task started, the day ended): it
+ * keeps the time worked, as partly done, and the card stays in Projects.
+ */
+export function setAside(i: Item, n: number): Item {
+  const paused = i.status === 'paused';
+  return {
+    ...i,
+    status: 'postponed',
+    endedAt: paused ? i.pausedAt : n,
+    pausedAt: null,
+  };
 }
 
 export function reopenDay(day: Day): Day {

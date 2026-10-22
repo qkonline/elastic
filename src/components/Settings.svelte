@@ -1,5 +1,6 @@
 <script lang="ts">
   import { accountsAvailable } from '../lib/account';
+  import { boardoAvailable } from '../lib/boardo.svelte';
   import { install } from '../lib/install.svelte';
   import { planner as P } from '../lib/planner.svelte';
   import { hasNotifications, needsInstallForNotifications } from '../lib/platform';
@@ -156,6 +157,30 @@
         </span>
         <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M5 3l4 4-4 4" /></svg>
       </button>
+    </section>
+  {/if}
+
+  {#if boardoAvailable()}
+    <section class="card g12" aria-label="Projects">
+      <span class="ct">Projects</span>
+      {#if P.boardo.connected}
+        <span class="muted">
+          Connected to Boardo{P.boardo.account ? ` as ${P.boardo.account.email}` : ''}. Cards assigned to you there show
+          in Projects on the days they're due, and the time you work on them goes back to the card.
+        </span>
+        <div class="row-btns">
+          <button class="btn-plain" onclick={() => P.boardo.refresh()}>Check for new cards</button>
+          <button class="btn-plain" onclick={() => P.boardo.disconnect()}>Disconnect</button>
+        </div>
+      {:else}
+        <span class="muted">
+          Connect Boardo, the shared project boards app, to see the cards assigned to you in your day and time your work
+          on them. This device keeps the connection; it isn't synced.
+        </span>
+        <button class="btn-plain self" disabled={P.boardo.busy} onclick={() => P.boardo.connect()}
+          >Connect Boardo</button
+        >
+      {/if}
     </section>
   {/if}
 
@@ -445,6 +470,11 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
+  }
+  .row-btns {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
   }
   .self {
     align-self: flex-start;

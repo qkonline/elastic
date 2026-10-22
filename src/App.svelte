@@ -22,6 +22,8 @@
   import Settings from './components/Settings.svelte';
   import Sheet from './components/Sheet.svelte';
   import TaskSheet from './components/TaskSheet.svelte';
+  import Projects from './components/Projects.svelte';
+  import ProjectCard from './components/ProjectCard.svelte';
   import Timeline from './components/Timeline.svelte';
   import WeekStrip from './components/WeekStrip.svelte';
   import Welcome from './components/Welcome.svelte';
@@ -123,6 +125,7 @@
     wrapup: 'End your day',
     account: 'Sync across devices',
     reorder: 'Later days',
+    card: 'Project card',
   } as const;
 </script>
 
@@ -175,6 +178,7 @@
             {:else if P.view === 'month'}
               <MonthView />
             {:else if P.day.items.length === 0}
+              <Projects />
               <EmptyState />
             {:else}
               <!-- Before Start my day the plan is dimmed, but stays editable. -->
@@ -186,6 +190,7 @@
                 {:else}
                   <Checklist mode="both" />
                 {/if}
+                <Projects />
                 {#if timed}<Timeline />{/if}
               </div>
             {/if}
@@ -203,7 +208,7 @@
   {#if P.sheet && shownSheet}
     {#key shownSheet.type === 'task' ? 'task-' + shownSheet.id : shownSheet.type}
       <Sheet
-        variant={shownSheet.type === 'add'
+        variant={shownSheet.type === 'add' || shownSheet.type === 'card'
           ? 'form'
           : shownSheet.type === 'hours' ||
               shownSheet.type === 'install' ||
@@ -213,7 +218,9 @@
             : 'full'}
         label={LABELS[shownSheet.type]}
       >
-        {#if shownSheet.type === 'task' && P.item(shownSheet.id)?.kind === 'habit'}
+        {#if shownSheet.type === 'card'}
+          <ProjectCard id={shownSheet.id} />
+        {:else if shownSheet.type === 'task' && P.item(shownSheet.id)?.kind === 'habit'}
           <HabitSheet id={shownSheet.id} />
         {:else if shownSheet.type === 'task'}
           <TaskSheet id={shownSheet.id} />

@@ -73,8 +73,22 @@
   const segs = $derived(isCheck ? [] : stripSegs(P.sch.rows, P.planDay.dayStarted != null));
   const showTimes = $derived(P.settings.showTimes !== 'never');
   const clock = (m: number) => fT(m, P.settings.clock24) + (m >= 1440 ? ' +1' : '');
+  // Work on a Boardo card: which project it's from.
+  const projectName = $derived(
+    it?.card ? (P.boardo.cards.find((c) => c.id === it.card!.id)?.board.name ?? null) : null,
+  );
   const kindName = $derived(
-    !it ? '' : isCheck ? 'Check' : it.kind === 'buffer' ? 'Buffer' : it.kind === 'fixed' ? 'Fixed time' : 'Task',
+    !it
+      ? ''
+      : it.card
+        ? `Project card${projectName ? `, ${projectName}` : ''}`
+        : isCheck
+          ? 'Check'
+          : it.kind === 'buffer'
+            ? 'Buffer'
+            : it.kind === 'fixed'
+              ? 'Fixed time'
+              : 'Task',
   );
   const standing = $derived.by(() => {
     if (!v || !it) return '';
@@ -114,8 +128,9 @@
               <span class="count" style:color={v.countColor}>{v.count}</span>
               <span class="tsub">
                 {v.s === 'paused'
-                  ? `${v.countSub} · worked ${dL(v.w)} of ${dL(it.min)}`
-                  : `worked ${dL(v.w)} of ${dL(it.min)}` + (v.pausedTot >= 0.5 ? ` · paused ${dL(v.pausedTot)}` : '')}
+                  ? `${v.countSub} · worked ${dL(v.w)}${it.card ? '' : ` of ${dL(it.min)}`}`
+                  : `worked ${dL(v.w)}${it.card ? '' : ` of ${dL(it.min)}`}` +
+                    (v.pausedTot >= 0.5 ? ` · paused ${dL(v.pausedTot)}` : '')}
               </span>
             </div>
             <span class="badge">{v.s === 'paused' ? '‖ Paused' : v.isOver ? 'Over time' : 'Running'}</span>
@@ -140,7 +155,10 @@
               <button class="ctl done" aria-label="Done {it.title}" onclick={() => P.done(id)}
                 ><span class="g">✓</span>Done</button
               >
-              <button class="ctl ghost" aria-label="Postpone {it.title}" onclick={() => P.arm('postpone', id)}
+              <button
+                class="ctl ghost"
+                aria-label="Postpone {it.title}"
+                onclick={() => (it.card ? P.setAside(id) : P.arm('postpone', id))}
                 ><span class="g">↷</span>Postpone</button
               >
             </div>

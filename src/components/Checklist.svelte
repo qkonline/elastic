@@ -6,6 +6,7 @@
   import { hueColor, inkOn, type Item } from '../lib/types';
   import Collapsible from './Collapsible.svelte';
   import HabitRow from './HabitRow.svelte';
+  import SectionHead from './SectionHead.svelte';
 
   // The day's untimed entries: checks (tasks with no duration, ticked off) and habits, kept out
   // of the timeline. Habits sit among the checks in the Checklist, or in a Habits section of
@@ -37,6 +38,8 @@
         ? 'Checklist + Habits'
         : 'Checklist',
   );
+
+  const icon = $derived(title === 'Habits' ? 'habits' : 'checks');
 
   let list: HTMLUListElement | null = $state(null);
 
@@ -102,10 +105,7 @@
 
 {#if entries.length && row}
   <section class="rowsec {mode === 'habits' ? 'habits' : 'checklist'}" aria-label={title}>
-    <div class="rhead">
-      <h2>{title}</h2>
-      <span class="count">{done} of {entries.length}</span>
-    </div>
+    <div class="rhead"><SectionHead {icon} {title} tally="{done}/{entries.length}" /></div>
     <ul class="chips" bind:this={list} data-no-swipe>
       {#each entries as { it, idx } (it.id)}
         {@render entry(it, idx, false)}
@@ -117,13 +117,11 @@
     id={mode}
     label={title}
     count={entries.length}
+    {icon}
+    tally="{done}/{entries.length}"
     kind={mode === 'habits' ? 'habits' : 'checklist'}
     bind:list
   >
-    {#snippet head()}
-      <h2>{title}</h2>
-      <span class="count">{done}/{entries.length}</span>
-    {/snippet}
     {#snippet children(shut)}
       {#each entries as { it, idx }, i (it.id)}
         {@render entry(it, idx, shut && i >= 3)}
@@ -133,15 +131,6 @@
 {/if}
 
 <style>
-  h2 {
-    flex: 1;
-    margin: 0;
-    font: 400 15px/1.3 var(--font);
-  }
-  .count {
-    font: 400 13px/1 var(--font);
-    color: var(--muted);
-  }
   li {
     display: flex;
     align-items: center;
@@ -220,14 +209,7 @@
     margin: 14px 0 0;
   }
   .rhead {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    padding: 0 calc(var(--px) + 4px) 8px;
-  }
-  .rhead h2 {
-    font-size: 13px;
-    color: var(--muted);
+    padding: 0 var(--px) 8px;
   }
   .chips {
     position: relative; /* entries measure their place (offsetLeft) from the row */

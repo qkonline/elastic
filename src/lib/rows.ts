@@ -94,7 +94,8 @@ export function itemVM(r: Row, c: Ctx): ItemVM {
   const frac = Math.max(0, Math.min(1, w / it.min));
   const p = Math.round(frac * 100);
   const active = isActive(it);
-  const isOver = active && w >= it.min;
+  // Work on a Boardo card has no length: it counts up and is never over time.
+  const isOver = active && !it.card && w >= it.min;
   const pausedTot = pausedTotal(it, n);
   const h = capHeight(it.min);
 
@@ -108,7 +109,7 @@ export function itemVM(r: Row, c: Ctx): ItemVM {
   }
   if (r.pastEnd) capBorder = '1.5px dashed #f87171';
   if (missed) capBorder = '1.5px dashed #eab308';
-  if (s === 'running') capBg = isOver ? '#f87171' : workedFill(hue, p);
+  if (s === 'running') capBg = it.card ? hue : isOver ? '#f87171' : workedFill(hue, p);
   if (s === 'paused') capBg = workedFill('var(--muted)', p);
 
   let sub: string | null = null,
@@ -126,6 +127,7 @@ export function itemVM(r: Row, c: Ctx): ItemVM {
         ? 'Moved to ' + shortDate(keyDate(it.movedKey))
         : 'Moved to tomorrow';
   }
+  if (it.card && s === 'postponed') sub = `worked ${dL(w)} · set aside`;
   if (active && pausedTot >= 0.5) sub = `worked ${dL(w)} · paused ${dL(pausedTot)}`;
   else if (s === 'running' && isOver) {
     sub = 'running ' + dL(w);
@@ -170,9 +172,9 @@ export function itemVM(r: Row, c: Ctx): ItemVM {
     mutedT: ['done', 'skipped', 'postponed'].includes(s) || it.kind === 'buffer',
     sub,
     subTone,
-    count: active ? (leftS >= 0 ? cd(leftS) : '+' + cd(-leftS)) : null,
+    count: active ? (it.card ? cd(w * 60) : leftS >= 0 ? cd(leftS) : '+' + cd(-leftS)) : null,
     countColor: s === 'paused' ? 'var(--muted)' : isOver ? 'var(--redT)' : RUN_T,
-    countSub: s === 'paused' ? 'Paused ' + (pl < 1 ? Math.floor(pl * 60) + 's' : dL(pl)) : null,
+    countSub: s === 'paused' ? 'Paused ' + (pl < 1 ? Math.floor(pl * 60) + 's' : dL(pl)) : it.card ? 'so far' : null,
     flags,
     badges,
     t1: t ? fTs(r.start, c.clock24) : null,

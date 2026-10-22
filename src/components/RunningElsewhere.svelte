@@ -5,7 +5,9 @@
 
   // A timer left running (or paused) on another day, e.g. started last night.
   const e = $derived(P.elsewhere);
-  const left = $derived(e ? (e.it.min - worked(e.it, minutesInto(e.key, P.clock))) * 60 : 0);
+  const w = $derived(e ? worked(e.it, minutesInto(e.key, P.clock)) : 0);
+  // Work on a Boardo card counts up; anything else counts down to its time's up.
+  const left = $derived(e ? (e.it.card ? w * 60 : (e.it.min - w) * 60) : 0);
   // Planning another day while today's timer runs, or a timer left going on an earlier day.
   const status = $derived.by(() => {
     if (!e) return '';

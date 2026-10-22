@@ -1,24 +1,27 @@
 <script lang="ts">
   import { type Snippet, untrack } from 'svelte';
   import { reducedMotion } from '../lib/ui.svelte';
+  import SectionHead from './SectionHead.svelte';
 
-  // A list section on the day (Checklist, Habits) that folds away once it has more than three
-  // entries. Folded, the first three stay in view with the third fading out, so it's plain there
-  // is more. Each section remembers on this device whether it was folded.
+  // A list section on the day (Checklist, Habits, Projects) under its title bar. Past three
+  // entries it's folded: the first three stay in view with the third fading out into a Show all
+  // button. It always opens folded; Show all opens it until the next time it's shown.
   let {
     id,
     label,
+    icon,
+    tally = '',
     count,
-    head,
     children,
     list = $bindable(null),
     kind = '',
   }: {
-    /** Remembered under this name. */
     id: string;
     label: string;
+    icon: 'checks' | 'habits' | 'projects';
+    /** "1/5": how many are done. */
+    tally?: string;
     count: number;
-    head: Snippet;
     /** The entries, as <li>s. `folded`: entries past the third are out of view. */
     children: Snippet<[boolean]>;
     list?: HTMLUListElement | null;
@@ -26,28 +29,10 @@
     kind?: string;
   } = $props();
 
-  // Each section is keyed by its id, which never changes while it's on screen.
-  const KEY = untrack(() => `elastic-day:folded:${id}`);
   const FOLD_AT = 3;
-  function read(): boolean {
-    try {
-      return localStorage.getItem(KEY) === '1';
-    } catch {
-      return false;
-    }
-  }
-  let folded = $state(read());
+  let folded = $state(true);
   const can = $derived(count > FOLD_AT);
   const shut = $derived(can && folded);
-
-  function toggle() {
-    folded = !folded;
-    try {
-      localStorage.setItem(KEY, folded ? '1' : '0');
-    } catch {
-      /* storage blocked: it just won't be remembered */
-    }
-  }
 
   // The folded height ends partway down the third entry; the open height fits them all.
   let full = $state(0);
@@ -70,22 +55,7 @@
 </script>
 
 <section class="sec {kind}" aria-label={label}>
-  <div class="head">
-    {@render head()}
-    {#if can}
-      <button
-        class="chev hit"
-        aria-expanded={!shut}
-        aria-controls={uid}
-        aria-label={shut ? `Show all ${count}` : 'Show fewer'}
-        onclick={toggle}
-      >
-        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" class:up={!shut}
-          ><path d="M4 6l4 4 4-4" /></svg
-        >
-      </button>
-    {/if}
-  </div>
+  <SectionHead {icon} title={label} {tally} inset />
   <div
     class="clip"
     class:shut
@@ -98,50 +68,20 @@
     </ul>
   </div>
   {#if can}
-    <button class="more" onclick={toggle}>{shut ? `Show all ${count}` : 'Show fewer'}</button>
+    <button class="more hit" class:over={shut} aria-expanded={!shut} aria-controls={uid} onclick={() => (folded = !folded)}
+      >{shut ? `Show all ${count}` : 'Show fewer'}</button
+    >
   {/if}
 </section>
 
 <style>
   .sec {
+    display: flex;
+    flex-direction: column;
     margin: 14px var(--px) 2px;
-    padding: 12px 14px 6px 16px;
+    padding-bottom: 6px;
     border-radius: var(--r-card);
     background: var(--raised);
-  }
-  .head {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding-bottom: 4px;
-    min-height: 28px;
-  }
-  .chev {
-    --hit-x: 12px;
-    --hit-y: 10px;
-    width: 28px;
-    height: 28px;
-    margin: -4px -6px -4px 0;
-    padding: 0;
-    border: none;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--muted);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-  }
-  .chev svg {
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.5;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    transition: transform 240ms ease;
-  }
-  .chev svg.up {
-    transform: rotate(180deg);
   }
   .clip {
     overflow: hidden;
@@ -158,26 +98,31 @@
     position: relative; /* rows measure their place (offsetTop) from the list */
     list-style: none;
     margin: 0;
-    padding: 0;
+    padding: 2px 14px 0 16px;
   }
+  /* A soft key under the list; folded, it sits on the faded tail of the third entry. */
   .more {
-    display: block;
-    width: 100%;
-    height: 40px;
-    margin-top: 2px;
+    --hit-y: 6px;
+    position: relative;
+    align-self: center;
+    height: 32px;
+    margin: 4px 0 6px;
+    padding: 0 14px;
     border: none;
-    background: transparent;
-    color: var(--muted);
-    font: 400 13px/1 var(--font);
+    border-radius: var(--r-ctl);
+    background: color-mix(in oklab, var(--text) 8%, var(--raised));
+    color: var(--text);
+    font: 500 13px/1 var(--font);
     cursor: pointer;
-    text-align: center;
+  }
+  .more.over {
+    margin-top: -14px;
   }
   .more:hover {
-    color: var(--text);
+    background: color-mix(in oklab, var(--text) 13%, var(--raised));
   }
   @media (prefers-reduced-motion: reduce) {
-    .clip,
-    .chev svg {
+    .clip {
       transition: none;
     }
   }

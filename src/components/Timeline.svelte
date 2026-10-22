@@ -1,8 +1,10 @@
 <script lang="ts">
   import { planner as P } from '../lib/planner.svelte';
   import { dragShifts, timelineRows } from '../lib/rows';
+  import { untimed } from '../lib/types';
   import ItemRow from './ItemRow.svelte';
   import NowLine from './NowLine.svelte';
+  import SectionHead from './SectionHead.svelte';
 
   let listEl: HTMLOListElement | null = $state(null);
 
@@ -21,9 +23,17 @@
   );
   // While a task is dragged, the rows between its old and new place slide to open a gap.
   const shifts = $derived(dragShifts(rows, P.drag, P.day.items.length));
+  // The title bar's count: the day's timed tasks (not buffers, nor ones skipped or moved off).
+  const tasks = $derived(
+    P.day.items.filter(
+      (i) => !untimed(i.kind) && i.kind !== 'buffer' && i.status !== 'skipped' && i.status !== 'postponed',
+    ),
+  );
+  const done = $derived(tasks.filter((i) => i.status === 'done').length);
   const moved = (key: string) => (shifts[key] ? `translateY(${shifts[key]}px)` : undefined);
 </script>
 
+<div class="thead"><SectionHead icon="timed" title="Timed tasks" tally={tasks.length ? `${done}/${tasks.length}` : ''} /></div>
 <ol
   class="timeline"
   class:no-times={!showTimes}
@@ -47,6 +57,9 @@
 </ol>
 
 <style>
+  .thead {
+    margin: 14px var(--px) 0;
+  }
   .timeline {
     position: relative;
     list-style: none;

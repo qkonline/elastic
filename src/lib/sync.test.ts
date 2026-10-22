@@ -132,6 +132,8 @@ beforeEach(() => {
   vi.stubGlobal('WebSocket', FakeSocket);
   // Two devices in one process mustn't hear each other's tab messages.
   vi.stubGlobal('BroadcastChannel', undefined);
+  // Nor share one tab lock (Node 24 has navigator.locks): each device leads its own sync.
+  vi.stubGlobal('navigator', { locks: undefined, onLine: true });
 });
 
 afterEach(() => {

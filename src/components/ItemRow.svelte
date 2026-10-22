@@ -3,6 +3,7 @@
   import { planner as P } from '../lib/planner.svelte';
   import type { ItemVM } from '../lib/rows';
   import { dL } from '../lib/time';
+  import { hueColor, inkOn } from '../lib/types';
   import { desktop } from '../lib/ui.svelte';
   import NowLine from './NowLine.svelte';
   import FinishChooser from './FinishChooser.svelte';
@@ -37,13 +38,13 @@
       return [
         { g: '‖', l: 'Pause', on: () => P.pause(id) },
         { g: '✓', l: 'Done', k: 'done', on: () => P.done(id) },
-        { g: '↷', l: 'Postpone', k: 'ghost', on: () => P.arm('postpone', id) },
+        { g: '↷', l: 'Postpone', k: 'ghost', on: () => (it.card ? P.setAside(id) : P.arm('postpone', id)) },
       ];
     if (v.s === 'paused')
       return [
         { g: '▶', l: 'Resume', k: 'primary', on: () => P.resume(id) },
         { g: '✓', l: 'Done', k: 'done', on: () => P.done(id) },
-        { g: '↷', l: 'Postpone', k: 'ghost', on: () => P.arm('postpone', id) },
+        { g: '↷', l: 'Postpone', k: 'ghost', on: () => (it.card ? P.setAside(id) : P.arm('postpone', id)) },
       ];
     return null;
   });
@@ -109,7 +110,9 @@
 
   <div class="content" {@attach holdToDrag}>
     <div class="meta">
-      <button class="dur hit" style:--hit-x="4px" style:--hit-y="12px" onclick={open}>{dL(it.min)}</button>
+      <button class="dur hit" style:--hit-x="4px" style:--hit-y="12px" onclick={open}
+        >{it.card ? 'Project' : dL(it.min)}</button
+      >
       {#if v.sub}<span style:color={v.subTone}>{v.sub}</span>{/if}
       {#if v.fixedNow}
         <!-- Moved by the tasks before it: the time it was set for, and where it is now. -->
@@ -155,7 +158,13 @@
       >
     {/if}
     {#if v.aCheck}
-      <button class="check hit" aria-label="Reopen {it.title}" onclick={() => P.reopen(id)}>✓</button>
+      <button
+        class="check hit"
+        aria-label="Reopen {it.title}"
+        style:--c={hueColor(it.hue)}
+        style:--ink={inkOn(it.hue)}
+        onclick={() => P.reopen(id)}>✓</button
+      >
     {/if}
     {#if v.aRestore}
       <button class="restore hit" style:--hit-y="4px" onclick={() => P.restore(id)}>{v.restoreLabel}</button>
@@ -483,8 +492,8 @@
     margin: 2px 4px 0 0;
     border-radius: var(--r-ctl);
     border: none;
-    background: #84cc16;
-    color: #1a2e05;
+    background: var(--c);
+    color: var(--ink);
     display: flex;
     align-items: center;
     justify-content: center;

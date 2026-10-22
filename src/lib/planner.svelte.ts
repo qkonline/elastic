@@ -6,6 +6,7 @@ import * as api from './account';
 import { API, ApiError, cancelled, type Session, type SignedIn } from './account';
 import { chime, notifyHidden, requestNotifications, unlockAudio, unlockOnFirstGesture, vibrate } from './alert';
 import { download, parseBackup } from './backup';
+import { Boardo, type BoardoCard, type BoardoOp, cardsFor } from './boardo.svelte';
 import * as db from './db';
 import { hasNotifications, needsInstallForNotifications } from './platform';
 import { cancelPush, preparePush, pushEndpoint, schedulePush, unsubscribePush } from './push';
@@ -45,7 +46,7 @@ import { Sync, type SyncStatus } from './sync';
 import { activeDayKey } from './today';
 import { newBuildOut, reloadToUpdate } from './update';
 import type { Day, Goal, Habit, Hue, Item, Kind, Review, Series, Settings } from './types';
-import { DEFAULT_SETTINGS, untimed } from './types';
+import { DEFAULT_SETTINGS, isHue, untimed } from './types';
 
 /** The full-screen moment after Start my day or End my day. */
 export type Celebration =
@@ -71,7 +72,8 @@ export type Sheet =
   | { type: 'install' }
   | { type: 'wrapup' }
   | { type: 'account' }
-  | { type: 'reorder'; id: string; anchor: string; dir: 'up' | 'down' };
+  | { type: 'reorder'; id: string; anchor: string; dir: 'up' | 'down' }
+  | { type: 'card'; id: string };
 export type ConfirmType =
   'postpone' | 'delete' | 'clear' | 'erase' | 'sample' | 'finish' | 'signout' | 'unaccount' | 'goal';
 /** Running this far over before Done asks when it was really finished (minutes). */
@@ -200,6 +202,14 @@ export class Planner {
 
   day: Day = $derived(this.days[this.viewKey] ?? this.blankDay(this.viewKey));
   isToday = $derived(this.viewKey === this.today);
+  /** The link to Boardo: project cards assigned to me, and the time I work on them. */
+  boardo = new Boardo(db, (m) => this.say(m));
+  /** Project cards from Boardo on the day on screen still to work on: they need the day started too. */
+  private projectsToStart = $derived(
+    this.boardo.connected &&
+      this.boardo.boards > 0 &&
+      cardsFor(this.viewKey, this.boardo.cards, this.today).some((r) => !r.ticked),
+  );
   /** Ticking a check or starting a timer waits for Start my day. Earlier days are history and never wait. */
   waiting = $derived(this.day.dayStarted == null && this.viewKey >= this.today);
   /** An ended day is a record: it can be looked at but not changed (Today's can be reopened). */
@@ -230,7 +240,7 @@ export class Planner {
   startPending = $derived(
     this.isToday &&
       this.day.dayStarted == null &&
-      this.day.items.some((i) => i.status === 'todo' && i.kind !== 'buffer'),
+      (this.day.items.some((i) => i.status === 'todo' && i.kind !== 'buffer') || this.projectsToStart),
   );
   /** First visit: show the welcome until it's been completed or skipped. */
   showWelcome = $derived(this.ready && !this.settings.onboarded);
@@ -323,6 +333,7 @@ export class Planner {
       return;
     }
     this.iv = setInterval(() => this.tick(), 250);
+    void this.boardo.init();
     const session = await db.getMeta<Session>('account').catch(() => undefined);
     if (session) {
       this.session = session;
@@ -400,7 +411,8 @@ export class Planner {
     const out: { at: number; note: Note }[] = [];
     for (const d of Object.values(this.days)) {
       const it = d.items.find((i) => i.status === 'running');
-      if (!it || this.alerted.has(it.id)) continue;
+      // Work on a Boardo card counts up, with no time's up.
+      if (!it || it.card || this.alerted.has(it.id)) continue;
       const left = it.min - worked(it, minutesInto(d.key, now));
       if (left > 0)
         out.push({ at: now + left * 60000, note: { title: "Time's up", body: it.title, tag: 'timer-' + it.id } });
@@ -474,6 +486,7 @@ export class Planner {
     for (const t of this.seriesTimers.values()) clearTimeout(t);
     this.bc?.close();
     this.sync.stop();
+    this.boardo.destroy();
   }
 
   tick(): void {
@@ -490,7 +503,7 @@ export class Planner {
     }
     for (const d of Object.values(this.days)) {
       for (const it of d.items) {
-        if (it.status !== 'running') continue;
+        if (it.status !== 'running' || it.card) continue;
         const over = worked(it, minutesInto(d.key, this.clock)) >= it.min;
         // Lengthening a task that already rang arms its alert again.
         if (!over) {
@@ -591,11 +604,87 @@ export class Planner {
   dayAt = (key: string): Day | undefined => this.days[key] ?? this.past[key];
 
   private put(day: Day): void {
+    day = this.cardOps(this.days[day.key], day);
     this.days = { ...this.days, [day.key]: day };
     this.stored.add(day.key);
     this.pending.add(day.key);
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => void this.flush(), SAVE_DELAY);
+  }
+
+  /**
+   * Work on Boardo cards that started, stopped, finished or reopened in this change goes to
+   * Boardo (R8.22 to R8.27): a start opens a timer session (its id kept on the item while it
+   * runs), anything that stops it closes the session, and Done marks my part done. Only changes
+   * made here pass through, so another device's changes, synced in, never send twice.
+   */
+  private cardOps(prev: Day | undefined, next: Day): Day {
+    if (!this.boardo.connected) return next;
+    const before = new Map((prev?.items ?? []).filter((i) => i.card).map((i) => [i.id, i]));
+    const ops: Omit<BoardoOp, 'id'>[] = [];
+    const now = Date.now();
+    const at = (m: number | null) => (m == null ? now : Math.min(now, atMinutes(next.key, m)));
+    let items = next.items;
+    next.items.forEach((it, idx) => {
+      if (!it.card) return;
+      const was = before.get(it.id);
+      before.delete(it.id);
+      const base = { board: it.card.board, cardId: it.card.id };
+      const wasRunning = was?.status === 'running';
+      const running = it.status === 'running';
+      let cur = it;
+      if (wasRunning && !running && was!.card?.session) {
+        const end = it.status === 'paused' ? it.pausedAt : it.endedAt;
+        ops.push({ ...base, type: 'stop', sessionId: was!.card.session, at: at(end) });
+        cur = { ...cur, card: { ...it.card, session: null } };
+      }
+      if (!wasRunning && running) {
+        const session = A.uid().replace(/[^A-Za-z0-9_-]/g, '');
+        ops.push({ ...base, type: 'start', sessionId: session, at: now });
+        cur = { ...cur, card: { ...it.card, session } };
+      }
+      if (it.status === 'done' && was?.status !== 'done')
+        ops.push({ ...base, type: 'done', sessionId: 'done', at: at(it.endedAt) });
+      if (was?.status === 'done' && it.status !== 'done')
+        ops.push({ ...base, type: 'undone', sessionId: 'done', at: now });
+      if (cur !== it) {
+        if (items === next.items) items = [...next.items];
+        items[idx] = cur;
+      }
+    });
+    // Deleted while running: the session closes.
+    for (const gone of before.values())
+      if (gone.status === 'running' && gone.card?.session)
+        ops.push({ board: gone.card.board, cardId: gone.card.id, type: 'stop', sessionId: gone.card.session, at: now });
+    if (ops.length) void this.boardo.send(ops);
+    return items === next.items ? next : { ...next, items };
+  }
+
+  /**
+   * Start work on a Boardo card from Projects: a task with no length (it counts up), at the
+   * current point, like any task started. A card already going here is resumed or opened.
+   */
+  startCard(c: BoardoCard): void {
+    if (!this.isToday) return;
+    if (this.waiting) return this.askToStartDay('timer');
+    const going = this.day.items.find((i) => i.card?.id === c.id && isActive(i));
+    if (going) {
+      if (going.status === 'paused') this.resume(going.id);
+      else this.openSheet({ type: 'task', id: going.id });
+      return;
+    }
+    const hue: Hue = c.board.hue === 'rose' ? 'orange' : isHue(c.board.hue) ? (c.board.hue as Hue) : 'cyan';
+    const it = A.newItem({ title: c.title, min: 0, kind: 'task', hue, card: { id: c.id, board: c.board.id } });
+    this.update((d) => A.addItem(d, it, this.n));
+    this.startItem(it.id);
+  }
+
+  /** Stop work on a card without finishing it: Postpone, for a card. */
+  setAside(id: string): void {
+    const it = this.item(id);
+    if (!it?.card) return;
+    this.confirm = null;
+    this.update((d) => A.patchItem(d, id, A.setAside(it, this.n)), `${it.title} set aside`);
   }
 
   async flush(): Promise<void> {
@@ -1103,7 +1192,9 @@ export class Planner {
     const left = Math.max(0, (it.min - worked(it, this.n)) * 60);
     this.update(
       (d) => A.pause(d, id, this.n),
-      `${it.title} paused, ${Math.floor(left / 60)} minutes ${Math.floor(left % 60)} seconds left`,
+      it.card
+        ? `${it.title} paused`
+        : `${it.title} paused, ${Math.floor(left / 60)} minutes ${Math.floor(left % 60)} seconds left`,
     );
   }
 
@@ -1123,7 +1214,7 @@ export class Planner {
    */
   done(id: string): void {
     const it = this.item(id);
-    if (it && isActive(it) && worked(it, this.n) - it.min >= ASK_FINISH_OVER) this.arm('finish', id);
+    if (it && !it.card && isActive(it) && worked(it, this.n) - it.min >= ASK_FINISH_OVER) this.arm('finish', id);
     else this.finish(id);
   }
 
