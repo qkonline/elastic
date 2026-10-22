@@ -1,6 +1,8 @@
 // Elastic service worker. Generated into dist/sw.js at build time (see vite.config.ts),
 // which fills in the cache version, the build's file list and the worker's address.
-// Pages: network first, falling back to the cached copy offline. Build files: cache first.
+// The app page opens from the cache first, so Elastic opens at once whatever the network is
+// doing; a newer build is noticed by the page (version.json, src/lib/update.ts), which reloads
+// with ?fresh to get it from the network. Other pages: network first. Build files: cache first.
 
 const CACHE = 'elastic-day-__VERSION__';
 const ASSETS = __ASSETS__;
@@ -32,17 +34,11 @@ self.addEventListener('fetch', (e) => {
   if (req.mode === 'navigate') {
     // Only the app page itself is stored as the offline shell, never some other file opened in a tab.
     const isShell = url.pathname === scope.pathname || url.pathname === scope.pathname + 'index.html';
-    e.respondWith(
-      fetch(req)
-        .then((res) => {
-          if (isShell && res.ok && (res.headers.get('content-type') || '').includes('text/html')) {
-            const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put('./', copy));
-          }
-          return res;
-        })
-        .catch(() => caches.match(isShell ? './' : req).then((hit) => hit || caches.match('./'))),
-    );
+    if (isShell && !url.searchParams.has('fresh')) {
+      e.respondWith(caches.match('./').then((hit) => hit || fromNetwork(req, true)));
+      return;
+    }
+    e.respondWith(fromNetwork(req, isShell));
     return;
   }
 
@@ -60,6 +56,19 @@ self.addEventListener('fetch', (e) => {
     ),
   );
 });
+
+/** A page from the network (the app page is kept as the shell), or the cached shell offline. */
+function fromNetwork(req, isShell) {
+  return fetch(req)
+    .then((res) => {
+      if (isShell && res.ok && (res.headers.get('content-type') || '').includes('text/html')) {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put('./', copy));
+      }
+      return res;
+    })
+    .catch(() => caches.match(isShell ? './' : req).then((hit) => hit || caches.match('./')));
+}
 
 // Time's up, or a fixed-time task coming up, while the app is closed or in the background.
 // The push worker sends an empty push at each moment the app booked, and what to say comes

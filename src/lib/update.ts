@@ -2,6 +2,8 @@
 // without reloading, so it would keep running an old build. The page knows its own build (a
 // meta tag written at build time, see vite.config.ts) and asks the server for the current one
 // (version.json, never cached); the store reloads when they differ (see Planner.checkForUpdate).
+// The service worker opens the app from its cache, so this is also how a new build arrives at
+// all: the app asks as soon as it opens, and reloads for it at the first quiet moment.
 
 const BUILD =
   typeof document === 'undefined'
@@ -21,12 +23,24 @@ export async function newBuildOut(): Promise<boolean> {
   }
 }
 
-/** Fetch the new service worker too, then load the page again from the server. */
+/**
+ * Fetch the new service worker too, then load the page again from the server. The service worker
+ * opens the app from its cache, so `?fresh` asks it for the network's copy this once.
+ */
 export async function reloadToUpdate(): Promise<void> {
   try {
     await (await navigator.serviceWorker?.getRegistration())?.update();
   } catch {
     /* the reload still gets the new page */
   }
-  location.reload();
+  const url = new URL(location.href);
+  url.searchParams.set('fresh', String(Date.now()));
+  location.replace(url.href);
+}
+
+// The address after such a reload loses its ?fresh again.
+if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('fresh')) {
+  const url = new URL(location.href);
+  url.searchParams.delete('fresh');
+  history.replaceState(history.state, '', url.href);
 }

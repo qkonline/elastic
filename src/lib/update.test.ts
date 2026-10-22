@@ -1,5 +1,6 @@
-// Picking up a newer build: asked for on coming back to the app (at most hourly), and the
-// reload waits until nothing is open on screen.
+// Picking up a newer build: asked for as the app opens (it opens from the service worker's
+// cache) and on coming back to it (at most hourly), and the reload waits until nothing is open
+// on screen.
 
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -36,12 +37,28 @@ beforeEach(async () => {
 afterEach(() => vi.useRealTimers());
 
 describe('newer builds', () => {
-  it('does not ask again within the hour', async () => {
+  it('asks as the app opens, and not again within the hour', async () => {
+    newer = false;
     const p = await boot();
+    await settle();
+    expect(newBuildOut).toHaveBeenCalledOnce();
     vi.setSystemTime(new Date(2026, 8, 25, 10, 30));
     (p as unknown as Lifecycle).onVisible();
     await settle();
-    expect(newBuildOut).not.toHaveBeenCalled();
+    expect(newBuildOut).toHaveBeenCalledOnce();
+    p.destroy();
+  });
+
+  it('takes a newer build as soon as the app opens, when nothing is under way', async () => {
+    newer = false;
+    (await boot()).destroy(); // a first visit: past the welcome
+    await settle();
+    vi.clearAllMocks();
+    newer = true;
+    const p = new Planner();
+    await p.init();
+    await settle();
+    expect(reloadToUpdate).toHaveBeenCalledOnce();
     p.destroy();
   });
 
