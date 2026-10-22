@@ -51,11 +51,14 @@
     await tick();
     input?.select();
   }
+  // The number typed in is only kept on Save (or Enter).
+  // (A number field's binding gives a number, or null when it's empty.)
+  const typed = $derived(draft === '' || draft == null ? NaN : Number(draft));
+  const changed = $derived(Number.isFinite(typed) && typed !== (it.progress ?? 0));
   function save() {
     if (!editing) return;
     editing = false;
-    const v = Number(draft);
-    if (Number.isFinite(v) && v !== (it.progress ?? 0)) P.setHabitProgress(it.id, v);
+    if (changed) P.setHabitProgress(it.id, typed);
   }
 
   function down(e: PointerEvent) {
@@ -130,10 +133,11 @@
         inputmode="numeric"
         min="0"
         aria-label={h.type === 'time' ? 'Minutes added by hand' : `How many ${h.unit || 'times'}`}
-        onblur={save}
         onkeydown={(e) => e.key === 'Escape' && ((editing = false), e.stopPropagation())}
       />
       <span class="unit">{h.type === 'time' ? 'min by hand' : h.unit || 'times'}</span>
+      <button type="submit" class="esave" class:ok={changed}>Save</button>
+      <button type="button" class="ecancel" aria-label="Cancel" onclick={() => (editing = false)}>×</button>
     </form>
   {:else if sofar || h.per !== 'day' || runText}
     <span class="meta">
@@ -246,6 +250,31 @@
     color: var(--text);
     font: 400 16px/1 var(--font);
     box-sizing: border-box;
+  }
+  .esave {
+    height: 34px;
+    padding: 0 12px;
+    border: none;
+    border-radius: var(--r-ctl);
+    background: var(--sunk);
+    color: var(--faint);
+    font: 400 13px/1 var(--font);
+    cursor: pointer;
+  }
+  .esave.ok {
+    background: var(--text);
+    color: var(--bg);
+    font-weight: 500;
+  }
+  .ecancel {
+    width: 34px;
+    height: 34px;
+    margin-left: -4px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font: 400 18px/1 var(--font);
+    cursor: pointer;
   }
   .unit {
     font: 400 13px/1 var(--font);

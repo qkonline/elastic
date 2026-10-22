@@ -3,6 +3,7 @@
   import { addQuarters, quarterLabel, quarterRange } from '../lib/goals';
   import { planner as P } from '../lib/planner.svelte';
   import { dayDiff } from '../lib/time';
+  import type { Goal } from '../lib/types';
   import GoalCard from './GoalCard.svelte';
   import ScreenHeader from './ScreenHeader.svelte';
 
@@ -11,12 +12,13 @@
   const current = $derived(P.quarterOf(P.today));
   const quarterEnd = (q: string) => quarterRange(q)[1];
   let quarter = $state(untrack(() => start) ?? P.quarterOf(P.today));
-  // A goal added and left without a name goes when you leave the screen.
+  // A goal left without a name (only older versions could store one) goes when you leave the screen.
   onDestroy(() => {
     for (const g of P.goals) if (!g.title.trim()) void P.removeGoal(g.id);
   });
   const goals = $derived(P.goals.filter((g) => g.quarter === quarter).sort((a, b) => a.order - b.order));
-  let fresh = $state<string | null>(null);
+  // A new goal being written: not stored until Add goal.
+  let adding = $state<Goal | null>(null);
 
   const left = $derived(Math.max(0, dayDiff(P.today, quarterEnd(current))));
   const sub = $derived(
@@ -32,8 +34,7 @@
   );
 
   function add() {
-    const g = P.addGoal({ quarter, title: '', why: '', target: null, milestones: [] });
-    fresh = g.id;
+    adding = { id: '', quarter, title: '', why: '', target: null, milestones: [], status: 'open', order: 0 };
   }
 </script>
 
@@ -57,9 +58,11 @@
     </p>
   {/if}
   {#each goals as g (g.id)}
-    <GoalCard goal={g} startEditing={g.id === fresh} />
+    <GoalCard goal={g} />
   {/each}
-  {#if quarter >= current}
+  {#if adding?.quarter === quarter}
+    <GoalCard goal={adding} onclose={() => (adding = null)} />
+  {:else if quarter >= current}
     <button class="btn-add" onclick={add}
       ><span class="plus" aria-hidden="true"
         ><svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 2.5v9M2.5 7h9" /></svg></span

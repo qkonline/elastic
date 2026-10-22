@@ -8,13 +8,34 @@
   import { FIXED_LEADS, type ShowTimes, type ThemePref } from '../lib/types';
   import DayShape, { describe, type Shape } from './DayShape.svelte';
   import DisarmBar from './DisarmBar.svelte';
+  import SaveRow from './SaveRow.svelte';
   import ScreenHeader from './ScreenHeader.svelte';
 
   let fileEl: HTMLInputElement | null = $state(null);
   const S = $derived(P.settings);
-  const shape = $derived<Shape>({ start: S.defStart, length: S.dayLength, flex: S.flexStart });
-  const setShape = (x: Shape) =>
+  // Your day and Weekly review are kept as drafts until their Save; the switches and other
+  // choices apply as they're tapped.
+  const saved = $derived<Shape>({ start: S.defStart, length: S.dayLength, flex: S.flexStart });
+  let shapeDraft = $state<Shape | null>(null);
+  let shapeKey = $state(0);
+  const shape = $derived(shapeDraft ?? saved);
+  const shapeChanged = $derived(!!shapeDraft && JSON.stringify(shapeDraft) !== JSON.stringify(saved));
+  function saveShape() {
+    const x = shape;
     P.setSettings({ defStart: x.start, dayLength: x.length, defWrap: x.start + x.length, flexStart: x.flex });
+    shapeDraft = null;
+  }
+  function cancelShape() {
+    shapeDraft = null;
+    shapeKey++; // forgets "Other time" / "Custom" left open
+  }
+  let reviewDraft = $state<{ day: number; at: number } | null>(null);
+  const review = $derived(reviewDraft ?? { day: S.reviewDay, at: S.reviewAt });
+  const reviewChanged = $derived(!!reviewDraft && (reviewDraft.day !== S.reviewDay || reviewDraft.at !== S.reviewAt));
+  function saveReview() {
+    P.setSettings({ reviewDay: review.day, reviewAt: review.at });
+    reviewDraft = null;
+  }
   // The browser's permission can change from its own UI, so re-read it on every clock tick.
   const permission = $derived.by(() => {
     void P.clock;
@@ -209,7 +230,7 @@
     <span class="muted">When your week in review comes up, with a notification if they're on.</span>
     <div class="row">
       {#each ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as d, i (d)}
-        <button class="chip" aria-pressed={S.reviewDay === i} onclick={() => P.setSettings({ reviewDay: i })}
+        <button class="chip" aria-pressed={review.day === i} onclick={() => (reviewDraft = { ...review, day: i })}
           >{d}</button
         >
       {/each}
@@ -219,24 +240,32 @@
       <input
         type="time"
         aria-label="Weekly review time"
-        value={hhmm(S.reviewAt)}
-        onchange={(e) => e.currentTarget.value && P.setSettings({ reviewAt: hm(e.currentTarget.value) })}
+        value={hhmm(review.at)}
+        oninput={(e) => e.currentTarget.value && (reviewDraft = { ...review, at: hm(e.currentTarget.value) })}
       />
     </label>
+    {#if reviewChanged}
+      <SaveRow onsave={saveReview} oncancel={() => (reviewDraft = null)} />
+    {/if}
   </section>
 
   <span class="gl">Your day</span>
   <section class="card g12" aria-label="Your day">
     <span class="muted">Used for days you haven't planned yet.</span>
-    <div class="setting">
-      <span class="ol">Starts</span>
-      <DayShape part="start" {shape} clock24={S.clock24} onchange={setShape} />
-    </div>
-    <div class="setting">
-      <span class="ol">A productive day is</span>
-      <DayShape part="length" {shape} clock24={S.clock24} onchange={setShape} />
-    </div>
+    {#key shapeKey}
+      <div class="setting">
+        <span class="ol">Starts</span>
+        <DayShape part="start" {shape} clock24={S.clock24} onchange={(x) => (shapeDraft = x)} />
+      </div>
+      <div class="setting">
+        <span class="ol">A productive day is</span>
+        <DayShape part="length" {shape} clock24={S.clock24} onchange={(x) => (shapeDraft = x)} />
+      </div>
+    {/key}
     <span class="muted">Your day: {describe(shape, S.clock24, fT, dL)}</span>
+    {#if shapeChanged}
+      <SaveRow onsave={saveShape} oncancel={cancelShape} />
+    {/if}
   </section>
 
   <span class="gl">Your data</span>

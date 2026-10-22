@@ -10,6 +10,7 @@
   import KindMark from './KindMark.svelte';
   import PostponeChooser from './PostponeChooser.svelte';
   import RetimeTask from './RetimeTask.svelte';
+  import SaveRow from './SaveRow.svelte';
   import StepBox from './StepBox.svelte';
   import TaskEdit from './TaskEdit.svelte';
 
@@ -20,12 +21,15 @@
   // The sheet is keyed by task, so the id never changes while it's open.
   const id = untrack(() => idProp);
   let editing = $state(false);
-  // Steps can be added right here; everything else about the task changes behind Edit task.
+  // Subtasks can be added right here (with Add, or Enter); everything else about the task changes
+  // behind Edit task. Several pasted lines wait in `queued` until then too.
   let newStep = $state('');
+  let queued = $state<string[]>([]);
+  const toAdd = $derived([...queued, newStep].map((t) => t.trim()).filter(Boolean));
   function addStep() {
-    if (!newStep.trim()) return;
-    P.addSubs(id, [newStep]);
+    if (toAdd.length) P.addSubs(id, toAdd);
     newStep = '';
+    queued = [];
   }
 
   const row = $derived(P.sch.rows.find((r) => r.it.id === id));
@@ -255,6 +259,12 @@
             </div>
           {/each}
           {#if !P.locked}
+            {#each queued as q, qi (qi)}
+              <div class="step queued">
+                <span class="plus" aria-hidden="true">+</span>
+                <span class="st">{q}</span>
+              </div>
+            {/each}
             <div class="step add">
               <span class="plus" aria-hidden="true">+</span>
               <input
@@ -264,15 +274,24 @@
                 onpaste={(e) => {
                   const lines = pastedSteps(e);
                   if (lines) {
-                    P.addSubs(id, lines);
+                    queued = [...queued, ...lines];
                     newStep = '';
                   }
                 }}
-                onblur={addStep}
                 placeholder="Add a subtask"
                 aria-label="Add a subtask"
               />
             </div>
+            {#if newStep.trim() || queued.length}
+              <SaveRow
+                label={toAdd.length === 1 ? 'Add subtask' : `Add ${toAdd.length} subtasks`}
+                onsave={addStep}
+                oncancel={() => {
+                  newStep = '';
+                  queued = [];
+                }}
+              />
+            {/if}
           {/if}
         </div>
       {/if}
@@ -639,6 +658,10 @@
   }
   .step.add {
     min-height: 44px;
+  }
+  .step.queued {
+    min-height: 32px;
+    color: var(--muted);
   }
   .plus {
     width: 20px;

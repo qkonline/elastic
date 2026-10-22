@@ -5,104 +5,125 @@
   import { dL } from '../lib/time';
   import type { Goal } from '../lib/types';
   import DisarmBar from './DisarmBar.svelte';
+  import SaveRow from './SaveRow.svelte';
 
   // One goal: what it is and why, how far it has got (its number, its milestones, the time and
-  // habit days that count towards it), and editing it in place.
-  let { goal, startEditing = false }: { goal: Goal; startEditing?: boolean } = $props();
+  // habit days that count towards it), and editing it in place. Edits are a draft until Add goal
+  // or Update goal; a new goal (`onclose` given) isn't stored until then.
+  let { goal, onclose }: { goal: Goal; onclose?: () => void } = $props();
 
-  let editing = $state(untrack(() => startEditing));
+  type Draft = Pick<Goal, 'title' | 'why' | 'target' | 'milestones'>;
+  const copy = (g: Goal): Draft => ({
+    title: g.title,
+    why: g.why,
+    target: g.target && { ...g.target },
+    milestones: g.milestones.map((m) => ({ ...m })),
+  });
+
+  const isNew = $derived(!!onclose);
+  let editing = $state(untrack(() => !!onclose));
+  let draft = $state<Draft>(untrack(() => copy(goal)));
+  let newStep = $state('');
   const p = $derived(P.progressOf(goal));
   const STATUS = { open: '', hit: 'Hit', partly: 'Partly', missed: 'Missed' } as const;
-  let newStep = $state('');
   const fmt = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const num = (v: unknown) => (v === '' || v == null || !Number.isFinite(+v) ? 0 : +v);
 
+  /** The draft as it would be kept: a milestone still in the field counts, empty ones go. */
+  const result = $derived<Draft>({
+    title: draft.title.trim(),
+    why: draft.why.trim(),
+    target: draft.target && {
+      now: num(draft.target.now),
+      goal: num(draft.target.goal) || 1,
+      unit: draft.target.unit.trim(),
+    },
+    milestones: [
+      ...draft.milestones.map((m) => ({ ...m, t: m.t.trim() })).filter((m) => m.t),
+      ...(newStep.trim() ? [{ id: '', t: newStep.trim(), done: false }] : []),
+    ],
+  });
+  const changed = $derived(isNew || JSON.stringify(result) !== JSON.stringify(copy(goal)));
+  const ok = $derived(!!result.title && changed);
+
+  function edit() {
+    draft = copy(goal);
+    newStep = '';
+    editing = true;
+  }
   function addStep() {
     const t = newStep.trim();
     if (!t) return;
-    P.editGoal(goal.id, { milestones: [...goal.milestones, { id: uid(), t, done: false }] });
+    draft.milestones.push({ id: uid(), t, done: false });
     newStep = '';
   }
-  const setTarget = (patch: Partial<NonNullable<Goal['target']>>) =>
-    P.editGoal(goal.id, { target: { now: 0, goal: 100, unit: '', ...(goal.target ?? {}), ...patch } });
-  const num = (v: string) => (Number.isFinite(+v) ? +v : 0);
+  function cancel() {
+    if (isNew) onclose?.();
+    else editing = false;
+  }
+  function save() {
+    if (!ok) return;
+    const d: Draft = {
+      ...result,
+      milestones: result.milestones.map((m) => ({ ...m, id: m.id || uid() })),
+    };
+    if (isNew) {
+      P.addGoal({ quarter: goal.quarter, ...d });
+      onclose?.();
+    } else {
+      P.editGoal(goal.id, d);
+      P.say(`Updated ${d.title}`);
+      editing = false;
+    }
+  }
+
+  // The number on the card, updated with its own Save.
+  let nowText = $state<string | null>(null);
+  const nowChanged = $derived(nowText != null && nowText !== '' && num(nowText) !== goal.target?.now);
+  function saveNow() {
+    if (nowChanged && goal.target) P.editGoal(goal.id, { target: { ...goal.target, now: num(nowText) } });
+    nowText = null;
+  }
 </script>
 
 <section class="goal" class:editing>
   {#if editing}
     <input
       class="title-in large-text"
-      value={goal.title}
+      bind:value={draft.title}
       placeholder="What do you want to achieve?"
       aria-label="Goal"
       {@attach (el) => {
-        if (!goal.title) el.focus();
+        if (!untrack(() => draft.title)) el.focus();
       }}
-      oninput={(e) => P.editGoal(goal.id, { title: e.currentTarget.value })}
     />
-    <textarea
-      rows="2"
-      placeholder="Why it matters"
-      aria-label="Why it matters"
-      value={goal.why}
-      oninput={(e) => P.editGoal(goal.id, { why: e.currentTarget.value })}></textarea>
+    <textarea rows="2" placeholder="Why it matters" aria-label="Why it matters" bind:value={draft.why}></textarea>
 
     <div class="part">
       <label class="sw">
         <input
           type="checkbox"
-          checked={!!goal.target}
+          checked={!!draft.target}
           onchange={(e) =>
-            P.editGoal(goal.id, { target: e.currentTarget.checked ? { now: 0, goal: 100, unit: '' } : null })}
+            (draft.target = e.currentTarget.checked ? (copy(goal).target ?? { now: 0, goal: 100, unit: '' }) : null)}
         />
         <span>A number to reach</span>
       </label>
-      {#if goal.target}
+      {#if draft.target}
         <div class="nums">
-          <label
-            >Now <input
-              type="number"
-              inputmode="decimal"
-              value={goal.target.now}
-              onchange={(e) => setTarget({ now: num(e.currentTarget.value) })}
-            /></label
-          >
-          <label
-            >Goal <input
-              type="number"
-              inputmode="decimal"
-              value={goal.target.goal}
-              onchange={(e) => setTarget({ goal: num(e.currentTarget.value) || 1 })}
-            /></label
-          >
-          <label
-            >Unit <input
-              class="unit"
-              placeholder="$, users"
-              value={goal.target.unit}
-              onchange={(e) => setTarget({ unit: e.currentTarget.value.trim() })}
-            /></label
-          >
+          <label>Now <input type="number" inputmode="decimal" bind:value={draft.target.now} /></label>
+          <label>Goal <input type="number" inputmode="decimal" bind:value={draft.target.goal} /></label>
+          <label>Unit <input class="unit" placeholder="$, users" bind:value={draft.target.unit} /></label>
         </div>
       {/if}
     </div>
 
     <div class="part">
       <span class="lbl">Milestones</span>
-      {#each goal.milestones as m (m.id)}
+      {#each draft.milestones as m, i (m.id)}
         <div class="step">
-          <input
-            value={m.t}
-            aria-label="Milestone"
-            onchange={(e) =>
-              P.editGoal(goal.id, {
-                milestones: goal.milestones.map((x) => (x.id === m.id ? { ...x, t: e.currentTarget.value } : x)),
-              })}
-          />
-          <button
-            class="rm"
-            aria-label="Remove {m.t}"
-            onclick={() => P.editGoal(goal.id, { milestones: goal.milestones.filter((x) => x.id !== m.id) })}>×</button
-          >
+          <input bind:value={m.t} aria-label="Milestone" />
+          <button class="rm" aria-label="Remove {m.t}" onclick={() => draft.milestones.splice(i, 1)}>×</button>
         </div>
       {/each}
       <input
@@ -111,12 +132,11 @@
         placeholder="Add a milestone"
         aria-label="Add a milestone"
         onkeydown={(e) => e.key === 'Enter' && !e.isComposing && addStep()}
-        onblur={addStep}
       />
     </div>
 
     <div class="foot">
-      {#if P.armed('goal', goal.id)}
+      {#if !isNew && P.armed('goal', goal.id)}
         <span class="confirm">
           Delete this goal?
           <button class="btn-yes" onclick={() => P.removeGoal(goal.id)} {@attach (el) => el.focus()}>Delete</button>
@@ -124,13 +144,13 @@
           <DisarmBar />
         </span>
       {:else}
-        <button class="del" onclick={() => P.arm('goal', goal.id)}>Delete goal</button>
-        <button class="done" onclick={() => (editing = false)} disabled={!goal.title.trim()}>Done</button>
+        {#if !isNew}<button class="del" onclick={() => P.arm('goal', goal.id)}>Delete goal</button>{/if}
+        <SaveRow label={isNew ? 'Add goal' : 'Update goal'} {ok} onsave={save} oncancel={cancel} />
       {/if}
     </div>
   {:else}
     <div class="top">
-      <button class="title" onclick={() => (editing = true)}>{goal.title || 'Untitled goal'}</button>
+      <button class="title" onclick={edit}>{goal.title || 'Untitled goal'}</button>
       {#if goal.status !== 'open'}<span class="status {goal.status}">{STATUS[goal.status]}</span>{/if}
     </div>
     {#if goal.why}<p class="why">{goal.why}</p>{/if}
@@ -145,11 +165,15 @@
               type="number"
               inputmode="decimal"
               aria-label="Where it is now"
-              value={goal.target.now}
-              onchange={(e) => setTarget({ now: num(e.currentTarget.value) })}
+              value={nowText ?? goal.target.now}
+              oninput={(e) => (nowText = e.currentTarget.value)}
+              onkeydown={(e) => e.key === 'Enter' && !e.isComposing && saveNow()}
             /></label
           >
         </div>
+        {#if nowText != null}
+          <SaveRow ok={nowChanged} onsave={saveNow} oncancel={() => (nowText = null)} />
+        {/if}
       </div>
     {/if}
 
@@ -399,19 +423,8 @@
     cursor: pointer;
     padding: 0;
   }
-  .foot .done {
-    height: 40px;
-    padding: 0 18px;
-    border-radius: var(--r-ctl);
-    border: none;
-    background: var(--text);
-    color: var(--bg);
-    font: 400 14px/1 var(--font);
-    cursor: pointer;
-  }
-  .foot .done:disabled {
-    opacity: 0.4;
-    cursor: default;
+  .foot > :global(.saverow) {
+    margin-left: auto;
   }
   .confirm {
     flex: 1;
