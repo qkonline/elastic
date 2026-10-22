@@ -96,6 +96,13 @@
 
 <ScreenHeader title="Settings" back={() => P.leaveSettings()} />
 <div class="body">
+  {#if P.session && !P.needsSetup}
+    <section class="group" aria-label="Your account">
+      <span class="gl">Your account</span>
+      <div class="card g12"><AccountYou notes /></div>
+    </section>
+  {/if}
+
   <section class="group" aria-label="Display">
     <span class="gl">Display</span>
     <div class="card">
@@ -148,13 +155,6 @@
       </div>
     </div>
   </section>
-
-  {#if P.session && !P.needsSetup}
-    <section class="group" aria-label="Your account">
-      <span class="gl">Your account</span>
-      <div class="card g12"><AccountYou notes /></div>
-    </section>
-  {/if}
 
   {#if accountsAvailable() || P.session}
     <section class="group" aria-label="Sync across devices">
