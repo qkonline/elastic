@@ -4,7 +4,7 @@
   import SectionHead from './SectionHead.svelte';
 
   // A list section on the day (Checklist, Habits, Projects) under its title bar. Past three
-  // entries it's folded: the first three stay in view with the third fading out into a Show all
+  // entries it's folded: the first three stay in view with the third fading out, above a Show all
   // button. It always opens folded; Show all opens it until the next time it's shown.
   let {
     id,
@@ -41,7 +41,7 @@
     if (!list) return;
     full = list.scrollHeight;
     const third = list.children[FOLD_AT - 1] as HTMLElement | undefined;
-    short = third ? third.offsetTop + third.offsetHeight * 0.55 : full;
+    short = third ? third.offsetTop + third.offsetHeight * 0.7 : full;
   }
   $effect(() => {
     if (!list) return;
@@ -68,12 +68,8 @@
     </ul>
   </div>
   {#if can}
-    <button
-      class="more hit"
-      class:over={shut}
-      aria-expanded={!shut}
-      aria-controls={uid}
-      onclick={() => (folded = !folded)}>{shut ? `Show all ${count}` : 'Show fewer'}</button
+    <button class="more hit" aria-expanded={!shut} aria-controls={uid} onclick={() => (folded = !folded)}
+      >{shut ? `Show all ${count}` : 'Show fewer'}</button
     >
   {/if}
 </section>
@@ -92,8 +88,8 @@
     transition: height 280ms cubic-bezier(0.2, 0.7, 0.2, 1);
   }
   .clip.shut {
-    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 34px), transparent 85%);
-    mask-image: linear-gradient(to bottom, #000 calc(100% - 34px), transparent 85%);
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 30px), transparent);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 30px), transparent);
   }
   .clip.still {
     transition: none;
@@ -104,13 +100,13 @@
     margin: 0;
     padding: 2px 14px 0 16px;
   }
-  /* A soft key under the list; folded, it sits on the faded tail of the third entry. */
+  /* A soft key under the list. */
   .more {
     --hit-y: 6px;
     position: relative;
     align-self: center;
     height: 32px;
-    margin: 4px 0 6px;
+    margin: 2px 0 2px;
     padding: 0 14px;
     border: none;
     border-radius: var(--r-ctl);
@@ -118,9 +114,6 @@
     color: var(--text);
     font: 500 13px/1 var(--font);
     cursor: pointer;
-  }
-  .more.over {
-    margin-top: -14px;
   }
   .more:hover {
     background: color-mix(in oklab, var(--text) 13%, var(--raised));
