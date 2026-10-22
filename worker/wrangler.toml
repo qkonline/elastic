@@ -10,7 +10,9 @@ workers_dev = true
 [vars]
 VAPID_PUBLIC_KEY = "BIUrkbS-EnZQ2hLavgQmshFuBLt_mD2aD4l9VLtB5mEhCQjF9CQDBRRWlEMcdkkdtiVz--i3rZocPSV3abVpycY"
 VAPID_SUBJECT = "https://kaiserkhan.com/planner/"
-ALLOWED_ORIGINS = "https://kaiserkhan.com,http://localhost:4173"
+# www.kaiserkhan.com serves the same files; the app moves itself to kaiserkhan.com, but copies
+# already opened on www still need to reach the Worker.
+ALLOWED_ORIGINS = "https://kaiserkhan.com,https://www.kaiserkhan.com,http://localhost:4173"
 EMAIL_FROM = "Elastic <elastic@kaiserkhan.com>"
 
 [[durable_objects.bindings]]

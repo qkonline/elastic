@@ -115,6 +115,9 @@ export class Sync {
   private ws: WebSocket | null = null;
   private leader = false;
   private release: (() => void) | null = null;
+  /** This tab's queued request for the lock, and a count that tells a stale request apart. */
+  private waiting: AbortController | null = null;
+  private claims = 0;
   /** The first catch-up after connecting has arrived; sending can start. */
   private ready = false;
   private inflight: { id: number; sent: Map<string, unknown> } | null = null;
@@ -146,25 +149,51 @@ export class Sync {
     this.visible = typeof document === 'undefined' || !document.hidden;
     if (typeof addEventListener === 'function') addEventListener('online', this.online);
     this.hooks.status('connecting');
+    this.claim(this.visible);
+  }
+
+  /**
+   * One tab per device talks to the account; the others follow it through BroadcastChannel.
+   * The tab in front takes the lead (`steal`): a browser can put a background tab to sleep while
+   * it still holds the lock, and the others would wait on it for ever.
+   */
+  private claim(steal = false): void {
     const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
     if (!locks) {
       this.leader = true;
       this.connect();
       return;
     }
-    // One tab per device talks to the account; the others follow it through BroadcastChannel.
-    void locks.request('elastic-day-sync', () => {
-      if (!this.session) return;
-      this.leader = true;
-      this.connect();
-      return new Promise<void>((r) => (this.release = r));
-    });
+    this.waiting?.abort();
+    const waiting = steal ? null : new AbortController();
+    this.waiting = waiting;
+    const n = ++this.claims;
+    locks
+      .request('elastic-day-sync', waiting ? { signal: waiting.signal } : { steal: true }, () => {
+        if (!this.session || n !== this.claims) return;
+        this.waiting = null;
+        this.leader = true;
+        this.connect();
+        return new Promise<void>((r) => (this.release = r));
+      })
+      .catch(() => {
+        // Called off here (a newer claim, or signed out), or another tab took the lead: follow
+        // it, and wait to lead again.
+        if (!this.session || n !== this.claims) return;
+        this.leader = false;
+        this.release = null;
+        this.close();
+        this.claim();
+      });
   }
 
   stop(): void {
     this.session = null;
     db.track(false);
     this.leader = false;
+    this.claims++;
+    this.waiting?.abort();
+    this.waiting = null;
     this.release?.();
     this.release = null;
     if (typeof removeEventListener === 'function') removeEventListener('online', this.online);
@@ -405,7 +434,8 @@ export class Sync {
     if (!this.session) return;
     this.send({ t: 'state', visible: v });
     if (v) {
-      this.reconnectNow();
+      if (this.leader) this.reconnectNow();
+      else this.claim(true);
       return;
     }
     const { token, device } = this.session;

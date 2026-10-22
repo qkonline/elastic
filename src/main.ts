@@ -4,6 +4,9 @@ import App from './App.svelte';
 import { install } from './lib/install.svelte';
 import { trackKeyboard } from './lib/viewport';
 
+// A copy opened on www.kaiserkhan.com (kept by its service worker) moves to the one address.
+if (location.hostname.startsWith('www.')) location.replace(location.href.replace('://www.', '://'));
+
 // Listen before mounting: browsers offer the install prompt shortly after the page loads.
 install.listen();
 trackKeyboard();

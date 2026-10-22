@@ -266,18 +266,29 @@ export class Boardo {
   }
 
   private async post<T>(path: string, body: object, auth = true): Promise<T> {
+    const init = {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(auth && this.token ? { authorization: `Bearer ${this.token}` } : {}),
+      },
+      body: JSON.stringify(body),
+    };
     let res: Response;
     try {
-      res = await fetch(BOARDO_API + path, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...(auth && this.token ? { authorization: `Bearer ${this.token}` } : {}),
-        },
-        body: JSON.stringify(body),
-      });
+      res = await fetch(BOARDO_API + path, init);
     } catch {
-      throw new Error("You're offline. It'll go once you're connected.");
+      // No answer at all: try once more after a moment before saying so.
+      await new Promise((r) => setTimeout(r, 800));
+      try {
+        res = await fetch(BOARDO_API + path, init);
+      } catch {
+        throw new Error(
+          navigator.onLine === false
+            ? "You're offline. It'll go once you're connected."
+            : "Couldn't reach Boardo. Check your connection and try again.",
+        );
+      }
     }
     if (res.status === 204) return undefined as T;
     const data = await res.json().catch(() => ({}));

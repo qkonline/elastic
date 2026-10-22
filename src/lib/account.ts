@@ -60,15 +60,22 @@ export class ApiError extends Error {
 }
 
 async function call<T>(path: string, body: object = {}, token?: string): Promise<T> {
+  const init = {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(body),
+  };
   let res: Response;
   try {
-    res = await fetch(API + path, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify(body),
-    });
+    res = await fetch(API + path, init);
   } catch {
-    throw new ApiError(0, "Can't reach Elastic. Check your connection and try again.");
+    // No answer at all: try once more after a moment before saying so.
+    await new Promise((r) => setTimeout(r, 800));
+    try {
+      res = await fetch(API + path, init);
+    } catch {
+      throw new ApiError(0, "Can't reach Elastic. Check your connection and try again.");
+    }
   }
   if (res.status === 204) return undefined as T;
   const data = await res.json().catch(() => ({}));
