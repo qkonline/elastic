@@ -39,6 +39,44 @@ export function cleanEmail(v: unknown): string | null {
   return e.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) ? e : null;
 }
 
+/** A person's name: trimmed, spaces squeezed, 1 to 60 characters. */
+export function cleanName(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const n = v.replace(/\s+/g, ' ').trim();
+  return n.length >= 1 && n.length <= 60 ? n : null;
+}
+
+/** What device and browser a passkey was made on, from the browser's user agent: "Safari on iPhone". */
+export function deviceLabel(ua: string | null): string | null {
+  if (!ua) return null;
+  const device = /iPhone/.test(ua)
+    ? 'iPhone'
+    : /iPad/.test(ua)
+      ? 'iPad'
+      : /Android/.test(ua)
+        ? 'Android'
+        : /CrOS/.test(ua)
+          ? 'Chromebook'
+          : /Macintosh|Mac OS X/.test(ua)
+            ? 'Mac'
+            : /Windows/.test(ua)
+              ? 'Windows'
+              : /Linux/.test(ua)
+                ? 'Linux'
+                : null;
+  const browser = /Edg\//.test(ua)
+    ? 'Edge'
+    : /Firefox\/|FxiOS/.test(ua)
+      ? 'Firefox'
+      : /CriOS|Chrome\//.test(ua)
+        ? 'Chrome'
+        : /Safari\//.test(ua)
+          ? 'Safari'
+          : null;
+  if (device && browser) return `${browser} on ${device}`;
+  return device ?? browser;
+}
+
 /** One notification inside an alert group. */
 export interface Note {
   title: string;

@@ -14,6 +14,7 @@
   import Header from './components/Header.svelte';
   import InstallGuide from './components/InstallGuide.svelte';
   import NotifyPrompt from './components/NotifyPrompt.svelte';
+  import SetupPrompt from './components/SetupPrompt.svelte';
   import PullIndicator from './components/PullIndicator.svelte';
   import ReorderAsk from './components/ReorderAsk.svelte';
   import RunningElsewhere from './components/RunningElsewhere.svelte';
@@ -160,6 +161,7 @@
       <RunningElsewhere />
       <ComingUp />
       <NotifyPrompt />
+      <SetupPrompt />
       <ReviewDue />
       <main
         class:settling={!gestures.dragging}

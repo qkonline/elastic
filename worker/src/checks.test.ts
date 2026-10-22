@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alertGroups, changes, cleanEmail, MAX_RECORD } from './checks';
+import { alertGroups, changes, cleanEmail, cleanName, deviceLabel, MAX_RECORD } from './checks';
 
 describe('cleanEmail', () => {
   it('tidies an address and refuses what is not one', () => {
@@ -7,6 +7,36 @@ describe('cleanEmail', () => {
     expect(cleanEmail('not an email')).toBeNull();
     expect(cleanEmail('a@b')).toBeNull();
     expect(cleanEmail(42)).toBeNull();
+  });
+});
+
+describe('cleanName', () => {
+  it('trims and squeezes a name, and refuses an empty or very long one', () => {
+    expect(cleanName('  Qaisar   Khan ')).toBe('Qaisar Khan');
+    expect(cleanName('   ')).toBeNull();
+    expect(cleanName('x'.repeat(61))).toBeNull();
+    expect(cleanName(7)).toBeNull();
+  });
+});
+
+describe('deviceLabel', () => {
+  it('names the browser and device a passkey was made on', () => {
+    expect(
+      deviceLabel(
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+      ),
+    ).toBe('Safari on iPhone');
+    expect(
+      deviceLabel(
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+      ),
+    ).toBe('Chrome on Mac');
+    expect(
+      deviceLabel(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0',
+      ),
+    ).toBe('Edge on Windows');
+    expect(deviceLabel(null)).toBeNull();
   });
 });
 

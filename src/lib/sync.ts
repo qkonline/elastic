@@ -19,7 +19,8 @@ import { mergeDay, mergeSeries, mergeSettings } from './merge';
 import type { AlertGroup } from './reminders';
 import type { Day, Series, Settings } from './types';
 
-export type SyncStatus = 'off' | 'connecting' | 'live' | 'offline';
+/** 'paused': the account has no name or email yet, so it doesn't sync until it has. */
+export type SyncStatus = 'off' | 'connecting' | 'live' | 'offline' | 'paused';
 
 /** The settings shared across an account's devices. */
 export const SHARED_SETTINGS = [
@@ -245,6 +246,11 @@ export class Sync {
     }, wait);
   }
 
+  /** The account was set up (name and email): connect again straight away. */
+  resume(): void {
+    this.reconnectNow();
+  }
+
   private reconnectNow(): void {
     if (!this.session || !this.leader || this.ws) return;
     this.tries = 0;
@@ -271,6 +277,11 @@ export class Sync {
     if (m.t === 'signedout') {
       this.close();
       return this.hooks.signedOut();
+    }
+    // Changes still go in the outbox meanwhile, and go up once it's set up (resume()).
+    if (m.t === 'setup') {
+      this.close();
+      return this.hooks.status('paused');
     }
     if (m.t === 'changes') {
       await this.hooks.flush();

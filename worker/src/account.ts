@@ -310,6 +310,12 @@ export class Account extends DurableObject<VapidKeys> {
   }
 
   /** The account is being deleted: drop everything and close every connection. */
+  /** The account can't sync for now: send no more alerts until it can. */
+  async pause(): Promise<void> {
+    this.sql.exec("DELETE FROM kv WHERE k = 'alerts'");
+    await this.ctx.storage.deleteAlarm();
+  }
+
   async erase(): Promise<void> {
     for (const ws of this.ctx.getWebSockets()) ws.close(4001, 'Account deleted');
     await this.ctx.storage.deleteAlarm();

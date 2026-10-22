@@ -1,65 +1,107 @@
 <script lang="ts">
+  import { WebAuthnAbortService } from '@simplewebauthn/browser';
   import { onMount } from 'svelte';
-  import { type AccountInfo, accountsAvailable, emailAvailable } from '../lib/account';
+  import { type AccountInfo, accountsAvailable, passkeysAvailable } from '../lib/account';
   import { planner as P } from '../lib/planner.svelte';
   import DisarmBar from './DisarmBar.svelte';
+  import SaveRow from './SaveRow.svelte';
 
-  // Signing in on several devices to keep one plan on all of them. A passkey is the way in; a
-  // backup email (once email codes are available) is for when no passkey is to hand.
-  let emailOn = $state(false);
+  // Signing in on several devices to keep one plan on all of them. An account is an email
+  // (confirmed with a six-digit code) and a name; a passkey is the quick way back in. Signed out:
+  // one email field (which also offers this device's passkeys) and a code. Signed in: the
+  // account's name, email and passkeys. An account from before emails (a passkey only) adds a
+  // name and an email before it syncs again.
   let info = $state<AccountInfo | null>(null);
-  /** Signing in with an emailed code, or adding a backup email: which step. */
-  let codeStep = $state<'email' | 'code' | null>(null);
+  /** Signed out: which step of signing in by code. */
+  let step = $state<'email' | 'code'>('email');
+  /** Signed in: changing the name or the email, or (email) waiting for its code. */
+  let editing = $state<'name' | 'email' | 'code' | null>(null);
   let email = $state('');
   let code = $state('');
+  let name = $state('');
   const S = $derived(P.session);
+  const keys = passkeysAvailable();
   const site = location.origin + location.pathname.replace(/index\.html$/, '');
+  const okEmail = $derived(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()));
 
   const STATUS = {
     off: '',
     connecting: 'Connecting',
     live: 'Synced',
     offline: "Offline. Your changes will sync when you're back online.",
+    paused: 'Not syncing yet',
   } as const;
 
   onMount(() => {
-    void emailAvailable().then((v) => (emailOn = v));
     if (P.session) void P.accountDetails().then((i) => (info = i));
+    else void P.passkeyFromAutofill();
+    // A passkey prompt still waiting in the email field's suggestions goes with the sheet.
+    return () => {
+      if (!P.session) WebAuthnAbortService.cancelCeremony();
+    };
   });
 
-  // Signing in or out: start the email steps over and fetch the details again.
+  // Signing in or out: start the steps over and fetch the details again.
   let lastToken = P.session?.token;
   $effect(() => {
     const t = S?.token;
     if (t === lastToken) return;
     lastToken = t;
-    codeStep = null;
+    step = 'email';
+    editing = null;
     code = '';
+    name = S?.user.name ?? '';
     info = null;
     if (t) void P.accountDetails().then((i) => (info = i));
   });
 
-  async function sendCode() {
-    const ok = S ? await P.sendEmailCode(email) : await P.sendSignInCode(email);
-    if (ok) {
-      codeStep = 'code';
+  const refresh = () => void P.accountDetails().then((i) => (info = i));
+
+  async function sendSignIn() {
+    if (await P.sendSignInCode(email.trim())) {
+      step = 'code';
       code = '';
     }
   }
 
-  async function checkCode() {
-    if (S) {
-      if (await P.confirmEmail(email, code)) {
-        codeStep = null;
-        info = info && { ...info, email: P.session?.user.email ?? null };
-      }
-    } else await P.signInWithCode(email, code);
+  async function sendChange() {
+    if (await P.sendEmailCode(email.trim())) {
+      editing = 'code';
+      code = '';
+    }
   }
 
-  async function addKey() {
-    if ((await P.addPasskey()) && info) info = { ...info, passkeys: info.passkeys + 1 };
+  async function confirmChange() {
+    const needName = !S?.user.name;
+    if (await P.confirmEmail(email.trim(), code, needName ? name.trim() : undefined)) {
+      editing = null;
+      refresh();
+    }
   }
+
+  async function saveName() {
+    if (await P.saveName(name.trim())) editing = null;
+  }
+
+  const day = (ms: number) => new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 </script>
+
+{#snippet codeField(label: string, onsubmit: () => void, onback: () => void)}
+  <span class="muted">We sent a code to {email.trim()}. It works for 10 minutes.</span>
+  <form class="row" onsubmit={(e) => (e.preventDefault(), onsubmit())}>
+    <input
+      class="field"
+      inputmode="numeric"
+      autocomplete="one-time-code"
+      maxlength="6"
+      aria-label="Code"
+      bind:value={code}
+      {@attach (el) => el.focus()}
+    />
+    <button class="btn-plain" disabled={P.accountBusy || code.replace(/\D/g, '').length < 6}>{label}</button>
+  </form>
+  <button class="link" onclick={onback}>Use a different email</button>
+{/snippet}
 
 <div class="head">
   <span class="h">Sync across devices</span>
@@ -71,7 +113,7 @@
   {/if}
   {#if !accountsAvailable()}
     <section class="card">
-      <span class="muted">This browser can't sign in with a passkey, so syncing isn't available here.</span>
+      <span class="muted">This browser can't sync, so your plan stays on this device.</span>
     </section>
   {:else if S && P.joinAsk}
     <section class="card">
@@ -87,6 +129,53 @@
       <span class="muted">Both are kept. Where both have the same day, its tasks are put together.</span>
       <button class="link" disabled={P.accountBusy} onclick={() => P.cancelJoin()}>Don't sign in</button>
     </section>
+  {:else if S && P.needsSetup && S.user.email && !S.user.name}
+    <!-- Just made: the name is the last step. -->
+    <section class="card">
+      <span class="ct">What's your name?</span>
+      <span class="muted">It goes on your account. Your plan starts syncing once it's saved.</span>
+      <form class="row" onsubmit={(e) => (e.preventDefault(), saveName())}>
+        <input class="field" autocomplete="name" aria-label="Name" bind:value={name} {@attach (el) => el.focus()} />
+        <button class="btn-plain" disabled={P.accountBusy || !name.trim()}>Save</button>
+      </form>
+    </section>
+  {:else if S && P.needsSetup}
+    <!-- An account from before emails: a name and an email, then it syncs again. -->
+    <section class="card">
+      <span class="ct">Add your name and email to keep syncing</span>
+      <span class="muted">
+        Accounts now have an email, so you can always get back in with a code. Your plan stays on this device meanwhile,
+        and goes up as soon as you're done. Your passkey keeps working.
+      </span>
+      {#if editing === 'code'}
+        {@render codeField('Save', confirmChange, () => (editing = null))}
+      {:else}
+        <form class="col" onsubmit={(e) => (e.preventDefault(), sendChange())}>
+          <input class="field" autocomplete="name" placeholder="Your name" aria-label="Name" bind:value={name} />
+          <input
+            class="field"
+            type="email"
+            autocomplete="email"
+            placeholder="Email"
+            aria-label="Email"
+            bind:value={email}
+          />
+          <button class="btn-plain self" disabled={P.accountBusy || !okEmail || !name.trim()}>Send code</button>
+        </form>
+      {/if}
+    </section>
+  {:else if S && P.offerPasskey}
+    <section class="card">
+      <span class="ct">Sign in faster next time</span>
+      <span class="muted">
+        Add a passkey: Face ID, Touch ID or your device's screen lock. You can always sign in with a code to {S.user
+          .email} too.
+      </span>
+      <button class="opt pri" disabled={P.accountBusy} onclick={() => P.addPasskey().then(refresh)}
+        >Add a passkey</button
+      >
+      <button class="link" onclick={() => (P.offerPasskey = false)}>Not now</button>
+    </section>
   {:else if S}
     <section class="card">
       <div class="status">
@@ -101,45 +190,101 @@
     </section>
 
     <section class="card">
-      <span class="ct">Passkeys</span>
-      <span class="muted">
-        {info ? `${info.passkeys} on this account. ` : ''}A passkey made on an iPhone or Mac works on your other Apple
-        devices too. Add one for a Windows or Android device, or a different browser.
-      </span>
-      <button class="btn-plain self" disabled={P.accountBusy} onclick={addKey}>Add a passkey</button>
+      <span class="ct">You</span>
+      {#if editing === 'name'}
+        <form class="col" onsubmit={(e) => (e.preventDefault(), saveName())}>
+          <input class="field" autocomplete="name" aria-label="Name" bind:value={name} {@attach (el) => el.focus()} />
+          <SaveRow
+            ok={!!name.trim() && name.trim() !== S.user.name && !P.accountBusy}
+            onsave={saveName}
+            oncancel={() => (editing = null)}
+          />
+        </form>
+      {:else}
+        <div class="line">
+          <span class="lv"><span class="ll">Name</span>{S.user.name}</span>
+          <button
+            class="btn-plain"
+            onclick={() => {
+              name = S.user.name ?? '';
+              editing = 'name';
+            }}>Change</button
+          >
+        </div>
+      {/if}
+      {#if editing === 'email'}
+        <span class="muted">We'll send a code to the new address to confirm it.</span>
+        <form class="col" onsubmit={(e) => (e.preventDefault(), sendChange())}>
+          <input
+            class="field"
+            type="email"
+            autocomplete="email"
+            aria-label="New email"
+            bind:value={email}
+            {@attach (el) => el.focus()}
+          />
+          <SaveRow
+            label="Send code"
+            ok={okEmail && email.trim().toLowerCase() !== S.user.email && !P.accountBusy}
+            onsave={sendChange}
+            oncancel={() => (editing = null)}
+          />
+        </form>
+      {:else if editing === 'code'}
+        {@render codeField('Save', confirmChange, () => (editing = 'email'))}
+      {:else}
+        <div class="line">
+          <span class="lv"><span class="ll">Email</span>{S.user.email}</span>
+          <button
+            class="btn-plain"
+            onclick={() => {
+              email = '';
+              editing = 'email';
+            }}>Change</button
+          >
+        </div>
+      {/if}
     </section>
 
-    {#if emailOn || S.user.email}
-      <section class="card">
-        <span class="ct">Backup email</span>
-        {#if S.user.email}
-          <span class="muted">
-            {S.user.email}. If you ever can't use a passkey, you can sign in with a code sent here.
-          </span>
-          <button class="btn-plain self" disabled={P.accountBusy} onclick={() => P.removeEmail()}>Remove</button>
-        {:else if codeStep === 'code'}
-          <span class="muted">We sent a code to {email}. Enter it here.</span>
-          <form class="row" onsubmit={(e) => (e.preventDefault(), checkCode())}>
-            <input
-              class="field"
-              inputmode="numeric"
-              autocomplete="one-time-code"
-              maxlength="6"
-              aria-label="Code"
-              bind:value={code}
-            />
-            <button class="btn-plain" disabled={P.accountBusy || code.length < 6}>Save</button>
-          </form>
-          <button class="link" onclick={() => (codeStep = 'email')}>Use a different email</button>
-        {:else}
-          <span class="muted">Add an email, so you can sign in with a code if you ever can't use a passkey.</span>
-          <form class="row" onsubmit={(e) => (e.preventDefault(), sendCode())}>
-            <input class="field" type="email" autocomplete="email" aria-label="Email" bind:value={email} />
-            <button class="btn-plain" disabled={P.accountBusy || !email.includes('@')}>Send code</button>
-          </form>
-        {/if}
-      </section>
-    {/if}
+    <section class="card">
+      <span class="ct">Passkeys</span>
+      {#if info?.keys.length}
+        <ul class="keys">
+          {#each info.keys as k (k.id)}
+            <li>
+              <span class="lv">
+                <span>{k.label ?? 'Passkey'}</span>
+                <span class="ll">Added {day(k.created)}{k.used ? `, last used ${day(k.used)}` : ''}</span>
+              </span>
+              {#if P.armed('passkey', k.id)}
+                <span class="confirm">
+                  <button
+                    class="btn-yes"
+                    onclick={() => P.removePasskey(k.id).then(refresh)}
+                    {@attach (el) => el.focus()}>Remove</button
+                  >
+                  <button class="btn-no" onclick={() => P.disarm()}>Cancel</button>
+                  <DisarmBar />
+                </span>
+              {:else}
+                <button class="btn-plain" onclick={() => P.arm('passkey', k.id)}>Remove</button>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      {:else if info}
+        <span class="muted">None yet. You sign in with a code sent to {S.user.email}.</span>
+      {/if}
+      {#if keys}
+        <span class="muted">
+          A passkey made on an iPhone or Mac works on your other Apple devices too. Add one for a Windows or Android
+          device, or a different browser.
+        </span>
+        <button class="btn-plain self" disabled={P.accountBusy} onclick={() => P.addPasskey().then(refresh)}
+          >Add a passkey on this device</button
+        >
+      {/if}
+    </section>
 
     <section class="card">
       {#if P.armed('signout', 'me')}
@@ -163,45 +308,35 @@
         <button class="erase" onclick={() => P.arm('unaccount', 'me')}>Delete account</button>
       {/if}
     </section>
-  {:else if codeStep}
-    <section class="card">
-      <span class="ct">Sign in with an email code</span>
-      {#if codeStep === 'email'}
-        <span class="muted">Enter your account's backup email. We'll send a code to it.</span>
-        <form class="row" onsubmit={(e) => (e.preventDefault(), sendCode())}>
-          <input class="field" type="email" autocomplete="email" aria-label="Email" bind:value={email} />
-          <button class="btn-plain" disabled={P.accountBusy || !email.includes('@')}>Send code</button>
-        </form>
-      {:else}
-        <span class="muted">If {email} is the backup email for an account, a code is on its way. Enter it here.</span>
-        <form class="row" onsubmit={(e) => (e.preventDefault(), checkCode())}>
-          <input
-            class="field"
-            inputmode="numeric"
-            autocomplete="one-time-code"
-            maxlength="6"
-            aria-label="Code"
-            bind:value={code}
-          />
-          <button class="btn-plain" disabled={P.accountBusy || code.length < 6}>Sign in</button>
-        </form>
-      {/if}
-      <button class="link" onclick={() => (codeStep = null)}>Back</button>
-    </section>
   {:else}
     <section class="card">
       <span class="ct">One plan on all your devices</span>
-      <span class="muted">
-        Sign in on your phone and your computer to keep the same plan on both. A change on one shows up on the other
-        straight away.
-      </span>
-      <button class="opt pri" disabled={P.accountBusy} onclick={() => P.createAccount()}>Create an account</button>
-      <button class="opt" disabled={P.accountBusy} onclick={() => P.signIn()}>Sign in</button>
-      <span class="muted">
-        You sign in with a passkey: Face ID, Touch ID or your device's screen lock. There's no password to remember.
-      </span>
-      {#if emailOn}
-        <button class="link" onclick={() => (codeStep = 'email')}>Sign in with an email code instead</button>
+      {#if step === 'code'}
+        {@render codeField(
+          'Continue',
+          () => P.signInWithCode(email.trim(), code),
+          () => (step = 'email'),
+        )}
+      {:else}
+        <span class="muted">
+          Sign in on your phone and your computer to keep the same plan on both. New here? The same code makes your
+          account.
+        </span>
+        <form class="col" onsubmit={(e) => (e.preventDefault(), sendSignIn())}>
+          <input
+            class="field"
+            type="email"
+            autocomplete="username webauthn"
+            placeholder="Email"
+            aria-label="Email"
+            bind:value={email}
+          />
+          <button class="opt pri" disabled={P.accountBusy || !okEmail}>Email me a code</button>
+        </form>
+        {#if keys}
+          <button class="opt" disabled={P.accountBusy} onclick={() => P.signIn()}>Sign in with a passkey</button>
+          <span class="muted">A passkey is Face ID, Touch ID or your device's screen lock, if you've added one.</span>
+        {/if}
       {/if}
     </section>
   {/if}
@@ -282,6 +417,42 @@
   .row {
     display: flex;
     gap: 8px;
+  }
+  .col {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .col .field {
+    flex: none;
+  }
+  .line,
+  .keys li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .lv {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+    font: 400 15px/1.3 var(--font);
+    overflow-wrap: anywhere;
+  }
+  .ll {
+    font: 400 12px/1.3 var(--font);
+    color: var(--muted);
+  }
+  .keys {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
   }
   .field {
     flex: 1;

@@ -13,10 +13,13 @@ Each browser gets a Durable Object (`Timer`, named after its push endpoint) that
 
 Signing in (`src/auth.ts`, D1 database `elastic-day`, schema in `migrations/`):
 
-- `POST /auth/register/start`, `/auth/register/finish`: make a passkey. Without a session this makes a new account and signs in; with one (`Authorization: Bearer <token>`) it adds a passkey to that account.
+- `POST /auth/email/send`, `/auth/email/verify`: a six-digit code by email (through [Resend](https://resend.com); key in the `RESEND_API_KEY` secret, sender in `EMAIL_FROM`). Without a session, a code signs in, or makes the account if the address is new (the reply to `send` is the same either way). With one, it adds or changes the account's email (and can set its name at the same time). Codes last 10 minutes and allow 5 tries; at most 6 an hour go to one address and 30 to one network. Without a key `/auth/config` says `{ "email": false }`; with `DEV_MAIL` set (local), codes are kept at `GET /dev/mail` instead of sent.
+- `POST /auth/name`: set the account's name.
+- `POST /auth/register/start`, `/auth/register/finish` (signed in): add a passkey to the account, labelled with the browser and device it was made on.
 - `POST /auth/login/start`, `/auth/login/finish`: sign in with any passkey made for the site.
-- `POST /auth/email/send`, `/auth/email/verify`: a six-digit code by email. With a session it confirms a backup email; without one it signs in, and only to an account whose backup email it is (the reply never says whether there is one). Needs Cloudflare Email Service (see `wrangler.toml`); without it these answer 503 and `/auth/config` says `{ "email": false }`.
-- `POST /auth/email/remove`, `/auth/signout`, `/account` (details), `/account/delete`.
+- `POST /auth/passkeys/remove`, `/auth/signout`, `/account` (details, with the passkeys), `/account/delete`.
+
+An account syncs once it has a verified email and a name. Accounts made with only a passkey (before October 2026) still sign in, but `/sync` answers them with `{ "t": "setup" }` and their alerts stop until they add both.
 
 Signing in returns a token; only its SHA-256 is stored. A session unused for a year lapses.
 
@@ -34,6 +37,7 @@ Requests are only accepted from the origins in `ALLOWED_ORIGINS`, for the browse
 npx wrangler d1 migrations apply elastic-day --local   # once, for wrangler dev
 npx wrangler dev                                       # local, with the private key in .dev.vars
 npx wrangler secret put VAPID_PRIVATE_KEY
+npx wrangler secret put RESEND_API_KEY                  # run in a terminal: it asks for the key
 npx wrangler d1 migrations apply elastic-day --remote
 npx wrangler deploy
 ```

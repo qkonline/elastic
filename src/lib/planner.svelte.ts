@@ -3,7 +3,7 @@
 
 import * as A from './actions';
 import * as api from './account';
-import { API, ApiError, cancelled, type Session, type SignedIn } from './account';
+import { API, ApiError, cancelled, complete, passkeysAvailable, type Session, type SignedIn } from './account';
 import { chime, notifyHidden, requestNotifications, unlockAudio, unlockOnFirstGesture, vibrate } from './alert';
 import { download, parseBackup } from './backup';
 import { Boardo, type BoardoCard, type BoardoOp, cardsFor } from './boardo.svelte';
@@ -75,7 +75,7 @@ export type Sheet =
   | { type: 'reorder'; id: string; anchor: string; dir: 'up' | 'down' }
   | { type: 'card'; id: string };
 export type ConfirmType =
-  'postpone' | 'delete' | 'clear' | 'erase' | 'sample' | 'finish' | 'signout' | 'unaccount' | 'goal';
+  'postpone' | 'delete' | 'clear' | 'erase' | 'sample' | 'finish' | 'signout' | 'unaccount' | 'goal' | 'passkey';
 /** Running this far over before Done asks when it was really finished (minutes). */
 export const ASK_FINISH_OVER = 5;
 export interface Confirm {
@@ -199,6 +199,16 @@ export class Planner {
   accountBusy = $state(false);
   /** The outcome of the last account action, to show in the account sheet. */
   accountMsg = $state<{ err: boolean; t: string } | null>(null);
+  /** Just made an account here: offer a passkey for signing in next time. */
+  offerPasskey = $state(false);
+  /** Signed in, but the account has no name or email yet, so it doesn't sync until it has. */
+  get needsSetup(): boolean {
+    return !!this.session && (this.syncStatus === 'paused' || !complete(this.session.user));
+  }
+  /** The account sends this device's alerts (signed in and syncing). */
+  private get accountAlerts(): boolean {
+    return !!this.session && this.syncStatus !== 'paused';
+  }
 
   day: Day = $derived(this.days[this.viewKey] ?? this.blankDay(this.viewKey));
   isToday = $derived(this.viewKey === this.today);
@@ -333,6 +343,9 @@ export class Planner {
       return;
     }
     this.iv = setInterval(() => this.tick(), 250);
+    // The app opens from the service worker's cache: ask straight away whether there's a newer
+    // build, and take it now if nothing is under way (otherwise at the next quiet moment).
+    void this.checkForUpdate(true);
     void this.boardo.init();
     const session = await db.getMeta<Session>('account').catch(() => undefined);
     if (session) {
@@ -368,14 +381,15 @@ export class Planner {
     const plan = pushPlan(this.alerts(), Date.now());
     // Signed in, the service worker asks the account what to show, and falls back on this.
     void db.putAlerts(plan).catch(() => {});
-    if (this.session) this.pushScheduled = !!pushEndpoint() && plan.length > 0;
+    // Signed in to an account that isn't set up yet, this device books its own, as signed out.
+    if (this.accountAlerts) this.pushScheduled = !!pushEndpoint() && plan.length > 0;
     else this.pushScheduled = schedulePush(plan.map((g) => g.at));
   }
 
   private onVisible(): void {
     this.sync.setVisible(true);
     if (this.pushScheduled) {
-      if (!this.session) cancelPush();
+      if (!this.accountAlerts) cancelPush();
       // Heads-ups that came as a notification while away don't chime again on the way back.
       this.remindFrom = Date.now();
     }
@@ -497,7 +511,7 @@ export class Planner {
     if (this.confirm && this.confirm.type !== 'clear' && Date.now() - this.confirm.at > CONFIRM_MS) this.confirm = null;
     if (this.nudge && Date.now() - this.nudge.at > NUDGE_MS) this.nudge = null;
     if (Date.now() - this.updateCheckedAt > UPDATE_EVERY_MS) void this.checkForUpdate(false);
-    if (this.session && this.clock - this.alertsCheckedAt > ALERTS_EVERY_MS) {
+    if (this.accountAlerts && this.clock - this.alertsCheckedAt > ALERTS_EVERY_MS) {
       this.alertsCheckedAt = this.clock;
       this.sync.alertsChanged();
     }
@@ -1895,16 +1909,31 @@ export class Planner {
     }
   }
 
-  /** Make an account with a passkey on this device. Everything here goes up to it. */
-  createAccount(): Promise<boolean> {
-    return this.accountAction(async () => this.signedIn(await api.createAccount()));
-  }
-
   signIn(): Promise<boolean> {
     return this.accountAction(async () => this.signedIn(await api.signInWithPasskey()));
   }
 
-  /** Email a code to an account's backup email, to sign in with. */
+  /**
+   * Passkeys offered in the email field's suggestions: waits quietly until one is picked. A
+   * prompt that's closed, or replaced by another, says nothing.
+   */
+  async passkeyFromAutofill(): Promise<void> {
+    if (this.session || !(await api.passkeyAutofill())) return;
+    try {
+      const r = await api.signInWithPasskey(true);
+      if (this.session || this.accountBusy) return;
+      this.accountBusy = true;
+      try {
+        await this.signedIn(r);
+      } finally {
+        this.accountBusy = false;
+      }
+    } catch (e) {
+      if (!cancelled(e) && e instanceof ApiError && e.status) this.accountMsg = { err: true, t: e.message };
+    }
+  }
+
+  /** Email a code, to sign in or to make an account (the same either way). */
   sendSignInCode(email: string): Promise<boolean> {
     return this.accountAction(() => api.sendCode(email));
   }
@@ -1935,9 +1964,10 @@ export class Planner {
       await db.markAll();
     }
     await this.keepSession(session);
+    // A new account takes everything here; it goes up once it has a name (the next step).
     if (r.fresh) {
       await db.markAll();
-      this.accountMsg = { err: false, t: 'Account made. Sign in on your other devices to use the same plan there.' };
+      this.offerPasskey = passkeysAvailable();
     }
     await this.sync.start(session);
   }
@@ -1978,9 +2008,15 @@ export class Planner {
     await api.signOutRemote(s.token);
   }
 
-  /** Another tab signed in or out. */
+  /** Another tab signed in or out, or set the account up. */
   private async loadSession(): Promise<void> {
     const session = (await db.getMeta<Session>('account')) ?? null;
+    if (session && session.token === this.session?.token) {
+      const was = complete(this.session.user);
+      this.session = session;
+      if (!was && complete(session.user)) this.sync.resume();
+      return;
+    }
     if (session?.token === this.session?.token) return;
     this.sync.stop();
     this.session = session;
@@ -1992,40 +2028,65 @@ export class Planner {
     if (!s) return Promise.resolve(false);
     return this.accountAction(async () => {
       await api.addPasskey(s.token);
-      this.accountMsg = { err: false, t: 'Passkey added.' };
+      this.offerPasskey = false;
+      this.accountMsg = { err: false, t: 'Passkey added. Next time, sign in with it.' };
     });
   }
 
-  /** Email a code to confirm a backup email for this account. */
+  removePasskey(id: string): Promise<boolean> {
+    const s = this.session;
+    this.confirm = null;
+    if (!s) return Promise.resolve(false);
+    return this.accountAction(async () => {
+      await api.removePasskey(s.token, id);
+      this.accountMsg = { err: false, t: 'Passkey removed.' };
+    });
+  }
+
+  /** The account's name: asked for once it's made, and changeable after. */
+  saveName(name: string): Promise<boolean> {
+    const s = this.session;
+    if (!s) return Promise.resolve(false);
+    return this.accountAction(async () => {
+      const r = await api.setName(s.token, name);
+      const was = complete(s.user);
+      await this.updateUser({ name: r.name });
+      if (!was && complete(this.session?.user)) this.setUp();
+      else this.accountMsg = { err: false, t: 'Name saved.' };
+    });
+  }
+
+  /** Email a code to add (or change) the account's email. */
   sendEmailCode(email: string): Promise<boolean> {
     const s = this.session;
     if (!s) return Promise.resolve(false);
     return this.accountAction(() => api.sendCode(email, s.token));
   }
 
-  confirmEmail(email: string, code: string): Promise<boolean> {
+  /** Confirm the account's email with its code (and, for an account that has none, its name). */
+  confirmEmail(email: string, code: string, name?: string): Promise<boolean> {
     const s = this.session;
     if (!s) return Promise.resolve(false);
     return this.accountAction(async () => {
-      const r = await api.verifyCode(email, code, s.token);
-      await this.updateUser({ email: r.email });
-      this.accountMsg = { err: false, t: 'Backup email saved.' };
+      const was = complete(s.user);
+      const u = await api.verifyCode(email, code, s.token, name);
+      await this.updateUser({ email: u.email, name: u.name });
+      if (!was && complete(this.session?.user)) this.setUp();
+      else this.accountMsg = { err: false, t: 'Email saved.' };
     });
   }
 
-  removeEmail(): Promise<boolean> {
-    const s = this.session;
-    if (!s) return Promise.resolve(false);
-    return this.accountAction(async () => {
-      await api.removeEmail(s.token);
-      await this.updateUser({ email: null });
-    });
+  /** The account now has a name and an email: sync picks up, with everything saved meanwhile. */
+  private setUp(): void {
+    this.accountMsg = { err: false, t: "You're all set. Your plan syncs with your other devices now." };
+    this.sync.resume();
   }
 
   private async updateUser(patch: Partial<Session['user']>): Promise<void> {
     if (!this.session) return;
     this.session = { ...this.session, user: { ...this.session.user, ...patch } };
     await db.putMeta('account', this.session);
+    this.post({ t: 'account' });
   }
 
   /** The account's details (passkeys, email), fresh from the worker. */
@@ -2034,7 +2095,11 @@ export class Planner {
     if (!s) return null;
     try {
       const info = await api.accountInfo(s.token);
-      if (info.email !== s.user.email) await this.updateUser({ email: info.email });
+      if (info.email !== s.user.email || info.name !== (s.user.name ?? null)) {
+        const was = complete(s.user);
+        await this.updateUser({ email: info.email, name: info.name });
+        if (!was && complete(this.session?.user)) this.sync.resume();
+      }
       return info;
     } catch (e) {
       if (e instanceof ApiError && e.status === 401)
@@ -2068,6 +2133,7 @@ export class Planner {
     this.sync.stop();
     this.session = null;
     this.joinAsk = false;
+    this.offerPasskey = false;
     this.pushScheduled = false;
     await db.clearSync();
     this.post({ t: 'account' });

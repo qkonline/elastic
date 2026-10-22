@@ -1,5 +1,7 @@
-// Accounts and signing in. A passkey (Face ID, Touch ID, a security key) is the main way in; a
-// verified email can be added as a backup, to get a six-digit code when no passkey is to hand.
+// Accounts and signing in. An account is made with an email (confirmed with a six-digit code)
+// and a name; passkeys (Face ID, Touch ID, a security key) are added to it as the quick way back
+// in, and a code to the email always works too. Accounts made before that, with only a passkey,
+// sign in as before but don't sync until they add a name and an email (`complete`).
 // Signing in gives the device a session token, which it sends with every request. Only a hash
 // of the token is stored.
 
@@ -9,21 +11,24 @@ import {
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
 } from '@simplewebauthn/server';
-import { cleanEmail } from './checks';
+import { cleanEmail, cleanName, deviceLabel } from './checks';
+import { type MailEnv, sendMail } from './mail';
 import { b64url, fromB64url } from './vapid';
 
-export interface AuthEnv {
+export interface AuthEnv extends MailEnv {
   DB: D1Database;
-  /** Cloudflare Email Service. Without it, email codes are switched off. */
-  EMAIL?: SendEmail;
-  /** Who the codes come from, e.g. "Elastic <hello@example.com>". */
-  EMAIL_FROM?: string;
+}
+
+export interface User {
+  id: string;
+  email: string | null;
+  name: string | null;
 }
 
 /** What the app gets back from signing in. */
 export interface SignedIn {
   token: string;
-  user: { id: string; email: string | null };
+  user: User;
   /** A new account, with nothing in it yet. */
   fresh: boolean;
 }
@@ -42,6 +47,9 @@ const CHALLENGE_MS = 5 * 60_000;
 const CODE_MS = 10 * 60_000;
 const CODE_GAP_MS = 60_000;
 const CODE_TRIES = 5;
+/** Codes per address, and per network, per hour. */
+const PER_EMAIL = 6;
+const PER_IP = 30;
 /** A device that hasn't been used for this long is signed out. */
 const SESSION_IDLE_MS = 365 * 24 * 3600_000;
 const DAY_MS = 24 * 3600_000;
@@ -91,22 +99,42 @@ export async function signOut(env: AuthEnv, token: string): Promise<void> {
     .run();
 }
 
+async function userOf(env: AuthEnv, userId: string): Promise<User | null> {
+  return env.DB.prepare('SELECT id, email, name FROM users WHERE id = ?').bind(userId).first<User>();
+}
+
+/** An account syncs once it has a verified email and a name. */
+export const complete = (u: User | null) => !!u?.email && !!u.name;
+
+/** Whether this account may sync yet. */
+export async function canSync(env: AuthEnv, userId: string): Promise<boolean> {
+  return complete(await userOf(env, userId));
+}
+
 async function signedIn(env: AuthEnv, userId: string, fresh: boolean): Promise<SignedIn> {
-  const user = await env.DB.prepare('SELECT email FROM users WHERE id = ?')
-    .bind(userId)
-    .first<{ email: string | null }>();
-  return { token: await newSession(env, userId), user: { id: userId, email: user?.email ?? null }, fresh };
+  const user = (await userOf(env, userId)) ?? { id: userId, email: null, name: null };
+  return { token: await newSession(env, userId), user, fresh };
+}
+
+export interface PasskeyInfo {
+  id: string;
+  /** "Safari on iPhone"; null for ones made before labels. */
+  label: string | null;
+  created: number;
+  used: number | null;
 }
 
 export async function accountInfo(env: AuthEnv, userId: string) {
-  const user = await env.DB.prepare('SELECT email, created FROM users WHERE id = ?')
+  const user = await env.DB.prepare('SELECT email, name, created FROM users WHERE id = ?')
     .bind(userId)
-    .first<{ email: string | null; created: number }>();
+    .first<{ email: string | null; name: string | null; created: number }>();
   if (!user) return null;
-  const keys = await env.DB.prepare('SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ?')
+  const keys = await env.DB.prepare(
+    'SELECT id, label, created, used FROM passkeys WHERE user_id = ? ORDER BY COALESCE(used, created) DESC',
+  )
     .bind(userId)
-    .first<{ n: number }>();
-  return { id: userId, email: user.email, created: user.created, passkeys: keys?.n ?? 0 };
+    .all<PasskeyInfo>();
+  return { id: userId, ...user, passkeys: keys.results.length, keys: keys.results };
 }
 
 export async function deleteUser(env: AuthEnv, userId: string): Promise<void> {
@@ -115,6 +143,26 @@ export async function deleteUser(env: AuthEnv, userId: string): Promise<void> {
       env.DB.prepare(`DELETE FROM ${w} = ?`).bind(userId),
     ),
   );
+}
+
+/** Set or change the account's name. */
+export async function setName(env: AuthEnv, userId: string, body: { name?: unknown }): Promise<{ name: string }> {
+  const name = cleanName(body.name);
+  if (!name) throw new Refusal(400, 'Enter your name.');
+  await env.DB.prepare('UPDATE users SET name = ? WHERE id = ?').bind(name, userId).run();
+  return { name };
+}
+
+/** Take a passkey off the account. The last one only goes once there's an email to sign in with. */
+export async function removePasskey(env: AuthEnv, userId: string, body: { id?: unknown }): Promise<void> {
+  if (typeof body.id !== 'string' || body.id.length > 1024) throw new Refusal(400, 'No such passkey.');
+  const [user, keys] = await Promise.all([
+    userOf(env, userId),
+    env.DB.prepare('SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ?').bind(userId).first<{ n: number }>(),
+  ]);
+  if (!user?.email && (keys?.n ?? 0) <= 1)
+    throw new Refusal(409, "Add your email first, or you'd have no way to sign in.");
+  await env.DB.prepare('DELETE FROM passkeys WHERE id = ? AND user_id = ?').bind(body.id, userId).run();
 }
 
 // ---------- passkeys ----------
@@ -147,48 +195,47 @@ async function takeChallenge(env: AuthEnv, id: unknown, purpose: string) {
 }
 
 /**
- * Options for making a passkey: for a new account, or (`userId`) another passkey on an account
- * that's signed in.
+ * Options for adding a passkey to the signed-in account. (Accounts are made with an email now;
+ * a passkey is only ever added to one.)
  */
 export async function registerStart(env: AuthEnv, origin: string, userId: string | null) {
+  if (!userId) throw new Refusal(403, 'Make your account with your email first.');
   const { rpID } = rpOf(origin);
-  const uid = userId ?? randomId();
-  let userName = 'Elastic';
-  let exclude: { id: string; transports?: string[] }[] = [];
-  if (userId) {
-    const user = await env.DB.prepare('SELECT email FROM users WHERE id = ?')
-      .bind(userId)
-      .first<{ email: string | null }>();
-    if (!user) throw new Refusal(401, 'Signed out');
-    if (user.email) userName = user.email;
-    const keys = await env.DB.prepare('SELECT id, transports FROM passkeys WHERE user_id = ?')
-      .bind(userId)
-      .all<{ id: string; transports: string | null }>();
-    exclude = keys.results.map((k) => ({ id: k.id, transports: k.transports ? JSON.parse(k.transports) : undefined }));
-  }
+  const user = await userOf(env, userId);
+  if (!user) throw new Refusal(401, 'Signed out');
+  const userName = user.email ?? 'Elastic';
+  const keys = await env.DB.prepare('SELECT id, transports FROM passkeys WHERE user_id = ?')
+    .bind(userId)
+    .all<{ id: string; transports: string | null }>();
+  const exclude = keys.results.map((k) => ({
+    id: k.id,
+    transports: k.transports ? JSON.parse(k.transports) : undefined,
+  }));
   const options = await generateRegistrationOptions({
     rpName: 'Elastic',
     rpID,
     userName,
-    userDisplayName: userName,
-    userID: enc.encode(uid) as Uint8Array<ArrayBuffer>,
+    userDisplayName: user.name ?? userName,
+    userID: enc.encode(userId) as Uint8Array<ArrayBuffer>,
     attestationType: 'none',
     excludeCredentials: exclude,
     authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
   });
-  const challengeId = await saveChallenge(env, options.challenge, uid, userId ? 'add' : 'new');
+  const challengeId = await saveChallenge(env, options.challenge, userId, 'add');
   return { challengeId, options };
 }
 
-/** Check the new passkey and keep it. A new account is signed in straight away. */
+/** Check the new passkey and keep it, labelled with the device it was made on. */
 export async function registerFinish(
   env: AuthEnv,
   origin: string,
   userId: string | null,
   body: { challengeId?: unknown; response?: unknown },
-): Promise<SignedIn | { ok: true }> {
-  const ch = await takeChallenge(env, body.challengeId, userId ? 'add' : 'new');
-  if (userId && ch.user_id !== userId) throw new Refusal(400, 'That took too long. Try again.');
+  ua: string | null,
+): Promise<{ ok: true }> {
+  if (!userId) throw new Refusal(403, 'Make your account with your email first.');
+  const ch = await takeChallenge(env, body.challengeId, 'add');
+  if (ch.user_id !== userId) throw new Refusal(400, 'That took too long. Try again.');
   const { rpID } = rpOf(origin);
   let v;
   try {
@@ -204,28 +251,24 @@ export async function registerFinish(
   }
   if (!v.verified) throw new Refusal(400, "That passkey couldn't be checked. Try again.");
   const { credential } = v.registrationInfo;
-  const now = Date.now();
-  const insertKey = env.DB.prepare(
-    'INSERT INTO passkeys (id, user_id, public_key, counter, transports, created) VALUES (?, ?, ?, ?, ?, ?)',
-  ).bind(
-    credential.id,
-    ch.user_id,
-    b64url(credential.publicKey),
-    credential.counter,
-    credential.transports ? JSON.stringify(credential.transports) : null,
-    now,
-  );
   try {
-    if (userId) await insertKey.run();
-    else
-      await env.DB.batch([
-        env.DB.prepare('INSERT INTO users (id, created) VALUES (?, ?)').bind(ch.user_id, now),
-        insertKey,
-      ]);
+    await env.DB.prepare(
+      'INSERT INTO passkeys (id, user_id, public_key, counter, transports, created, label) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    )
+      .bind(
+        credential.id,
+        userId,
+        b64url(credential.publicKey),
+        credential.counter,
+        credential.transports ? JSON.stringify(credential.transports) : null,
+        Date.now(),
+        deviceLabel(ua),
+      )
+      .run();
   } catch {
     throw new Refusal(409, 'That passkey is already in use.');
   }
-  return userId ? { ok: true } : signedIn(env, ch.user_id, true);
+  return { ok: true };
 }
 
 /** Options for signing in: any passkey this site made can answer. */
@@ -289,22 +332,39 @@ function sixDigits(): string {
 }
 
 /**
- * Email a code: to sign in (`userId` null; only to an account's verified backup email, and
- * without saying whether there is one), or to verify a backup email for a signed-in account.
+ * Count one use of `key` in an hour-long window; false once it's over `max`. Rate limits for
+ * sending codes, per address and per network.
  */
-export async function emailSend(env: AuthEnv, body: { email?: unknown }, userId: string | null): Promise<void> {
-  if (!env.EMAIL || !env.EMAIL_FROM) throw new Refusal(503, "Email codes aren't available yet.");
+async function withinLimit(env: AuthEnv, key: string, max: number, now: number): Promise<boolean> {
+  const row = await env.DB.prepare('SELECT count, start FROM limits WHERE key = ?')
+    .bind(key)
+    .first<{ count: number; start: number }>();
+  if (!row || now - row.start > 3600_000) {
+    await env.DB.prepare('INSERT OR REPLACE INTO limits (key, count, start) VALUES (?, 1, ?)').bind(key, now).run();
+    return true;
+  }
+  if (row.count >= max) return false;
+  await env.DB.prepare('UPDATE limits SET count = count + 1 WHERE key = ?').bind(key).run();
+  return true;
+}
+
+/**
+ * Email a code: to sign in, or make an account (`userId` null; the same for new and known
+ * addresses, so it says nothing about who has an account), or to add or change the email of the
+ * signed-in account.
+ */
+export async function emailSend(
+  env: AuthEnv,
+  body: { email?: unknown },
+  userId: string | null,
+  ip: string,
+): Promise<void> {
   const email = cleanEmail(body.email);
   if (!email) throw new Refusal(400, "That doesn't look like an email address.");
   const purpose = userId ? 'add' : 'signin';
-  const owner = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first<{ id: string }>();
-  let forUser: string;
   if (userId) {
+    const owner = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first<{ id: string }>();
     if (owner && owner.id !== userId) throw new Refusal(409, 'That email is already used by another account.');
-    forUser = userId;
-  } else {
-    if (!owner) return; // say nothing: whether an email has an account is nobody's business
-    forUser = owner.id;
   }
   const last = await env.DB.prepare('SELECT sent FROM email_codes WHERE email = ? AND purpose = ?')
     .bind(email, purpose)
@@ -312,31 +372,39 @@ export async function emailSend(env: AuthEnv, body: { email?: unknown }, userId:
   const now = Date.now();
   if (last && now - last.sent < CODE_GAP_MS)
     throw new Refusal(429, 'A code is on its way. Wait a minute before asking for another.');
+  if (!(await withinLimit(env, `email:${email}`, PER_EMAIL, now)) || !(await withinLimit(env, `ip:${ip}`, PER_IP, now)))
+    throw new Refusal(429, 'Too many codes asked for. Try again in an hour.');
   const code = sixDigits();
   await env.DB.prepare(
     'INSERT OR REPLACE INTO email_codes (email, purpose, user_id, hash, expires, tries, sent) VALUES (?, ?, ?, ?, ?, 0, ?)',
   )
-    .bind(email, purpose, forUser, await sha256(`${email}|${code}`), now + CODE_MS, now)
+    .bind(email, purpose, userId ?? '', await sha256(`${email}|${code}`), now + CODE_MS, now)
     .run();
-  await env.EMAIL.send({
-    from: env.EMAIL_FROM,
+  const p = 'font:16px/1.5 system-ui,sans-serif';
+  await sendMail(env, {
     to: email,
     subject: `Your Elastic code is ${code}`,
     text: `Your Elastic code is ${code}\n\nIt works for 10 minutes. If you didn't ask for it, you can ignore this email.`,
+    html: `<p style="${p}">Your Elastic code is</p><p style="font:600 28px/1.2 system-ui,sans-serif;letter-spacing:4px">${code}</p><p style="font:14px/1.5 system-ui,sans-serif;color:#5b6170">It works for 10 minutes. If you didn't ask for it, you can ignore this email.</p>`,
   });
 }
 
-/** Check an emailed code: sign in, or (signed in) keep the email as the account's backup. */
+/**
+ * Check an emailed code. Signed out: sign in, or make the account if the address is new.
+ * Signed in: keep it as the account's email (with `name`, when one is given at the same time).
+ */
 export async function emailVerify(
   env: AuthEnv,
-  body: { email?: unknown; code?: unknown },
+  body: { email?: unknown; code?: unknown; name?: unknown },
   userId: string | null,
-): Promise<SignedIn | { email: string }> {
+): Promise<SignedIn | User> {
   const email = cleanEmail(body.email);
   const code = typeof body.code === 'string' ? body.code.replace(/\D/g, '') : '';
   const purpose = userId ? 'add' : 'signin';
   const wrong = new Refusal(400, "That code isn't right, or it has expired.");
   if (!email || code.length !== 6) throw wrong;
+  const name = body.name === undefined ? undefined : cleanName(body.name);
+  if (name === null) throw new Refusal(400, 'Enter your name.');
   const row = await env.DB.prepare(
     'SELECT user_id, hash, expires, tries FROM email_codes WHERE email = ? AND purpose = ?',
   )
@@ -350,15 +418,28 @@ export async function emailVerify(
     throw wrong;
   }
   await env.DB.prepare('DELETE FROM email_codes WHERE email = ? AND purpose = ?').bind(email, purpose).run();
-  if (!userId) return signedIn(env, row.user_id, false);
+  if (!userId) {
+    const owner = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first<{ id: string }>();
+    if (owner) return signedIn(env, owner.id, false);
+    const id = randomId();
+    try {
+      await env.DB.prepare('INSERT INTO users (id, created, email, name) VALUES (?, ?, ?, ?)')
+        .bind(id, Date.now(), email, name ?? null)
+        .run();
+    } catch {
+      // Made a moment ago by another device with the same code's twin: sign in to that one.
+      const again = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first<{ id: string }>();
+      if (again) return signedIn(env, again.id, false);
+      throw new Refusal(500, 'Something went wrong. Try again.');
+    }
+    return signedIn(env, id, true);
+  }
   try {
-    await env.DB.prepare('UPDATE users SET email = ? WHERE id = ?').bind(email, userId).run();
+    await env.DB.prepare('UPDATE users SET email = ?, name = COALESCE(?, name) WHERE id = ?')
+      .bind(email, name ?? null, userId)
+      .run();
   } catch {
     throw new Refusal(409, 'That email is already used by another account.');
   }
-  return { email };
-}
-
-export async function removeEmail(env: AuthEnv, userId: string): Promise<void> {
-  await env.DB.prepare('UPDATE users SET email = NULL WHERE id = ?').bind(userId).run();
+  return (await userOf(env, userId))!;
 }

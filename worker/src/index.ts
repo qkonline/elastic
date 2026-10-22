@@ -15,6 +15,7 @@ import { Account } from './account';
 import {
   accountInfo,
   type AuthEnv,
+  canSync,
   deleteUser,
   emailSend,
   emailVerify,
@@ -23,11 +24,13 @@ import {
   Refusal,
   registerFinish,
   registerStart,
-  removeEmail,
+  removePasskey,
   sessionUser,
+  setName,
   signOut,
 } from './auth';
 import { bookableTimes, isPushEndpoint } from './checks';
+import { devOutbox, mailOn } from './mail';
 import { sendPush } from './push';
 import type { VapidKeys } from './vapid';
 
@@ -66,6 +69,8 @@ export default {
     const { pathname } = new URL(req.url);
 
     if (pathname === '/sync') return connect(req, env);
+    // Local development only: the codes that would have been emailed.
+    if (pathname === '/dev/mail' && env.DEV_MAIL) return reply(200, devOutbox);
     if (req.method !== 'POST') return reply(404);
 
     let body: Record<string, unknown>;
@@ -95,22 +100,27 @@ export default {
           return reply(await timer(pathname, body, env));
 
         case '/auth/config':
-          return reply(200, { email: !!env.EMAIL && !!env.EMAIL_FROM });
+          return reply(200, { email: mailOn(env) });
         case '/auth/register/start':
           return reply(200, await registerStart(env, origin, token ? await mustUser() : null));
         case '/auth/register/finish':
-          return reply(200, await registerFinish(env, origin, token ? await mustUser() : null, body));
+          return reply(
+            200,
+            await registerFinish(env, origin, token ? await mustUser() : null, body, req.headers.get('user-agent')),
+          );
         case '/auth/login/start':
           return reply(200, await loginStart(env, origin));
         case '/auth/login/finish':
           return reply(200, await loginFinish(env, origin, body));
         case '/auth/email/send':
-          await emailSend(env, body, token ? await mustUser() : null);
+          await emailSend(env, body, token ? await mustUser() : null, req.headers.get('cf-connecting-ip') ?? '');
           return reply(204);
         case '/auth/email/verify':
           return reply(200, await emailVerify(env, body, token ? await mustUser() : null));
-        case '/auth/email/remove':
-          await removeEmail(env, await mustUser());
+        case '/auth/name':
+          return reply(200, await setName(env, await mustUser(), body));
+        case '/auth/passkeys/remove':
+          await removePasskey(env, await mustUser(), body);
           return reply(204);
         case '/auth/signout':
           if (typeof token === 'string') await signOut(env, token);
@@ -131,6 +141,7 @@ export default {
         case '/sync/beacon': {
           const id = await mustUser();
           if (typeof body.device !== 'string' || body.device.length > 64) return reply(400);
+          if (mailOn(env) && !(await canSync(env, id))) return reply(204);
           await account(id).beacon(body.device, body);
           return reply(204);
         }
@@ -149,16 +160,21 @@ export default {
 /**
  * The app's live connection to its account. Browsers can't set headers on a WebSocket, so the
  * token comes as the second subprotocol. A token that's no good gets a connection that only
- * says so (a refused upgrade would look like the network dropping), and the app hangs up.
+ * says so (a refused upgrade would look like the network dropping), and the app hangs up. So
+ * does an account that has no name or email yet ('setup'): it doesn't sync until it has, and
+ * the alerts it was sending stop (each device books its own meanwhile).
  */
 async function connect(req: Request, env: Env): Promise<Response> {
   if (req.headers.get('upgrade') !== 'websocket') return new Response(null, { status: 426 });
   const [proto, token] = (req.headers.get('sec-websocket-protocol') ?? '').split(',').map((s) => s.trim());
   const id = proto === 'elastic-day' ? await sessionUser(env, token) : null;
-  if (id) return env.ACCOUNTS.get(env.ACCOUNTS.idFromName(id)).fetch(req);
+  const account = id ? env.ACCOUNTS.get(env.ACCOUNTS.idFromName(id)) : null;
+  // Only held back once email works, or it would have no way to be set up.
+  if (id && account && (!mailOn(env) || (await canSync(env, id)))) return account.fetch(req);
+  if (account) await account.pause();
   const [client, server] = Object.values(new WebSocketPair());
   server.accept();
-  server.send(JSON.stringify({ t: 'signedout' }));
+  server.send(JSON.stringify({ t: id ? 'setup' : 'signedout' }));
   server.addEventListener('close', () => server.close());
   return new Response(null, { status: 101, webSocket: client, headers: { 'sec-websocket-protocol': 'elastic-day' } });
 }

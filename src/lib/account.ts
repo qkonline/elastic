@@ -1,5 +1,5 @@
-// Talking to the worker about accounts: making one with a passkey, signing in (passkey, or an
-// emailed code once a backup email is set), and the account's details.
+// Talking to the worker about accounts: making one with an email (a six-digit code) and a name,
+// signing in with a passkey or a code, adding and removing passkeys, and the account's details.
 
 import { startAuthentication, startRegistration } from '@simplewebauthn/browser';
 
@@ -8,7 +8,12 @@ export const API = import.meta.env.VITE_PUSH_URL?.replace(/\/$/, '') ?? '';
 export interface User {
   id: string;
   email: string | null;
+  /** Accounts made with only a passkey (before October 2026) have neither name nor email. */
+  name?: string | null;
 }
+
+/** An account syncs once it has a verified email and a name. */
+export const complete = (u: User | null | undefined) => !!u?.email && !!u.name;
 
 /** This device's sign-in, kept in IndexedDB (meta 'account'). */
 export interface Session {
@@ -24,15 +29,25 @@ export interface SignedIn {
   fresh: boolean;
 }
 
+export interface PasskeyInfo {
+  id: string;
+  /** "Safari on iPhone"; null for ones made before labels. */
+  label: string | null;
+  created: number;
+  used: number | null;
+}
+
 export interface AccountInfo extends User {
   created: number;
   passkeys: number;
+  keys: PasskeyInfo[];
   /** How many days, repeating tasks and settings the account holds. */
   records: number;
 }
 
-export const accountsAvailable = () =>
-  !!API && typeof window !== 'undefined' && 'PublicKeyCredential' in window && 'WebSocket' in window;
+export const accountsAvailable = () => !!API && typeof window !== 'undefined' && 'WebSocket' in window;
+/** Whether this browser can make and use passkeys at all. */
+export const passkeysAvailable = () => typeof window !== 'undefined' && 'PublicKeyCredential' in window;
 
 /** A refusal from the worker, with a message to show. 401: signed out. */
 export class ApiError extends Error {
@@ -74,15 +89,6 @@ function passkeyError(e: unknown): never {
 
 type Options<K extends 'optionsJSON'> = Parameters<typeof startRegistration>[0][K];
 
-/** Make a new account, with a passkey on this device. */
-export async function createAccount(): Promise<SignedIn> {
-  const { challengeId, options } = await call<{ challengeId: string; options: Options<'optionsJSON'> }>(
-    '/auth/register/start',
-  );
-  const response = await startRegistration({ optionsJSON: options }).catch(passkeyError);
-  return call('/auth/register/finish', { challengeId, response });
-}
-
 /** Another passkey for the signed-in account (another browser, a security key). */
 export async function addPasskey(token: string): Promise<void> {
   const { challengeId, options } = await call<{ challengeId: string; options: Options<'optionsJSON'> }>(
@@ -94,13 +100,28 @@ export async function addPasskey(token: string): Promise<void> {
   await call('/auth/register/finish', { challengeId, response }, token);
 }
 
-export async function signInWithPasskey(): Promise<SignedIn> {
+/**
+ * Sign in with a passkey. `autofill`: offered quietly in the email field's suggestions (where
+ * the browser can), waiting until one is picked; the prompt is the browser's either way.
+ */
+export async function signInWithPasskey(autofill = false): Promise<SignedIn> {
   const { challengeId, options } = await call<{
     challengeId: string;
     options: Parameters<typeof startAuthentication>[0]['optionsJSON'];
   }>('/auth/login/start');
-  const response = await startAuthentication({ optionsJSON: options }).catch(passkeyError);
+  const response = await startAuthentication({ optionsJSON: options, useBrowserAutofill: autofill }).catch(
+    passkeyError,
+  );
   return call('/auth/login/finish', { challengeId, response });
+}
+
+/** Whether passkeys can be offered in the email field's suggestions. */
+export async function passkeyAutofill(): Promise<boolean> {
+  try {
+    return passkeysAvailable() && !!(await PublicKeyCredential.isConditionalMediationAvailable?.());
+  } catch {
+    return false;
+  }
 }
 
 /** Whether email codes can be used yet. */
@@ -112,16 +133,17 @@ export async function emailAvailable(): Promise<boolean> {
   }
 }
 
-/** Email a code: to sign in, or (with `token`) to confirm a backup email. */
+/** Email a code: to sign in or make an account, or (with `token`) to add or change its email. */
 export const sendCode = (email: string, token?: string) => call<void>('/auth/email/send', { email }, token);
 
 export function verifyCode(email: string, code: string): Promise<SignedIn>;
-export function verifyCode(email: string, code: string, token: string): Promise<{ email: string }>;
-export function verifyCode(email: string, code: string, token?: string) {
-  return call('/auth/email/verify', { email, code }, token);
+export function verifyCode(email: string, code: string, token: string, name?: string): Promise<User>;
+export function verifyCode(email: string, code: string, token?: string, name?: string) {
+  return call('/auth/email/verify', { email, code, ...(name !== undefined ? { name } : {}) }, token);
 }
 
-export const removeEmail = (token: string) => call<void>('/auth/email/remove', {}, token);
+export const setName = (token: string, name: string) => call<{ name: string }>('/auth/name', { name }, token);
+export const removePasskey = (token: string, id: string) => call<void>('/auth/passkeys/remove', { id }, token);
 export const accountInfo = (token: string) => call<AccountInfo>('/account', {}, token);
 export const deleteAccount = (token: string) => call<void>('/account/delete', {}, token);
 

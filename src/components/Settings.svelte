@@ -65,9 +65,11 @@
   const syncText = $derived(
     !P.session
       ? 'Use the same plan on your phone and your computer.'
-      : P.syncStatus === 'offline'
-        ? "On. You're offline, so changes will sync when you're back."
-        : 'On. Your plan is the same on every device you sign in on.',
+      : P.syncStatus === 'paused'
+        ? 'Finish setting up your account to keep syncing.'
+        : P.syncStatus === 'offline'
+          ? "On. You're offline, so changes will sync when you're back."
+          : 'On. Your plan is the same on every device you sign in on.',
   );
 
   const THEMES: [ThemePref, string][] = [
@@ -152,7 +154,7 @@
       <button class="card link" onclick={() => P.openSheet({ type: 'account' })}>
         <span class="dot" class:on={!!P.session}></span>
         <span class="lt">
-          <span class="ct">{P.session ? 'On' : 'Set up'}</span>
+          <span class="ct">{P.session ? (P.syncStatus === 'paused' ? 'Paused' : 'On') : 'Set up'}</span>
           <span class="muted">{syncText}</span>
         </span>
         <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M5 3l4 4-4 4" /></svg>

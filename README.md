@@ -33,7 +33,7 @@ Live at **[kaiserkhan.com/planner](https://kaiserkhan.com/planner/)**. It works 
 - **Fix the record.** Forgot to tap Start, or tapped Done long after you'd finished? Open the task and move when it started or finished on a strip of time; the rest of the day follows. Done on a task well over time asks whether you finished when time was up, and the day hours let you move when the day started.
 - **Ended days are a record.** Once you've ended a day you can look back at it, but not change or reorder it. Today can be reopened if you ended it too soon.
 - **Always the latest version.** When you come back to the app, it checks whether a newer version is out and quietly reloads onto it, so a copy on your Home Screen never falls behind.
-- **Sync across devices.** Make an account in Settings → _Sync across devices_ and sign in on your phone and your computer: the same plan on both, and a change on one shows up on the others straight away. You sign in with a passkey (Face ID, Touch ID or your device's screen lock), so there's no password. Changes made offline go up when you're back online, and if two devices change the same day at once, both changes are kept, task by task. Theme, sound and notifications stay set per device.
+- **Sync across devices.** Make an account in Settings → _Sync across devices_ and sign in on your phone and your computer: the same plan on both, and a change on one shows up on the others straight away. You make the account with your email (a six-digit code confirms it) and your name, then add a passkey (Face ID, Touch ID or your device's screen lock) to sign in quickly; a code to your email always works too. There's no password. Changes made offline go up when you're back online, and if two devices change the same day at once, both changes are kept, task by task. Theme, sound and notifications stay set per device.
 - **Project cards from Boardo.** Connect [Boardo](https://kaiserkhan.com/boardo/), a shared project boards app, in Settings → _Projects_, and the cards assigned to you there show in a folding _Projects_ section on the days they cover (an overdue one that's in progress stays until it's done). Start one and it counts up with no time limit, sets the card to In progress in Boardo and logs the time you work on it there; Done marks your part done. Starting something else, or ending your day, only sets it aside. The connection belongs to the device it was made on and isn't synced.
 - **Install it.** Settings has an _Install_ button in browsers that support it (Chrome, Edge, Samsung Internet), and short instructions for Safari on iPhone, iPad and Mac. Installed, it opens from its own icon in its own window. On iPhone and iPad this is also what makes notifications possible.
 
@@ -41,7 +41,7 @@ Live at **[kaiserkhan.com/planner](https://kaiserkhan.com/planner/)**. It works 
 
 You don't need an account. Without one, your plan is saved in your browser (IndexedDB), on the device you're using, and never sent anywhere. Settings → _Your data_ exports a backup file and imports it again. Clearing the site's data deletes your plan, and Safari can clear it after a week without a visit unless the app is on your home screen, so export now and then.
 
-With an account, your plan (days, repeating tasks and the settings for how your days work) is also stored with the account on Cloudflare, so your other devices can get it. Each device still keeps its own full copy and works offline. Signing out leaves that copy where it is; deleting the account removes the account's copy and leaves each device's. The account holds no name or password, only your passkeys' public keys and, if you add one, a backup email.
+With an account, your plan (days, repeating tasks and the settings for how your days work) is also stored with the account on Cloudflare, so your other devices can get it. Each device still keeps its own full copy and works offline. Signing out leaves that copy where it is; deleting the account removes the account's copy and leaves each device's. The account holds your name and email and your passkeys' public keys, and no password. Sign-in codes are emailed through [Resend](https://resend.com).
 
 Notifications while the app is closed (see below) need the push service to know _when_ to ring (your timer running out, a fixed time coming up). Without an account that's all it's told; with one, the account also says what each notification is for, since another device may have changed the plan.
 
@@ -76,7 +76,7 @@ src/
     drag.ts            reordering tasks by dragging
     gestures.svelte.ts swiping between days and pulling to refresh
     backup.ts          export, and checking files on import
-    account.ts         making an account and signing in (passkeys, email codes)
+    account.ts         making an account and signing in (email codes, passkeys)
     sync.ts            keeping this device's plan and the account's the same
     merge.ts           combining a record changed on two devices, task by task
     push.ts            booking time's-up pushes with the push worker

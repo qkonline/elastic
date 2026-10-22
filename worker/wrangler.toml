@@ -11,6 +11,7 @@ workers_dev = true
 VAPID_PUBLIC_KEY = "BIUrkbS-EnZQ2hLavgQmshFuBLt_mD2aD4l9VLtB5mEhCQjF9CQDBRRWlEMcdkkdtiVz--i3rZocPSV3abVpycY"
 VAPID_SUBJECT = "https://kaiserkhan.com/planner/"
 ALLOWED_ORIGINS = "https://kaiserkhan.com,http://localhost:4173"
+EMAIL_FROM = "Elastic <elastic@kaiserkhan.com>"
 
 [[durable_objects.bindings]]
 name = "TIMERS"
@@ -34,12 +35,9 @@ database_name = "elastic-day"
 database_id = "a972726d-b3bb-4f2b-98ed-ac33fdf859ad"
 migrations_dir = "migrations"
 
-# Email codes (the backup way to sign in) need Cloudflare Email Service, which needs the
-# domain's DNS on Cloudflare and the Workers Paid plan. Once the domain is onboarded, uncomment:
-# [[send_email]]
-# name = "EMAIL"
-# remote = true
-# and add EMAIL_FROM to [vars], e.g. EMAIL_FROM = "Elastic <hello@kaiserkhan.com>".
+# Email (sign-in codes) goes through Resend, like Boardo's, from the kaiserkhan.com domain verified
+# there. The key is a secret: `npx wrangler secret put RESEND_API_KEY` (run it in a terminal, it
+# asks for the key). For `wrangler dev`, put DEV_MAIL=1 in .dev.vars to keep codes at /dev/mail.
 
 [observability]
 enabled = true
