@@ -69,7 +69,13 @@
   </div>
   {#if can}
     <button class="more hit" aria-expanded={!shut} aria-controls={uid} onclick={() => (folded = !folded)}
-      >{shut ? `Show all ${count}` : 'Show fewer'}</button
+      >{shut ? `Show all ${count}` : 'Show fewer'}<svg
+        viewBox="0 0 12 12"
+        width="11"
+        height="11"
+        aria-hidden="true"
+        class:up={!shut}><path d="M3 4.5l3 3 3-3" /></svg
+      ></button
     >
   {/if}
 </section>
@@ -100,26 +106,43 @@
     margin: 0;
     padding: 2px 14px 0 16px;
   }
-  /* A soft key under the list. */
+  /* Show all / Show fewer: a link-like control under the list, its arrow turning with it. */
   .more {
-    --hit-y: 6px;
+    --hit-x: 12px;
+    --hit-y: 10px;
     position: relative;
     align-self: center;
-    height: 32px;
-    margin: 2px 0 2px;
-    padding: 0 14px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+    margin: 2px 0 4px;
+    padding: 0 4px;
     border: none;
-    border-radius: var(--r-ctl);
-    background: color-mix(in oklab, var(--text) 8%, var(--raised));
-    color: var(--text);
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--accent);
     font: 500 13px/1 var(--font);
     cursor: pointer;
   }
   .more:hover {
-    background: color-mix(in oklab, var(--text) 13%, var(--raised));
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .more svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 240ms ease;
+  }
+  .more svg.up {
+    transform: rotate(180deg);
   }
   @media (prefers-reduced-motion: reduce) {
-    .clip {
+    .clip,
+    .more svg {
       transition: none;
     }
   }
