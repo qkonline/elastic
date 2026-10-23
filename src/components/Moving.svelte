@@ -36,9 +36,11 @@
       <p class="status" role="status">
         {P.moving === 'offline'
           ? "You're offline. Connect to the internet to bring your latest changes across."
-          : P.moving === 'going'
-            ? 'Opening the new Elastic…'
-            : 'Bringing your latest changes across…'}
+          : P.moving === 'unreachable'
+            ? `${host} can't be reached from this network yet. It keeps trying, so you can leave this open.`
+            : P.moving === 'going'
+              ? 'Opening the new Elastic…'
+              : 'Bringing your latest changes across…'}
       </p>
     {/if}
   </main>

@@ -3,7 +3,7 @@
 
 import * as A from './actions';
 import * as api from './account';
-import { arrival, MOVED_TO, moveUrl } from './move';
+import { arrival, MOVED_TO, moveUrl, reachable } from './move';
 import { API, ApiError, cancelled, complete, passkeysAvailable, type Session, type SignedIn } from './account';
 import { chime, notifyHidden, requestNotifications, unlockAudio, unlockOnFirstGesture, vibrate } from './alert';
 import { download, parseBackup } from './backup';
@@ -218,7 +218,7 @@ export class Planner {
   /** Something is typed on the sign-in page: a new build waits until signing in is done. */
   holdUpdates = false;
   /** The last build at an old address, handing this copy over (moveHome()). */
-  moving = $state<'saving' | 'offline' | 'going' | null>(null);
+  moving = $state<'saving' | 'offline' | 'unreachable' | 'going' | null>(null);
   /** init() has loaded the device's plan and sign-in. */
   private started = false;
   /** Saving on this device is failing: 'full' (out of storage) or 'failed'. Cleared by a save that works. */
@@ -2080,7 +2080,11 @@ export class Planner {
       const synced = !s || this.syncStatus === 'paused' || (await this.sync.drained());
       // Records the account won't take stay behind rather than keep everyone waiting.
       const stuck = this.syncStatus === 'live' && Date.now() - since > 30_000;
-      if (saved && (synced || stuck)) {
+      // The new address has to answer from here before going there: a network's DNS can still
+      // have it cached as missing for a while after it was made.
+      const ready = saved && (synced || stuck);
+      const there: boolean = ready ? await reachable() : false;
+      if (ready && there) {
         try {
           const code = s ? (await api.startHandoff(s.token)).code : null;
           this.moving = 'going';
@@ -2095,8 +2099,10 @@ export class Planner {
           }
         }
       }
-      const offline = (typeof navigator !== 'undefined' && navigator.onLine === false) || this.syncStatus === 'offline';
-      this.moving = offline ? 'offline' : 'saving';
+      // Offline, or online but the account's server or the new address can't be reached from here.
+      const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+      const cut: boolean = this.syncStatus === 'offline' || (ready && !there);
+      this.moving = offline ? 'offline' : cut ? 'unreachable' : 'saving';
       await new Promise((r) => setTimeout(r, 1000));
     }
   }

@@ -53,6 +53,16 @@ export function arrival(): { code: string | null; settings: Carried } | null {
   return { code: q.get('handoff'), settings };
 }
 
+/** Whether the new address answers from this network (an opaque reply is enough). */
+export async function reachable(): Promise<boolean> {
+  try {
+    await fetch(`${MOVED_TO}version.json?t=${Date.now()}`, { mode: 'no-cors', cache: 'no-store' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Opened from the Home Screen: that icon keeps the old address, so it needs adding again. */
 export const installed = () =>
   typeof window !== 'undefined' &&
