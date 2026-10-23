@@ -33,7 +33,10 @@ export function moveUrl(code: string | null, s: Settings): string {
   };
   const q = new URLSearchParams({ d: JSON.stringify(d) });
   if (code) q.set('handoff', code);
-  return `${MOVED_TO}#${q}`;
+  // What the address asked for (?add from the Home Screen shortcut) goes too; ?fresh was the update.
+  const ask = new URLSearchParams(typeof location === 'undefined' ? '' : location.search);
+  ask.delete('fresh');
+  return `${MOVED_TO}${ask.size ? `?${ask}` : ''}#${q}`;
 }
 
 /** Arriving from the old address: what it sent, taken off the address bar at once. */
