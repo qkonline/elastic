@@ -20,6 +20,10 @@
   let email = $state('');
   let code = $state('');
   let name = $state('');
+  /** Signed out: came straight to the code, with one already sent (on another device, say). */
+  let had = $state(false);
+  let resent = $state(false);
+  let emailField = $state<HTMLInputElement>();
   const S = $derived(P.session);
   const keys = passkeysAvailable();
   const site = location.origin + location.pathname.replace(/index\.html$/, '');
@@ -60,10 +64,37 @@
 
   async function sendSignIn() {
     if (await P.sendSignInCode(email.trim())) {
+      had = false;
       step = 'code';
       code = '';
     }
   }
+
+  /** Skip sending: the code was asked for earlier, perhaps on another device, and still works. */
+  function haveCode() {
+    if (!okEmail) return emailField?.reportValidity();
+    P.accountMsg = null;
+    resent = false;
+    had = true;
+    step = 'code';
+    code = '';
+  }
+
+  async function sendAgain() {
+    resent = false;
+    if (await P.sendSignInCode(email.trim())) resent = true;
+  }
+
+  const signInWithCode = () => P.signInWithCode(email.trim(), code);
+
+  // Six digits typed or pasted: check them straight away, once (a wrong code waits for a change).
+  let tried = '';
+  $effect(() => {
+    const digits = code.replace(/\D/g, '');
+    if (S || step !== 'code' || digits.length !== 6 || digits === tried || P.accountBusy) return;
+    tried = digits;
+    void signInWithCode();
+  });
 
   async function sendChange() {
     if (await P.sendEmailCode(email.trim())) {
@@ -261,30 +292,69 @@
     <section class="card">
       <span class="ct">One plan on all your devices</span>
       {#if step === 'code'}
-        {@render codeField(
-          'Continue',
-          () => P.signInWithCode(email.trim(), code),
-          () => (step = 'email'),
-        )}
+        <form class="col" onsubmit={(e) => (e.preventDefault(), signInWithCode())}>
+          <span class="muted">
+            {#if had}
+              Type the 6-digit code we sent to <b>{email.trim()}</b>. Each code works for 10 minutes.
+            {:else}
+              We sent a 6-digit code to <b>{email.trim()}</b>. It works for 10 minutes.
+            {/if}
+          </span>
+          <label class="label" for="acct-code">Code</label>
+          <input
+            id="acct-code"
+            class="field code"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            maxlength="7"
+            placeholder="123456"
+            bind:value={code}
+            {@attach (el) => el.focus()}
+          />
+          <button class="opt pri" disabled={P.accountBusy || code.replace(/\D/g, '').length !== 6}>Sign in</button>
+        </form>
+        <div class="pair">
+          <button class="link" onclick={() => ((step = 'email'), (resent = false), (P.accountMsg = null))}
+            >Use another email</button
+          >
+          <button class="link" disabled={P.accountBusy} onclick={sendAgain}>Send a new code</button>
+        </div>
+        {#if resent}<span class="muted ok" role="status">A new code is on its way.</span>{/if}
       {:else}
         <span class="muted">
           Sign in on your phone and your computer to keep the same plan on both. New here? The same code makes your
           account.
         </span>
         <form class="col" onsubmit={(e) => (e.preventDefault(), sendSignIn())}>
+          <label class="label" for="acct-email">Email</label>
           <input
+            id="acct-email"
             class="field"
             type="email"
             autocomplete="username webauthn"
-            placeholder="Email"
-            aria-label="Email"
+            inputmode="email"
+            placeholder="you@example.com"
+            required
+            bind:this={emailField}
             bind:value={email}
           />
-          <button class="opt pri" disabled={P.accountBusy || !okEmail}>Email me a code</button>
+          <button class="opt pri ico" disabled={P.accountBusy || !okEmail}
+            ><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"
+              ><rect x="2.5" y="4.5" width="15" height="11" rx="2" /><path d="M3 5.5l7 5.5 7-5.5" /></svg
+            >Send me a code</button
+          >
+          <button type="button" class="link mid" disabled={P.accountBusy} onclick={haveCode}
+            >I already have a code</button
+          >
         </form>
         {#if keys}
-          <button class="opt" disabled={P.accountBusy} onclick={() => P.signIn()}>Sign in with a passkey</button>
-          <span class="muted">A passkey is Face ID, Touch ID or your device's screen lock, if you've added one.</span>
+          <div class="or"><span>or</span></div>
+          <button class="opt ico" disabled={P.accountBusy} onclick={() => P.signIn()}
+            ><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"
+              ><rect x="4" y="9" width="12" height="8.5" rx="2" /><path d="M7 9V6.5a3 3 0 0 1 6 0V9" /></svg
+            >Sign in with a passkey</button
+          >
+          <span class="muted">Face ID, Touch ID or your device's screen lock, once you've added a passkey here.</span>
         {/if}
       {/if}
     </section>
@@ -425,6 +495,53 @@
     text-decoration: underline;
     text-underline-offset: 3px;
     cursor: pointer;
+  }
+  .code {
+    height: 52px;
+    font: 600 26px/1 var(--font);
+    letter-spacing: 0.3em;
+  }
+  .ico {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .ico svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .link.mid {
+    align-self: center;
+    text-decoration: none;
+    font-size: 14px;
+  }
+  .pair {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: -8px;
+  }
+  .or {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--faint);
+    font: 400 13px/1 var(--font);
+  }
+  .or::before,
+  .or::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+  .ok {
+    color: var(--grT);
   }
   .erase {
     align-self: flex-start;
