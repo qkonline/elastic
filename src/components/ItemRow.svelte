@@ -121,8 +121,11 @@
         >
       {:else if v.fixedAt}<span class="fixed">fixed · {v.fixedAt}</span>{/if}
       {#if showSkip}
-        <button class="hover-btn skip" onclick={() => P.skip(id)}>Skip</button>
-        <button class="hover-btn pp" onclick={() => P.arm('postpone', id)}>Postpone</button>
+        <!-- Laid over the line rather than in it, so the row doesn't grow on hover. -->
+        <span class="hover-acts">
+          <button class="hover-btn skip" onclick={() => P.skip(id)}>Skip</button>
+          <button class="hover-btn pp" onclick={() => P.arm('postpone', id)}>Postpone</button>
+        </span>
       {/if}
     </div>
     <button class="title" class:muted={v.mutedT} class:struck={v.s === 'skipped' || v.s === 'done'} onclick={open}
@@ -354,6 +357,7 @@
     min-width: 0;
   }
   .meta {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -392,8 +396,15 @@
     background: var(--raised);
     cursor: pointer;
   }
+  .hover-acts {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    translate: 0 -50%;
+    display: flex;
+    gap: 8px;
+  }
   .hover-btn.skip {
-    margin-left: auto;
     color: var(--text);
     border: 1px solid var(--border);
   }
