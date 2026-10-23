@@ -451,7 +451,7 @@ describe('Planner', () => {
     expect(p.day).toMatchObject({ dayStarted: 620, dayStart: 620, wrap: 1220 });
   });
 
-  it('Reschedule → Start now moves only that task; the other missed ones stay missed', async () => {
+  it('Reschedule → Start now starts the day with that task, and the rest follow it', async () => {
     vi.setSystemTime(new Date(2026, 8, 25, 11, 0));
     const p = await boot(); // planned from 9:00, never started
     for (const t of ['A', 'B', 'C']) add(p, t); // 9:00, 9:30, 10:00: all missed by 11
@@ -461,8 +461,9 @@ describe('Planner', () => {
 
     p.reschedNow(byTitle(p, 'B').id);
     expect(byTitle(p, 'B').status).toBe('running');
-    expect(missed()).toEqual(['A', 'C']);
-    expect(p.sch.rows.map((r) => `${r.it.title} ${r.start}`)).toEqual(['A 540', 'C 570', 'B 660', 'D 690']);
+    // The day has started: what's still to do follows the now line, so nothing is missed.
+    expect(missed()).toEqual([]);
+    expect(p.sch.rows.map((r) => `${r.it.title} ${r.start}`)).toEqual(['B 660', 'A 690', 'C 720', 'D 750']);
   });
 
   it('starting late moves the wrap-up so the day keeps its planned length', async () => {

@@ -94,9 +94,9 @@ describe('postpone', () => {
     );
     const d = A.reopen(d0, 'a', 660);
     expect(d.items[0]).toMatchObject({ id: 'a', status: 'postponed', startedAt: 540, endedAt: 600, laterCopy: true });
-    // "c" was already missed (planned 10:30 to 11:00), so it stays where it was.
-    expect(d.items.map((i) => i.title)).toEqual(['a', 'b', 'c', 'a']);
-    expect(d.items[3]).toMatchObject({
+    // "c" follows the now line, so the continued "a" goes in front of it.
+    expect(d.items.map((i) => i.title)).toEqual(['a', 'b', 'a', 'c']);
+    expect(d.items[2]).toMatchObject({
       status: 'todo',
       continued: true,
       min: A.REOPEN_MIN,
@@ -108,10 +108,10 @@ describe('postpone', () => {
     expect(rows.map((r) => [r.start, r.end])).toEqual([
       [540, 600],
       [600, 630],
-      [630, 660],
       [660, 675],
+      [675, 705],
     ]);
-    expect(isMissed(rows[3], 670)).toBe(false);
+    expect(isMissed(rows[2], 670)).toBe(false);
   });
 
   it('a reopened task goes in front of what is still to come, planned from now', () => {
@@ -183,9 +183,9 @@ describe('postpone', () => {
 describe('starting late', () => {
   const plan = (d: Day, n: number) => schedule(d, n).rows.map((r) => `${r.it.id} ${r.start}-${r.end}`);
 
-  it('starting a missed task at noon moves only that task; the other missed ones stay missed', () => {
-    // Day started at 9. "work" was planned 10–11, "call" 11–11:30 and "report" 11:30–12:15:
-    // by noon the first two are missed.
+  it('starting a task at noon puts it at the now line, and the rest follow it', () => {
+    // Day started at 9; "mail" took 9 to 10, then nothing until noon. The tasks not started
+    // followed the now line meanwhile, so none is missed.
     const d0 = day(
       [t('mail', 60, { status: 'done', startedAt: 540, endedAt: 600 }), t('work', 60), t('call', 30), t('report', 45)],
       { dayStarted: 540 },
@@ -193,25 +193,25 @@ describe('starting late', () => {
     const res = A.reschedNow(d0, 'work');
     expect(res.start).toBe(true);
     const d1 = A.startItem(res.day, 'work', 720);
-    expect(plan(d1, 720)).toEqual(['mail 540-600', 'call 600-630', 'work 720-780', 'report 780-825']);
+    expect(plan(d1, 720)).toEqual(['mail 540-600', 'work 720-780', 'call 780-810', 'report 810-855']);
     const rows = schedule(d1, 720).rows;
-    expect(rows.filter((r) => isMissed(r, 720)).map((r) => r.it.id)).toEqual(['call']);
-    expect(rows.find((r) => r.it.id === 'work')?.gap).toBe(90); // idle from 10:30 to noon
+    expect(rows.filter((r) => isMissed(r, 720)).map((r) => r.it.id)).toEqual([]);
+    expect(rows.find((r) => r.it.id === 'work')?.gap).toBe(120); // idle from 10 to noon
   });
 
-  it('keeps missed tasks missed when a task starts before Start my day', () => {
-    // Planned from 10, never started; at noon "a" and "b" are missed and "c" is on now.
+  it('starting a task before Start my day starts the day, and the rest follow it', () => {
+    // Planned from 10, never started; at noon "b" is started.
     const d0 = day([t('a', 60), t('b', 60), t('c', 60), t('d', 30)], { dayStart: 600 });
     const d1 = A.startItem(d0, 'b', 720);
     expect(d1.dayStarted).toBe(720);
-    expect(plan(d1, 720)).toEqual(['a 600-660', 'b 720-780', 'c 780-840', 'd 840-870']);
+    expect(plan(d1, 720)).toEqual(['b 720-780', 'a 780-840', 'c 840-900', 'd 900-930']);
     expect(
       schedule(d1, 720)
         .rows.filter((r) => isMissed(r, 720))
         .map((r) => r.it.id),
-    ).toEqual(['a']);
+    ).toEqual([]);
     // Time before the day started isn't idle time.
-    expect(schedule(d1, 720).rows[1].gap).toBe(0);
+    expect(schedule(d1, 720).rows[0].gap).toBe(0);
   });
 
   it('Start my day plans everything still to do from now', () => {
@@ -253,7 +253,7 @@ describe('starting late', () => {
   it('keeps fixed-time items at their time', () => {
     const d0 = day([t('a', 30), t('meet', 30, { kind: 'fixed', fixedAt: 900 }), t('b', 60)], { dayStarted: 540 });
     const d1 = A.startItem(d0, 'b', 720);
-    expect(plan(d1, 720)).toEqual(['a 540-570', 'b 720-780', 'meet 900-930']);
+    expect(plan(d1, 720)).toEqual(['b 720-780', 'a 780-810', 'meet 900-930']);
   });
 
   it('Do it next goes right after the running task without starting', () => {
@@ -357,5 +357,50 @@ describe('correcting recorded times', () => {
     expect(A.dayStartBounds(d0, 645)).toEqual([0, 540]);
     expect(A.retimeDay(d0, 600, 645).dayStarted).toBe(540);
     expect(A.retimeDay(d0, 510, 645).dayStarted).toBe(510);
+  });
+});
+
+describe('letThrough', () => {
+  const ids = (d: Day) => d.items.map((i) => i.id);
+
+  it('moves a fixed item up in front of the task that no longer fits before it; the rest keep their order', () => {
+    const d0 = day(
+      [
+        t('b', 60, { status: 'done', startedAt: 600, endedAt: 660 }),
+        t('email', 60),
+        t('meet', 30, { kind: 'fixed', fixedAt: 720 }),
+        t('read', 20),
+      ],
+      { dayStarted: 600 },
+    );
+    expect(A.letThrough(d0, 640)).toBe(d0); // 10:40: email still fits before 12
+    const d1 = A.letThrough(d0, 690); // 11:30: it doesn't
+    expect(ids(d1)).toEqual(['b', 'meet', 'email', 'read']);
+    // "read" would fit before the meeting, but doesn't overtake "email".
+    expect(schedule(d1, 690).rows.map((r) => `${r.it.id} ${r.start}`)).toEqual([
+      'b 600',
+      'meet 720',
+      'email 750',
+      'read 810',
+    ]);
+  });
+
+  it('moves a fixed item already missed above the tasks still to do', () => {
+    const d0 = day([t('a', 30), t('call', 15, { kind: 'fixed', fixedAt: 600 })], { dayStarted: 540 });
+    expect(ids(A.letThrough(d0, 620))).toEqual(['call', 'a']);
+  });
+
+  it('gives a buffer its time once the day has started, and a new one when moved by hand', () => {
+    const d0 = day([t('a', 60), t('pause', 15, { kind: 'buffer' }), t('b', 30)], { dayStarted: 600 });
+    const d1 = A.letThrough(d0, 600);
+    expect(A.find(d1, 'pause')?.heldAt).toBe(660);
+    expect(A.letThrough(d1, 600)).toBe(d1);
+    expect(A.find(A.reorder(d1, 'pause', 3), 'pause')?.heldAt).toBeNull();
+  });
+
+  it('leaves a day not started, or ended, alone', () => {
+    const d0 = day([t('a', 30), t('meet', 15, { kind: 'fixed', fixedAt: 545 })]);
+    expect(A.letThrough(d0, 600)).toBe(d0);
+    expect(A.letThrough({ ...d0, dayStarted: 540, dayEnded: 560 }, 600).items).toBe(d0.items);
   });
 });

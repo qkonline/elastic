@@ -18,6 +18,13 @@ export interface Row {
 
 export const isActive = (it: Item) => it.status === 'running' || it.status === 'paused';
 
+/** A task still to do that, once the day has started, follows the now line (schedule()). */
+export const follows = (it: Item) => it.kind === 'task' && it.status === 'todo';
+
+/** Something still to do that keeps its time once the day has started: a fixed item, or a held buffer. */
+export const anchored = (it: Item) =>
+  it.status === 'todo' && ((it.kind === 'fixed' && it.fixedAt != null) || (it.kind === 'buffer' && it.heldAt != null));
+
 /** Postponed after some work was logged (its time stays on the timeline). */
 export const isPartial = (it: Item) => it.status === 'postponed' && it.startedAt != null;
 
@@ -52,8 +59,13 @@ export function pausedTotal(it: Item, n: number): number {
  * and what overlaps it is flagged `runsInto`, since a meeting doesn't wait for whatever you've
  * just started.
  */
-export function schedule(day: Day, n: number): { rows: Row[]; finish: number } {
+export function schedule(day: Day, n: number): { rows: Row[]; finish: number; stacked: boolean } {
   const started = day.dayStarted != null;
+  // Once the day has started, until it's ended, tasks still to do follow the now line: none is
+  // planned before now, so the time since the last one finished shows as idle and a task is only
+  // missed once the day runs out (the stacking pass below). Fixed items and buffers keep their
+  // times; a task that no longer fits before one goes after it (actions.letThrough()).
+  const follow = started && day.dayEnded == null;
   let cur = started ? day.dayStarted! : day.dayStart;
   // Tasks left in front of everything that has happened were missed before the day started
   // (and kept as missed when another task was started): they stay where the plan had them.
@@ -96,17 +108,25 @@ export function schedule(day: Day, n: number): { rows: Row[]; finish: number } {
       end = n + Math.max(0, it.min - (it.pausedAt! - start - it.pausedFor));
       cur = end;
       timing = true;
+    } else if (follow && it.kind === 'buffer' && it.heldAt != null) {
+      start = it.heldAt;
+      end = start + it.min;
+      cur = Math.max(cur, end);
+      plan = Math.max(plan, end);
     } else if (it.kind === 'fixed') {
       const at = it.fixedAt ?? cur;
-      start = lined && !timing ? Math.max(at, plan) : at;
+      start = !follow && lined && !timing ? Math.max(at, plan) : at;
       moved = start > at + 0.5;
+      // Once its time has come, the time before it since the last thing ended was idle.
+      if (follow && start <= n) gap = idle(start);
       end = start + it.min;
       cur = Math.max(cur, end);
       plan = end;
       lined = timing = false;
     } else {
-      // A reopened task's rest isn't planned before it was reopened.
-      start = Math.max(cur, it.planFrom ?? cur);
+      // A reopened task's rest isn't planned before it was reopened; a task following the now
+      // line isn't planned before now.
+      start = Math.max(cur, it.planFrom ?? cur, follow && follows(it) ? n : cur);
       if (start > cur) {
         gap = idle(start);
         plan = Math.max(plan, start);
@@ -118,6 +138,42 @@ export function schedule(day: Day, n: number): { rows: Row[]; finish: number } {
     }
     return { it, idx, start, end, gap: gap >= 1 ? gap : 0, ...(moved ? { moved } : {}) };
   });
+
+  // When what's left no longer fits before the wrap-up (`stacked`), tasks stop following the now
+  // line: each starts no later than leaves room, before the wrap-up, for what comes after it (the
+  // tasks, and fixed items at their times; a buffer's time is spare, so it can be taken). So they
+  // stack up against it, and one is missed once the now line has passed its end. Until then, a
+  // task that doesn't fit before a fixed item or buffer goes after it (actions.letThrough()).
+  const over = follow && rows.some((r) => follows(r.it) && !untimed(r.it.kind) && r.end > day.wrap + 0.5);
+  if (over) {
+    let limit = day.wrap;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const r = rows[i];
+      if (follows(r.it) && !untimed(r.it.kind)) {
+        const latest = Math.min(limit, day.wrap) - r.it.min;
+        if (r.start > latest) {
+          r.gap = Math.max(0, r.gap - (r.start - latest));
+          if (r.gap < 1) r.gap = 0;
+          r.start = latest;
+          r.end = latest + r.it.min;
+        }
+        limit = r.start;
+      } else if (anchored(r.it) && r.it.kind === 'fixed') limit = Math.min(limit, r.start);
+    }
+    // Never before the end of the task or fixed item listed above it, so the list stays in the
+    // order of the day; a day too full for that runs past the wrap-up.
+    let prev = -Infinity;
+    for (const r of rows) {
+      if (follows(r.it) && !untimed(r.it.kind)) {
+        if (r.start < prev) {
+          r.gap = 0;
+          r.end += prev - r.start;
+          r.start = prev;
+        }
+        prev = r.end;
+      } else if (anchored(r.it) && r.it.kind === 'fixed') prev = Math.max(prev, r.end);
+    }
+  }
 
   // Warnings are about what's still to fit, so an ended day has none.
   const ended = day.dayEnded != null;
@@ -132,7 +188,7 @@ export function schedule(day: Day, n: number): { rows: Row[]; finish: number } {
 
   const live = rows.filter((r) => r.it.status !== 'skipped');
   const finish = live.length ? Math.max(...live.map((r) => r.end)) : started ? n : day.dayStart;
-  return { rows, finish };
+  return { rows, finish, stacked: over };
 }
 
 /** A todo item whose planned end has passed (today only). Checks are never missed. */

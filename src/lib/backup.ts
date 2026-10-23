@@ -98,6 +98,7 @@ export function normalizeItem(raw: unknown): Item {
     marked: !!r.marked,
     continued: !!r.continued,
     laterCopy: !!r.laterCopy,
+    ...(kind === 'buffer' && typeof r.heldAt === 'number' && Number.isFinite(r.heldAt) ? { heldAt: r.heldAt } : {}),
     ...(status === 'todo' && typeof r.planFrom === 'number' && Number.isFinite(r.planFrom)
       ? { planFrom: r.planFrom }
       : {}),

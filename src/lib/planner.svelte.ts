@@ -217,6 +217,8 @@ export class Planner {
   }
   /** Something is typed on the sign-in page: a new build waits until signing in is done. */
   holdUpdates = false;
+  /** When Today's plan last followed the now line (followNow()). */
+  private followedAt = 0;
   /** The last build at an old address, handing this copy over (moveHome()). */
   moving = $state<'saving' | 'offline' | 'unreachable' | 'going' | null>(null);
   /** init() has loaded the device's plan and sign-in. */
@@ -549,6 +551,7 @@ export class Planner {
     // Clearing a day waits for an answer; the other confirms give up after a while.
     if (this.confirm && this.confirm.type !== 'clear' && Date.now() - this.confirm.at > CONFIRM_MS) this.confirm = null;
     if (this.nudge && Date.now() - this.nudge.at > NUDGE_MS) this.nudge = null;
+    if (this.clock - this.followedAt >= 1000) this.followNow();
     if (Date.now() - this.updateCheckedAt > UPDATE_EVERY_MS) void this.checkForUpdate(false);
     if (this.accountAlerts && this.clock - this.alertsCheckedAt > ALERTS_EVERY_MS) {
       this.alertsCheckedAt = this.clock;
@@ -1127,7 +1130,8 @@ export class Planner {
       this.finishElsewhere();
     }
     this.update(
-      (d) => ({ ...A.startDay(d, n), ...this.opening(d, n) }),
+      // The day's hours first: what still fits before the wrap-up depends on them.
+      (d) => A.startDay({ ...d, ...this.opening(d, n) }, n),
       first ? `${first.title} started` : 'Day started',
     );
     this.celebrate = { kind: 'start', at: n, first: first?.title ?? null };
@@ -1233,9 +1237,9 @@ export class Planner {
     const n = this.n;
     this.update((d) => {
       if (d.dayStarted != null) return A.startItem(d, id, n);
-      // This starts the day (Reschedule → Start now before Start my day). Start from the plan
-      // as shown, so what it shows as missed stays missed.
-      return { ...A.startItem(this.planDay, id, n), ...this.opening(d, n) };
+      // This starts the day (Reschedule → Start now before Start my day): from the plan as shown,
+      // with the day's hours set first, as Start my day does.
+      return A.startItem({ ...this.planDay, ...this.opening(d, n) }, id, n);
     }, `${it.title} started`);
     this.offerNotifications('timer');
   }
@@ -1250,6 +1254,19 @@ export class Planner {
     if (s.flexStart) return { dayStart: n, wrap: n + s.dayLength };
     const length = d.wrap > d.dayStart ? d.wrap - d.dayStart : s.dayLength;
     return { wrap: Math.max(d.wrap, n + length) };
+  }
+
+  /**
+   * Today's tasks still to do follow the now line (schedule()); here the ones that no longer fit
+   * before a fixed item or buffer go after it, and buffers get their times (A.letThrough()).
+   * Not while a task is being dragged.
+   */
+  private followNow(): void {
+    this.followedAt = this.clock;
+    const d = this.days[this.today];
+    if (!d || this.drag) return;
+    const next = A.letThrough(d, minutesInto(this.today, this.clock));
+    if (next !== d) this.put(next);
   }
 
   /** Only one timer at a time across all days: finish one left running on another day. */

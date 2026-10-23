@@ -1,7 +1,7 @@
 // Pure transformations of a Day. Each returns a new Day and never mutates its input.
 // `n` is "now" in minutes since the day's local midnight.
 
-import { isActive, isMissed, isPartial, schedule, worked } from './schedule';
+import { anchored, follows, isActive, isMissed, isPartial, schedule, worked } from './schedule';
 import type { Day, Item, Kind } from './types';
 import { untimed } from './types';
 
@@ -81,8 +81,9 @@ function toCurrentPoint(items: Item[], id: string, missed: Set<string>): Item[] 
 export function startItem(day: Day, id: string, n: number): Day {
   const target = find(day, id);
   if (!target || target.kind === 'buffer' || untimed(target.kind)) return day;
+  // Missed as the day will be once this starts it: tasks still to do follow the now line then.
   const missed = new Set(
-    schedule(day, n)
+    schedule({ ...day, dayStarted: day.dayStarted ?? n }, n)
       .rows.filter((r) => r.it.id !== id && isMissed(r, n))
       .map((r) => r.it.id),
   );
@@ -313,13 +314,16 @@ export function remove(day: Day, id: string): Day {
   return { ...day, items: day.items.filter((i) => i.id !== id) };
 }
 
+/** A buffer moved by hand takes the time of its new place (letThrough() gives it one). */
+const unheld = (it: Item): Item => (it.kind === 'buffer' && it.heldAt != null ? { ...it, heldAt: null } : it);
+
 /** Swap with the neighbour: the task sheet's ↑ Earlier / ↓ Later. */
 export function move(day: Day, id: string, d: -1 | 1): Day {
   const a = [...day.items];
   const i = a.findIndex((x) => x.id === id),
     j = i + d;
   if (i < 0 || j < 0 || j >= a.length) return day;
-  [a[i], a[j]] = [a[j], a[i]];
+  [a[i], a[j]] = [unheld(a[j]), unheld(a[i])];
   return { ...day, items: a };
 }
 
@@ -331,8 +335,51 @@ export function reorder(day: Day, id: string, over: number): Day {
   const [x] = a.splice(from, 1);
   let to = over;
   if (to > from) to--;
-  a.splice(to, 0, x);
+  a.splice(to, 0, unheld(x));
   return { ...day, items: a };
+}
+
+/**
+ * Once the day has started (until it's ended), tasks still to do follow the now line
+ * (schedule()), while fixed items and buffers keep their times. Here:
+ * - a buffer without a time yet takes the one the plan gives it now (when the day starts, or
+ *   once it's added or moved by hand);
+ * - a fixed item or buffer that a task still to do in front of it no longer fits before moves
+ *   up in front of that task, so the task and the ones after it go after it, in their order
+ *   (none overtakes another to fill the time before it).
+ * The day as it was when nothing needs to change.
+ */
+export function letThrough(day: Day, n: number): Day {
+  if (day.dayStarted == null || day.dayEnded != null) return day;
+  let d = day;
+  if (d.items.some((i) => i.kind === 'buffer' && i.status === 'todo' && i.heldAt == null)) {
+    const at = new Map(schedule(d, n).rows.map((r) => [r.it.id, r.start]));
+    d = {
+      ...d,
+      items: d.items.map((i) =>
+        i.kind === 'buffer' && i.status === 'todo' && i.heldAt == null ? { ...i, heldAt: at.get(i.id) ?? n } : i,
+      ),
+    };
+  }
+  for (let guard = 0; guard < d.items.length; guard++) {
+    const { rows, stacked } = schedule(d, n);
+    let move: [string, number] | null = null;
+    for (const a of rows) {
+      // A day too full for what's left takes a buffer's time instead (schedule()).
+      if (!anchored(a.it) || untimed(a.it.kind) || (stacked && a.it.kind === 'buffer')) continue;
+      const late = rows.find((r) => r.idx < a.idx && follows(r.it) && r.end > a.start + 0.5);
+      if (late) {
+        move = [a.it.id, late.idx];
+        break;
+      }
+    }
+    if (!move) break;
+    // reorder() lets a buffer go of its time, for a move by hand; this one keeps it.
+    const held = find(d, move[0])?.heldAt;
+    d = reorder(d, move[0], move[1]);
+    if (held != null) d = patchItem(d, move[0], { heldAt: held });
+  }
+  return d;
 }
 
 export function setKind(day: Day, id: string, k: Kind): Day {

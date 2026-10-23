@@ -66,6 +66,11 @@ export interface Item {
   laterCopy?: boolean;
   /** Not planned before this minute while still to do: a reopened task's rest starts from when it was reopened. */
   planFrom?: number | null;
+  /**
+   * A buffer's time once the day has started: where the plan had it then (or when it was added
+   * or moved). The now line doesn't push it, as it doesn't a fixed item (schedule()).
+   */
+  heldAt?: number | null;
   /** Day this item was moved to, and the id of the copy there (for Undo). */
   movedKey?: string | null;
   movedId?: string | null;

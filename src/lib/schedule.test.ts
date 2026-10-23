@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import * as A from './actions';
 import { newItem } from './actions';
 import { dayStats, isMissed, schedule, worked } from './schedule';
 import { clockToDay, minutesInto } from './time';
@@ -181,7 +182,10 @@ describe('an ended day', () => {
   it('flags nothing, since nothing is left to fit', () => {
     const d = day([t('a', 600), t('b', 60)], { dayStarted: 540, dayEnded: 700 });
     expect(schedule(d, 700).rows.some((r) => r.pastEnd || r.runsInto)).toBe(false);
-    expect(schedule({ ...d, dayEnded: null }, 700).rows.some((r) => r.pastEnd)).toBe(true);
+    // Still going, the task too long for what's left stacks against the wrap-up instead.
+    const open = schedule({ ...d, dayEnded: null }, 700).rows;
+    expect(open.map((r) => r.end)).toEqual([d.wrap - 60, d.wrap]);
+    expect(open.some((r) => r.pastEnd)).toBe(false);
   });
 });
 
@@ -197,5 +201,102 @@ describe('dayStats', () => {
       t('gym', 0, { kind: 'check' }),
     ]);
     expect(dayStats(d, 600)).toEqual({ tasks: 2, tasksDone: 1, logged: 50, checks: 2, checksDone: 1 });
+  });
+});
+
+describe('following the now line', () => {
+  const at = (d: Day, n: number) => schedule(d, n).rows.map((r) => `${r.it.title} ${r.start}-${r.end}`);
+
+  it('keeps the next task at the now line after a break, and counts the break as idle', () => {
+    // Started at 10; breakfast 10 to 11, then out until 11:30.
+    const d = day(
+      [t('breakfast', 60, { status: 'done', startedAt: 600, endedAt: 660 }), t('email', 60), t('read', 30)],
+      {
+        dayStarted: 600,
+        wrap: 1080,
+      },
+    );
+    const rows = schedule(d, 690).rows;
+    expect(at(d, 690)).toEqual(['breakfast 600-660', 'email 690-750', 'read 750-780']);
+    expect(rows[1].gap).toBe(30);
+    expect(rows.some((r) => isMissed(r, 690))).toBe(false);
+  });
+
+  it('leaves the plan as it was before Start my day and once the day has ended', () => {
+    const items = [t('a', 60), t('b', 60)];
+    expect(at(day(items), 700)).toEqual(['a 540-600', 'b 600-660']);
+    expect(at(day(items, { dayStarted: 540, dayEnded: 560 }), 700)).toEqual(['a 540-600', 'b 600-660']);
+  });
+
+  it('keeps fixed items at their time, even with tasks pushed in front of them', () => {
+    const d = day([t('a', 60), t('meet', 30, { kind: 'fixed', fixedAt: 720 }), t('b', 30)], { dayStarted: 540 });
+    const rows = schedule(d, 690).rows;
+    expect(at(d, 690)).toEqual(['a 690-750', 'meet 720-750', 'b 750-780']);
+    expect(rows[1].moved).toBeUndefined();
+    expect(rows[0].runsInto).toBe(true); // until letThrough() puts it after the meeting
+  });
+
+  it('counts the idle time before a fixed item once its time has come, not before', () => {
+    const d = day(
+      [t('a', 15, { status: 'done', startedAt: 600, endedAt: 615 }), t('meet', 15, { kind: 'fixed', fixedAt: 645 })],
+      { dayStarted: 600 },
+    );
+    expect(schedule(d, 630).rows[1].gap).toBe(0); // 10:30: the 10:45 meeting is still ahead
+    expect(schedule(d, 645).rows[1].gap).toBe(30);
+  });
+
+  it('keeps a buffer at its time, missed once the now line has passed it', () => {
+    const d = day(
+      [
+        t('a', 60, { status: 'done', startedAt: 600, endedAt: 660 }),
+        t('pause', 15, { kind: 'buffer', heldAt: 660 }),
+        t('b', 30),
+      ],
+      {
+        dayStarted: 600,
+      },
+    );
+    const rows = schedule(d, 700).rows;
+    expect(at(d, 700)).toEqual(['a 600-660', 'pause 660-675', 'b 700-730']);
+    expect(isMissed(rows[1], 700)).toBe(true);
+    expect(isMissed(rows[2], 700)).toBe(false);
+  });
+
+  it('stacks what no longer fits against the wrap-up; a task is missed once the line passes its end', () => {
+    // Wrap-up at 6 pm; at 3 pm two 2-hour tasks are left (4 hours, 3 to go).
+    const d = day([t('a', 120), t('b', 120)], { dayStarted: 600, wrap: 1080 });
+    expect(at(d, 840)).toEqual(['a 840-960', 'b 960-1080']); // 2 pm: still just fits
+    expect(at(d, 900)).toEqual(['a 840-960', 'b 960-1080']); // 3 pm: stacked
+    expect(schedule(d, 900).rows.some((r) => isMissed(r, 900))).toBe(false);
+    expect(
+      schedule(d, 960)
+        .rows.filter((r) => isMissed(r, 960))
+        .map((r) => r.it.title),
+    ).toEqual(['a']);
+    expect(schedule(d, 900).rows.some((r) => r.pastEnd)).toBe(false);
+  });
+
+  it("takes a buffer's time when the day is too full for what's left", () => {
+    // 3:30 pm: three hours of tasks, a buffer held at 4:30, two and a half hours to the 6 pm wrap-up.
+    const d = day([t('a', 60), t('b', 60), t('pause', 30, { kind: 'buffer', heldAt: 990 }), t('c', 60)], {
+      dayStarted: 600,
+      wrap: 1080,
+    });
+    const s = schedule(d, 930);
+    expect(s.stacked).toBe(true);
+    expect(at(d, 930)).toEqual(['a 900-960', 'b 960-1020', 'pause 990-1020', 'c 1020-1080']);
+    // ...and doesn't move the buffer up in front of the tasks, as it would with time to spare.
+    expect(A.letThrough(d, 930)).toBe(d);
+  });
+
+  it('never stacks a task into a fixed item listed above it', () => {
+    const d = day([t('a', 60), t('meet', 30, { kind: 'fixed', fixedAt: 1050 }), t('b', 30)], {
+      dayStarted: 600,
+      wrap: 1080,
+    });
+    // At 4:30 pm "a" fits before the meeting at 5:30; "b", after the meeting, can't fit before
+    // the 6 pm wrap-up at all, so it runs past it rather than into the meeting.
+    expect(at(d, 990)).toEqual(['a 990-1050', 'meet 1050-1080', 'b 1080-1110']);
+    expect(schedule(d, 990).rows[2].pastEnd).toBe(true);
   });
 });

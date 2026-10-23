@@ -45,7 +45,7 @@ const TOGETHER: (keyof Item)[][] = [
     'movedId',
     'card',
   ],
-  ['kind', 'fixedAt', 'min'],
+  ['kind', 'fixedAt', 'min', 'heldAt'],
   ['repeat', 'seriesId'],
 ];
 const GROUPED = new Set<string>(TOGETHER.flat());
