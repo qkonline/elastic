@@ -205,6 +205,17 @@ export class Planner {
   get needsSetup(): boolean {
     return !!this.session && (this.syncStatus === 'paused' || !complete(this.session.user));
   }
+  /**
+   * The sign-in page instead of the app: there's no account on this device yet, or signing in
+   * isn't finished (a name, which plan to keep, the passkey offer). Builds without the worker
+   * (local development) have no accounts and go straight to the app.
+   */
+  get signInFirst(): boolean {
+    if (!this.ready || !api.accountsAvailable()) return false;
+    return !this.session || this.joinAsk || this.needsSetup || this.offerPasskey;
+  }
+  /** Something is typed on the sign-in page: a new build waits until signing in is done. */
+  holdUpdates = false;
   /** The account sends this device's alerts (signed in and syncing). */
   private get accountAlerts(): boolean {
     return !!this.session && this.syncStatus !== 'paused';
@@ -253,8 +264,7 @@ export class Planner {
       (this.day.items.some((i) => i.status === 'todo' && i.kind !== 'buffer') || this.projectsToStart),
   );
   /** First visit: show the welcome until it's been completed or skipped. */
-  /** First visit. Signing in from it ("I use Elastic on another device") steps it aside for the account sheet. */
-  showWelcome = $derived(this.ready && !this.settings.onboarded && this.sheet?.type !== 'account');
+  showWelcome = $derived(this.ready && !this.settings.onboarded);
   celebrate = $state<Celebration | null>(null);
   active = $derived(this.day.items.find(isActive) ?? null);
   /** A timer running or paused on a day other than the one on screen (e.g. left on last night). */
@@ -416,6 +426,7 @@ export class Planner {
     if (!this.updateReady || this.reloading) return;
     if (this.sheet || this.drag || this.confirm || this.resched || this.celebrate || this.showWelcome) return;
     if (this.screen.type === 'settings') return;
+    if (this.signInFirst && (this.holdUpdates || this.session)) return;
     this.reloading = true;
     void this.flush().then(reloadToUpdate);
   }
@@ -1954,14 +1965,14 @@ export class Planner {
     const session: Session = { token: r.token, user: r.user, device: A.uid() };
     await db.clearSync();
     this.session = session;
-    if (!this.settings.onboarded) this.setSettings({ onboarded: true });
+    // A new account still gets the welcome's questions; an existing one already has its settings.
+    if (!r.fresh && !this.settings.onboarded) this.setSettings({ onboarded: true });
     cancelPush(); // the account sends this device's notifications from now on
     if (!r.fresh && (await this.hasOwnPlan())) {
       const info = await api.accountInfo(r.token).catch(() => null);
       // Asked first; the sign-in is only kept once it's answered.
       if (info?.records) {
         this.joinAsk = true;
-        this.sheet = { type: 'account' };
         return;
       }
       await db.markAll();
@@ -2054,7 +2065,7 @@ export class Planner {
       const r = await api.setName(s.token, name);
       const was = complete(s.user);
       await this.updateUser({ name: r.name });
-      if (!was && complete(this.session?.user)) this.setUp();
+      if ((!was || this.syncStatus === 'paused') && complete(this.session?.user)) this.setUp();
       else this.accountMsg = { err: false, t: 'Name saved.' };
     });
   }
@@ -2074,7 +2085,7 @@ export class Planner {
       const was = complete(s.user);
       const u = await api.verifyCode(email, code, s.token, name);
       await this.updateUser({ email: u.email, name: u.name });
-      if (!was && complete(this.session?.user)) this.setUp();
+      if ((!was || this.syncStatus === 'paused') && complete(this.session?.user)) this.setUp();
       else this.accountMsg = { err: false, t: 'Email saved.' };
     });
   }
@@ -2134,6 +2145,8 @@ export class Planner {
 
   private async forgetSession(msg?: string): Promise<void> {
     this.sync.stop();
+    // The sign-in page comes up; signing in again starts on Today.
+    this.openScreen({ type: 'today' });
     this.session = null;
     this.joinAsk = false;
     this.offerPasskey = false;

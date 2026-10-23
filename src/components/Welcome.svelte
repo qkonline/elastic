@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { fade, fly } from 'svelte/transition';
-  import { accountsAvailable } from '../lib/account';
   import { planner as P } from '../lib/planner.svelte';
   import { dL, fT } from '../lib/time';
   import { reducedMotion } from '../lib/ui.svelte';
@@ -46,11 +45,6 @@
           <div class="actions">
             <button class="pri" onclick={() => (step = 1)}>Get started</button>
             <button class="text" onclick={() => finish()}>Skip for now</button>
-            {#if accountsAvailable()}
-              <button class="text" onclick={() => P.openSheet({ type: 'account' })}
-                >I use Elastic on another device</button
-              >
-            {/if}
           </div>
         {:else if step === 1}
           <p class="count">1 of 2</p>

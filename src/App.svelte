@@ -14,13 +14,13 @@
   import Header from './components/Header.svelte';
   import InstallGuide from './components/InstallGuide.svelte';
   import NotifyPrompt from './components/NotifyPrompt.svelte';
-  import SetupPrompt from './components/SetupPrompt.svelte';
   import PullIndicator from './components/PullIndicator.svelte';
   import ReorderAsk from './components/ReorderAsk.svelte';
   import RunningElsewhere from './components/RunningElsewhere.svelte';
   import StartDay from './components/StartDay.svelte';
   import StartFirst from './components/StartFirst.svelte';
   import Settings from './components/Settings.svelte';
+  import SignIn from './components/SignIn.svelte';
   import Sheet from './components/Sheet.svelte';
   import TaskSheet from './components/TaskSheet.svelte';
   import Projects from './components/Projects.svelte';
@@ -141,6 +141,8 @@
     </p>
     <p class="detail">{P.failed}</p>
   </div>
+{:else if P.signInFirst}
+  <SignIn />
 {:else if P.ready}
   <!-- inert: while a sheet or the welcome is open, keyboard and screen readers stay inside it. -->
   <div class="page" inert={covered} {@attach dayGestures(P)}>
@@ -161,7 +163,6 @@
       <RunningElsewhere />
       <ComingUp />
       <NotifyPrompt />
-      <SetupPrompt />
       <ReviewDue />
       <main
         class:settling={!gestures.dragging}
