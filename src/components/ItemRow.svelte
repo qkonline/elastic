@@ -120,13 +120,6 @@
           >fixed · <s>{v.fixedAt}</s> {v.fixedNow}</span
         >
       {:else if v.fixedAt}<span class="fixed">fixed · {v.fixedAt}</span>{/if}
-      {#if showSkip}
-        <!-- Laid over the line rather than in it, so the row doesn't grow on hover. -->
-        <span class="hover-acts">
-          <button class="hover-btn skip" onclick={() => P.skip(id)}>Skip</button>
-          <button class="hover-btn pp" onclick={() => P.arm('postpone', id)}>Postpone</button>
-        </span>
-      {/if}
     </div>
     <button class="title" class:muted={v.mutedT} class:struck={v.s === 'skipped' || v.s === 'done'} onclick={open}
       >{it.title}</button
@@ -146,19 +139,30 @@
   </div>
 
   <div class="acts">
-    {#if v.aStart}
-      <button
-        class="start"
-        aria-label="Start {it.title}"
-        aria-disabled={!dayStarted}
-        onclick={(e) => {
-          e.stopPropagation();
-          if (dayStarted) P.startItem(id);
-          else P.askToStartDay('timer');
-        }}
-        ><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.6v8.8L10.4 6z" /></svg
-        >Start</button
-      >
+    {#if v.aStart || showSkip}
+      <span class="go">
+        {#if showSkip}
+          <!-- Beside Start, in line with it, laid over the task rather than taking room, so the row doesn't grow on hover. -->
+          <span class="hover-acts">
+            <button class="hover-btn skip" onclick={() => P.skip(id)}>Skip</button>
+            <button class="hover-btn pp" onclick={() => P.arm('postpone', id)}>Postpone</button>
+          </span>
+        {/if}
+        {#if v.aStart}
+          <button
+            class="start"
+            aria-label="Start {it.title}"
+            aria-disabled={!dayStarted}
+            onclick={(e) => {
+              e.stopPropagation();
+              if (dayStarted) P.startItem(id);
+              else P.askToStartDay('timer');
+            }}
+            ><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.6v8.8L10.4 6z" /></svg
+            >Start</button
+          >
+        {/if}
+      </span>
     {/if}
     {#if v.aCheck}
       <button
@@ -357,7 +361,6 @@
     min-width: 0;
   }
   .meta {
-    position: relative;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -390,17 +393,19 @@
     text-decoration-color: var(--muted);
   }
   .hover-btn {
-    font: 400 13px/1 var(--font);
-    padding: 6px 10px;
+    height: 40px;
+    padding: 0 12px;
+    font: 400 14px/1 var(--font);
     border-radius: var(--r-ctl);
     background: var(--raised);
+    white-space: nowrap;
     cursor: pointer;
   }
   .hover-acts {
     position: absolute;
-    right: 0;
-    top: 50%;
-    translate: 0 -50%;
+    right: calc(100% + 8px);
+    top: 0;
+    z-index: 1;
     display: flex;
     gap: 8px;
   }
@@ -461,6 +466,9 @@
     flex-direction: column;
     align-items: flex-end;
     gap: 5px;
+  }
+  .go {
+    position: relative;
   }
   .start {
     height: 40px;
