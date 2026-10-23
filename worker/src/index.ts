@@ -29,14 +29,27 @@ import {
   setName,
   signOut,
 } from './auth';
+import {
+  boardoAdopt,
+  boardoCards,
+  boardoConnect,
+  boardoDecline,
+  boardoDisconnect,
+  type BoardoEnv,
+  boardoForget,
+  BoardoHooks,
+  boardoLink,
+  boardoOps,
+  boardoStatus,
+} from './boardo';
 import { bookableTimes, isPushEndpoint } from './checks';
 import { devOutbox, mailOn } from './mail';
 import { sendPush } from './push';
 import type { VapidKeys } from './vapid';
 
-export { Account };
+export { Account, BoardoHooks };
 
-export interface Env extends VapidKeys, AuthEnv {
+export interface Env extends VapidKeys, AuthEnv, BoardoEnv {
   TIMERS: DurableObjectNamespace<Timer>;
   ACCOUNTS: DurableObjectNamespace<Account>;
   /** Comma-separated origins allowed to call this worker. */
@@ -93,6 +106,12 @@ export default {
         return id;
       };
       const account = (id: string) => env.ACCOUNTS.get(env.ACCOUNTS.idFromName(id));
+      // Signed in to an account that's set up (a name and an email), as syncing needs.
+      const mustSetUp = async () => {
+        const id = await mustUser();
+        if (mailOn(env) && !(await canSync(env, id))) throw new Refusal(403, 'Finish setting up your account first.');
+        return id;
+      };
 
       switch (pathname) {
         case '/schedule':
@@ -135,6 +154,7 @@ export default {
         case '/account/delete': {
           const id = await mustUser();
           await account(id).erase();
+          await boardoForget(env, id);
           await deleteUser(env, id);
           return reply(204);
         }
@@ -145,6 +165,41 @@ export default {
           await account(id).beacon(body.device, body);
           return reply(204);
         }
+
+        case '/boardo':
+          return reply(200, await boardoStatus(env, await mustSetUp()));
+        case '/boardo/link': {
+          const id = await mustSetUp();
+          const st = await boardoLink(env, id);
+          await account(id).boardoChanged(); // the account's other devices pick it up
+          return reply(200, st);
+        }
+        case '/boardo/connect': {
+          const id = await mustSetUp();
+          const st = await boardoConnect(env, id, body);
+          await account(id).boardoChanged(); // the account's other devices pick it up
+          return reply(200, st);
+        }
+        case '/boardo/adopt': {
+          const id = await mustSetUp();
+          const st = await boardoAdopt(env, id, body);
+          await account(id).boardoChanged(); // the account's other devices pick it up
+          return reply(200, st);
+        }
+        case '/boardo/cards':
+          return reply(200, await boardoCards(env, await mustSetUp()));
+        case '/boardo/ops':
+          return reply(200, await boardoOps(env, await mustSetUp(), body));
+        case '/boardo/disconnect': {
+          const id = await mustSetUp();
+          await boardoDisconnect(env, id);
+          await account(id).boardoChanged();
+          return reply(204);
+        }
+        case '/boardo/decline':
+          await boardoDecline(env, await mustSetUp());
+          return reply(204);
+
         case '/alerts/due':
           return reply(200, { groups: await account(await mustUser()).dueAlerts() });
       }

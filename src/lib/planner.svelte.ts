@@ -42,7 +42,7 @@ import {
   shortDate,
   todayKey,
 } from './time';
-import { Sync, type SyncStatus } from './sync';
+import { SHARED_SETTINGS, Sync, type SyncStatus } from './sync';
 import { activeDayKey } from './today';
 import { newBuildOut, reloadToUpdate } from './update';
 import type { Day, Goal, Habit, Hue, Item, Kind, Review, Series, Settings } from './types';
@@ -224,7 +224,11 @@ export class Planner {
   day: Day = $derived(this.days[this.viewKey] ?? this.blankDay(this.viewKey));
   isToday = $derived(this.viewKey === this.today);
   /** The link to Boardo: project cards assigned to me, and the time I work on them. */
-  boardo = new Boardo(db, (m) => this.say(m));
+  boardo = new Boardo(
+    db,
+    (m) => this.say(m),
+    () => this.session?.token ?? null,
+  );
   /** Project cards from Boardo on the day on screen still to work on: they need the day started too. */
   private projectsToStart = $derived(
     this.boardo.connected &&
@@ -309,7 +313,12 @@ export class Planner {
   private sync = new Sync(API, {
     flush: () => this.flush(),
     changed: (ids) => this.fromAccount(ids),
-    status: (st) => (this.syncStatus = st),
+    status: (st) => {
+      this.syncStatus = st;
+      // Connected to the account: Boardo's cards come through it.
+      if (st === 'live') void this.boardo.online();
+    },
+    boardo: () => this.boardo.nudge(),
     signedOut: () => void this.forgetSession('You were signed out on this device. Your plan is still here.'),
     alerts: () => pushPlan(this.alerts(), Date.now()),
     endpoint: () => (this.settings.notify ? pushEndpoint() : null),
@@ -357,10 +366,12 @@ export class Planner {
     // The app opens from the service worker's cache: ask straight away whether there's a newer
     // build, and take it now if nothing is under way (otherwise at the next quiet moment).
     void this.checkForUpdate(true);
-    void this.boardo.init();
     const session = await db.getMeta<Session>('account').catch(() => undefined);
     if (session) {
       this.session = session;
+      // Signed in before devices noted whose plan they hold: it's this account's.
+      if (!(await db.getMeta('owner').catch(() => null))) void db.putMeta('owner', session.user.id);
+      void this.boardo.load();
       void this.sync.start(session);
     }
     try {
@@ -839,6 +850,7 @@ export class Planner {
     this.sheet = null;
     this.confirm = null;
     this.resched = null;
+    await this.loadPast();
     await this.ensureDay(this.viewKey);
     await this.ensureDay(this.today);
     await this.loadWeek();
@@ -1964,6 +1976,10 @@ export class Planner {
     await this.flush();
     const session: Session = { token: r.token, user: r.user, device: A.uid() };
     await db.clearSync();
+    // Someone else's plan is on this device (they signed out): it goes, so it never reaches this
+    // account. It's safe in theirs.
+    const owner = await db.getMeta<string>('owner');
+    if (owner && owner !== r.user.id) await this.wipeDevice();
     this.session = session;
     // A new account still gets the welcome's questions; an existing one already has its settings.
     if (!r.fresh && !this.settings.onboarded) this.setSettings({ onboarded: true });
@@ -1986,9 +2002,26 @@ export class Planner {
     await this.sync.start(session);
   }
 
+  /**
+   * Another account signs in where someone else's plan is: their days, repeating tasks, goals,
+   * reviews, synced settings and Boardo cards go. What belongs to the device stays (theme,
+   * sound, notifications, layouts).
+   */
+  private async wipeDevice(): Promise<void> {
+    const shared = new Set<string>([...SHARED_SETTINGS, 'onboarded']);
+    const kept = Object.fromEntries(Object.entries(this.settings).filter(([k]) => !shared.has(k)));
+    await db.replaceAll({ days: [], series: [], goals: [], reviews: [], settings: { ...DEFAULT_SETTINGS, ...kept } });
+    await db.deleteMeta('shown').catch(() => {});
+    await this.boardo.wipe();
+    await this.reloadAll();
+    this.post({ t: 'all' });
+  }
+
   /** Remember the sign-in on this device, for its other tabs and the next launch. */
   private async keepSession(session: Session): Promise<void> {
     await db.putMeta('account', session);
+    // Whose plan this device holds, so another account signing in here doesn't get it.
+    await db.putMeta('owner', session.user.id);
     this.post({ t: 'account' });
   }
 
@@ -2145,6 +2178,7 @@ export class Planner {
 
   private async forgetSession(msg?: string): Promise<void> {
     this.sync.stop();
+    this.boardo.stop();
     // The sign-in page comes up; signing in again starts on Today.
     this.openScreen({ type: 'today' });
     this.session = null;

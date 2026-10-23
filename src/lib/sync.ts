@@ -48,6 +48,8 @@ export interface SyncHooks {
   alerts(): AlertGroup[];
   /** This device's push address, when notifications are on here. */
   endpoint(): string | null;
+  /** The account's Boardo cards changed (or its link did): fetch them again. */
+  boardo?(): void;
 }
 
 interface Remote {
@@ -312,6 +314,7 @@ export class Sync {
       this.close();
       return this.hooks.status('paused');
     }
+    if (m.t === 'boardo') return this.hooks.boardo?.();
     if (m.t === 'changes') {
       await this.hooks.flush();
       const recs = (Array.isArray(m.recs) ? m.recs : []) as Remote[];

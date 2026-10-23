@@ -275,6 +275,40 @@ describe('sync', () => {
     expect(titles(a.p)).toEqual(['From the phone']);
   });
 
+  it("never gives one person's plan to another account signing in on the same device", async () => {
+    const a = await device({ fresh: true });
+    add(a.p, 'Private plan');
+    await settle();
+    vi.stubGlobal('fetch', async () => new Response(null, { status: 204 }));
+    await a.p.signOut();
+    expect(titles(a.p)).toEqual(['Private plan']); // kept for the same person
+    // Someone else makes an account on this device.
+    server = new FakeAccount();
+    await (a.p as unknown as { signedIn(r: object): Promise<void> }).signedIn({
+      token: 't2',
+      user: { id: 'someone-else', email: 'b@example.com', name: 'B' },
+      fresh: true,
+    });
+    await settle();
+    expect(titles(a.p)).toEqual([]);
+    expect(server.data('day', TODAY)?.items ?? []).toEqual([]);
+    expect(await a.db.getAllDays()).toEqual([]);
+  });
+
+  it('keeps the plan when the same person signs back in', async () => {
+    const a = await device({ fresh: true });
+    add(a.p, 'Mine');
+    await settle();
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ records: 1 }), { status: 200 }));
+    await a.p.signOut();
+    await (a.p as unknown as { signedIn(r: object): Promise<void> }).signedIn({
+      token: 't',
+      user: { id: 'u', email: null },
+      fresh: false,
+    });
+    expect(titles(a.p)).toEqual(['Mine']);
+  });
+
   it('brings goals and reviews to the other device', async () => {
     const a = await device({ fresh: true });
     const b = await device();

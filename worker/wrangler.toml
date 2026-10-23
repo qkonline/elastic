@@ -41,5 +41,12 @@ migrations_dir = "migrations"
 # there. The key is a secret: `npx wrangler secret put RESEND_API_KEY` (run it in a terminal, it
 # asks for the key). For `wrangler dev`, put DEV_MAIL=1 in .dev.vars to keep codes at /dev/mail.
 
+# Boardo's Worker, for the account's link to it (src/boardo.ts). Boardo calls back through its
+# own binding to the BoardoHooks entrypoint when someone's cards change.
+[[services]]
+binding = "BOARDO"
+service = "boardo-api"
+entrypoint = "ElasticLink"
+
 [observability]
 enabled = true

@@ -1,21 +1,27 @@
-// The link to Boardo (kaiserkhan.com/boardo), the shared project boards app. Once connected,
-// the cards assigned to you there show in a Projects section on your days, and the time you
-// work on them in Elastic, and finishing your part, go back to the card.
+// The link to Boardo (kaiserkhan.com/boardo), the shared project boards app. Once linked, the
+// cards assigned to you there show in a Projects section on your days, and the time you work
+// on them in Elastic, and finishing your part, go back to the card.
 //
-// The contract lives in Boardo's docs (docs/ARCHITECTURE.md section 5). In short:
-// - Connecting is OAuth 2.0 authorization code with PKCE (client `elastic`, redirect back to
-//   this app). The token is kept on this device only (IndexedDB meta 'boardo'), never synced
-//   through Elastic's account.
-// - `POST /elastic/cards` lists the person's dated, unarchived cards; cached here for offline.
-// - `POST /elastic/ops` takes start, stop, done and undone marks. They wait in an outbox
-//   (meta 'boardoOps') until they go, each with an id so a retry never counts twice.
+// The contract lives in Boardo's docs (docs/ARCHITECTURE.md section 5). Since 23 October 2026
+// the link belongs to the Elastic account, not the device: Elastic's Worker holds it and talks
+// to Boardo's, and every device signed in to the account calls the Worker (worker/src/boardo.ts):
+// - `/boardo`: linked (as whom), or the Boardo account this account's email could link to
+//   (`match`), offered on Today and in Settings, and made with one tap (`/boardo/link`);
+// - a Boardo account with another email links through Boardo's connect page (OAuth 2.0 with
+//   PKCE, client `elastic`); the code comes back here and goes to `/boardo/connect`;
+// - `/boardo/cards` lists the person's dated, unarchived cards, cached here for offline;
+// - `/boardo/ops` takes start, stop, done and undone marks. They wait in an outbox (meta
+//   'boardoOps') until they go, each with an id so a retry never counts twice;
+// - when cards change in Boardo, the account's live connection says so (`nudge()`).
+// A device connected before then kept its own token in meta 'boardo'; it's handed to the
+// account once (`/boardo/adopt`) and dropped.
 
+import { type ApiError, accountsAvailable, apiCall } from './account';
 import { dayDiff, dkey } from './time';
 
-/** Boardo's API, and the page that asks the person to allow the connection. */
-export const BOARDO_API = (import.meta.env.VITE_BOARDO_URL ?? '').replace(/\/$/, '');
+/** The page that asks the person to allow the connection (for a Boardo account with another email). */
 const BOARDO_APP = import.meta.env.VITE_BOARDO_APP ?? '';
-export const boardoAvailable = () => !!BOARDO_API && !!BOARDO_APP;
+export const boardoAvailable = () => accountsAvailable() && !!BOARDO_APP;
 
 export interface BoardoCard {
   id: string;
@@ -43,7 +49,8 @@ export interface BoardoOp {
 }
 
 interface Stored {
-  token: string;
+  /** A device's own token, from before links belonged to the account: handed over once. */
+  token?: string;
   account: { email: string; name: string | null } | null;
   cards: BoardoCard[];
   boards: number;
@@ -51,7 +58,9 @@ interface Stored {
 }
 
 const PKCE_KEY = 'elastic-day:boardo-pkce';
-const REFRESH_MS = 5 * 60_000;
+/** Changes arrive as they happen (`nudge()`); this is in case one was missed. */
+const REFRESH_MS = 15 * 60_000;
+const NUDGE_MS = 800;
 
 const b64url = (b: Uint8Array) =>
   btoa(String.fromCharCode(...b))
@@ -139,53 +148,113 @@ export function deadlineLabel(end: string, dayKey: string, clock24 = false): str
   return `${D} ${MONTHS[M - 1]}${Y !== Number(dayKey.slice(0, 4)) ? ' ' + Y : ''}${at}`;
 }
 
-/** The parts of the Boardo connection this device keeps (IndexedDB meta). */
+/** The parts of the Boardo link this device keeps (IndexedDB meta). */
 export interface BoardoStore {
   getMeta<T>(key: string): Promise<T | undefined>;
   putMeta(key: string, v: unknown): Promise<void>;
   deleteMeta(key: string): Promise<void>;
 }
 
+type Who = { email: string; name: string | null };
+
+/** What the Worker says about the account's link. */
+interface Status {
+  linked: Who | null;
+  match: { email: string; boards: number } | null;
+  declined: boolean;
+}
+
 export class Boardo {
   connected = $state(false);
-  account = $state.raw<Stored['account']>(null);
+  account = $state.raw<Who | null>(null);
   cards = $state.raw<BoardoCard[]>([]);
   /** How many boards the person is in: Projects shows only when there's at least one. */
   boards = $state(0);
   fetchedAt = $state<number | null>(null);
   busy = $state(false);
   error = $state<string | null>(null);
-  private token: string | null = null;
+  /** A Boardo account with this account's email, in at least one board, not linked yet. */
+  match = $state.raw<Status['match']>(null);
+  /** The offer was turned down (or Boardo disconnected): only Settings offers it now. */
+  declined = $state(false);
   private ops: BoardoOp[] = [];
   private flushing = false;
+  private loaded = false;
+  private started = false;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private nudgeTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private store: BoardoStore,
     private say: (m: string) => void,
+    /** The account's session token, while signed in. */
+    private session: () => string | null,
   ) {}
 
-  /** Load what's kept here, finish a connection Boardo just sent us back from, and refresh. */
-  async init(): Promise<void> {
-    if (!boardoAvailable()) return;
+  /** Signed in: show what's kept here (it works offline) until the account says more. */
+  async load(): Promise<void> {
+    if (!boardoAvailable() || this.loaded) return;
+    this.loaded = true;
     const s = await this.store.getMeta<Stored>('boardo');
     this.ops = (await this.store.getMeta<BoardoOp[]>('boardoOps')) ?? [];
-    if (s?.token) this.take(s);
+    if (s?.account) this.take(s);
+  }
+
+  /**
+   * The account's live connection is up: hand over an old device link, finish a connection
+   * Boardo just sent us back from, check the link and fetch the cards. After the first time, a
+   * reconnection just fetches (a change may have been missed meanwhile).
+   */
+  async online(): Promise<void> {
+    if (!boardoAvailable() || !this.session()) return;
+    if (this.started) return this.nudge();
+    this.started = true;
+    await this.load();
+    const s = await this.store.getMeta<Stored>('boardo');
+    if (s?.token) await this.adopt(s.token);
     await this.finishConnect();
-    if (this.connected) void this.refresh();
-    this.timer = setInterval(() => {
+    await this.status();
+    if (this.connected) await this.refresh();
+    this.timer ??= setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) return;
       if (this.connected && (!this.fetchedAt || Date.now() - this.fetchedAt > REFRESH_MS)) void this.refresh();
-    }, 30_000);
-    addEventListener('online', () => void this.flush());
+    }, 60_000);
+  }
+
+  /** Something changed in Boardo (or on another device): fetch again, once things settle. */
+  nudge(): void {
+    if (!this.started) return;
+    if (this.nudgeTimer) clearTimeout(this.nudgeTimer);
+    this.nudgeTimer = setTimeout(() => {
+      this.nudgeTimer = null;
+      void this.refresh();
+    }, NUDGE_MS);
+  }
+
+  /** Signed out: nothing shows. What's kept here stays, for the same person signing back in. */
+  stop(): void {
+    this.destroy();
+    this.loaded = this.started = false;
+    this.clear();
+    this.match = null;
+    this.declined = false;
+    this.ops = [];
+  }
+
+  /** Another account is signing in here: what the last one kept goes. */
+  async wipe(): Promise<void> {
+    this.stop();
+    await this.store.deleteMeta('boardo');
+    await this.store.deleteMeta('boardoOps');
   }
 
   destroy(): void {
     if (this.timer) clearInterval(this.timer);
+    if (this.nudgeTimer) clearTimeout(this.nudgeTimer);
+    this.timer = this.nudgeTimer = null;
   }
 
   private take(s: Stored): void {
-    this.token = s.token;
     this.connected = true;
     this.account = s.account;
     this.cards = s.cards ?? [];
@@ -193,10 +262,18 @@ export class Boardo {
     this.fetchedAt = s.fetchedAt ?? null;
   }
 
+  private clear(): void {
+    this.connected = false;
+    this.account = null;
+    this.cards = [];
+    this.boards = 0;
+    this.fetchedAt = null;
+    this.error = null;
+  }
+
   private async save(): Promise<void> {
-    if (!this.token) return;
+    if (!this.connected) return;
     await this.store.putMeta('boardo', {
-      token: this.token,
       account: this.account,
       cards: this.cards,
       boards: this.boards,
@@ -204,11 +281,69 @@ export class Boardo {
     } satisfies Stored);
   }
 
+  private async post<T>(path: string, body: object = {}): Promise<T> {
+    const token = this.session();
+    if (!token) throw new Error('Signed out');
+    return apiCall<T>(path, body, token);
+  }
+
+  /** Take in what the Worker says about the link. */
+  private async apply(st: Status): Promise<void> {
+    this.match = st.match;
+    this.declined = st.declined;
+    if (st.linked) {
+      const was = this.connected;
+      this.connected = true;
+      this.account = st.linked;
+      if (!was) await this.save();
+    } else if (this.connected)
+      await this.forget('Boardo was disconnected. Connect it again in Settings to see your project cards.');
+  }
+
+  private async status(): Promise<void> {
+    try {
+      await this.apply(await this.post<Status>('/boardo'));
+    } catch {
+      /* offline, or the account isn't set up yet: what's kept here stands */
+    }
+  }
+
+  /** A device's own token from before: the account's link from now on (or revoked, if it has one). */
+  private async adopt(token: string): Promise<void> {
+    try {
+      await this.apply(await this.post<Status>('/boardo/adopt', { token }));
+    } catch (e) {
+      if ((e as ApiError).status === 0) return; // offline: next time
+    }
+    const s = await this.store.getMeta<Stored>('boardo');
+    if (s) await this.store.putMeta('boardo', { ...s, token: undefined });
+  }
+
   private redirectUri(): string {
     return location.origin + import.meta.env.BASE_URL;
   }
 
-  /** Go to Boardo to allow the connection (PKCE: the verifier stays here). */
+  /** Link to the Boardo account with this account's email: one tap, no trip to Boardo. */
+  async link(): Promise<void> {
+    this.busy = true;
+    try {
+      await this.apply(await this.post<Status>('/boardo/link'));
+      await this.refresh();
+      this.say('Boardo connected. Cards assigned to you now show in Projects, on every device you use.');
+    } catch (e) {
+      this.say(e instanceof Error ? e.message : "Boardo couldn't be connected. Try again.");
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  /** "No thanks" to the offer on Today. Settings still has it. */
+  async decline(): Promise<void> {
+    this.declined = true;
+    await this.post('/boardo/decline').catch(() => {});
+  }
+
+  /** Go to Boardo to allow the connection, for a Boardo account with another email (PKCE). */
   async connect(): Promise<void> {
     const verifier = randomId(48);
     const challenge = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
@@ -229,7 +364,7 @@ export class Boardo {
     location.href = `${BOARDO_APP}?connect&${q}`;
   }
 
-  /** Back from Boardo with `?code&state` (or `?error`): swap the code for a token. */
+  /** Back from Boardo with `?code&state` (or `?error`): the account's Worker swaps the code. */
   private async finishConnect(): Promise<void> {
     const q = new URLSearchParams(location.search);
     const code = q.get('code');
@@ -250,14 +385,14 @@ export class Boardo {
     }
     this.busy = true;
     try {
-      const res = await this.post<{ access_token: string; user: { email: string; name: string | null } }>(
-        '/oauth/token',
-        { code, verifier: saved.verifier, client_id: 'elastic', redirect_uri: this.redirectUri() },
-        false,
+      await this.apply(
+        await this.post<Status>('/boardo/connect', {
+          code,
+          verifier: saved.verifier,
+          redirect_uri: this.redirectUri(),
+        }),
       );
-      this.take({ token: res.access_token, account: res.user, cards: [], boards: 0, fetchedAt: null });
-      await this.save();
-      this.say('Boardo connected. Cards assigned to you now show in Projects.');
+      this.say('Boardo connected. Cards assigned to you now show in Projects, on every device you use.');
     } catch (e) {
       this.say(e instanceof Error ? e.message : "Boardo couldn't be connected. Try again.");
     } finally {
@@ -265,51 +400,26 @@ export class Boardo {
     }
   }
 
-  private async post<T>(path: string, body: object, auth = true): Promise<T> {
-    const init = {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...(auth && this.token ? { authorization: `Bearer ${this.token}` } : {}),
-      },
-      body: JSON.stringify(body),
-    };
-    let res: Response;
-    try {
-      res = await fetch(BOARDO_API + path, init);
-    } catch {
-      // No answer at all: try once more after a moment before saying so.
-      await new Promise((r) => setTimeout(r, 800));
-      try {
-        res = await fetch(BOARDO_API + path, init);
-      } catch {
-        throw new Error(
-          navigator.onLine === false
-            ? "You're offline. It'll go once you're connected."
-            : "Couldn't reach Boardo. Check your connection and try again.",
-        );
-      }
-    }
-    if (res.status === 204) return undefined as T;
-    const data = await res.json().catch(() => ({}));
-    if (res.status === 401 && auth) {
-      await this.forget('Boardo was disconnected. Connect it again in Settings to see your project cards.');
-      throw new Error('Disconnected');
-    }
-    if (!res.ok) throw new Error((data as { error?: string }).error ?? 'Boardo had a problem. Try again.');
-    return data as T;
-  }
-
   /** Fetch the cards assigned to me (after sending any marks still waiting). */
   async refresh(): Promise<void> {
-    if (!this.connected) return;
+    if (!this.session()) return;
     await this.flush();
     try {
-      const res = await this.post<{ boards: number; cards: BoardoCard[] }>('/elastic/cards', {});
-      this.cards = res.cards;
-      this.boards = res.boards;
+      const res = await this.post<{ linked: Who | null; boards?: number; cards?: BoardoCard[] }>('/boardo/cards');
+      if (!res.linked) {
+        // Disconnected (here, on another device, or in Boardo): also what's offered now.
+        if (this.connected)
+          await this.forget('Boardo was disconnected. Connect it again in Settings to see your project cards.');
+        await this.status();
+        return;
+      }
+      this.connected = true;
+      this.account = res.linked;
+      this.cards = res.cards ?? [];
+      this.boards = res.boards ?? 0;
       this.fetchedAt = Date.now();
       this.error = null;
+      this.match = null;
       await this.save();
     } catch (e) {
       if (this.connected) this.error = e instanceof Error ? e.message : null;
@@ -325,14 +435,14 @@ export class Boardo {
   }
 
   async flush(): Promise<void> {
-    if (!this.connected || this.flushing || !this.ops.length) return;
+    if (!this.connected || this.flushing || !this.ops.length || !this.session()) return;
     this.flushing = true;
     try {
       const batch = this.ops.slice(0, 100);
-      const res = await this.post<{ results: { id: string }[] }>('/elastic/ops', { ops: batch });
+      const res = await this.post<{ linked?: null; results: { id: string }[] }>('/boardo/ops', { ops: batch });
       // Every answered op is done with, refused ones too (a card no longer mine).
       const answered = new Set(res.results.map((r) => r.id));
-      this.ops = this.ops.filter((o) => !answered.has(o.id));
+      this.ops = res.linked === null ? [] : this.ops.filter((o) => !answered.has(o.id));
       await this.store.putMeta('boardoOps', this.ops);
     } catch {
       /* offline: tried again later */
@@ -343,17 +453,18 @@ export class Boardo {
 
   async disconnect(): Promise<void> {
     await this.flush();
-    await this.post('/elastic/disconnect', {}).catch(() => {});
-    await this.forget('Boardo disconnected.');
+    try {
+      await this.post('/boardo/disconnect');
+    } catch (e) {
+      this.say(e instanceof Error ? e.message : "Boardo couldn't be disconnected. Try again.");
+      return;
+    }
+    await this.forget('Boardo disconnected, on every device you use.');
+    await this.status();
   }
 
   private async forget(msg: string): Promise<void> {
-    this.token = null;
-    this.connected = false;
-    this.account = null;
-    this.cards = [];
-    this.boards = 0;
-    this.fetchedAt = null;
+    this.clear();
     this.ops = [];
     await this.store.deleteMeta('boardo');
     await this.store.deleteMeta('boardoOps');

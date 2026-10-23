@@ -170,22 +170,36 @@
     </section>
   {/if}
 
-  {#if boardoAvailable()}
+  {#if boardoAvailable() && P.session}
     <section class="card g12" aria-label="Projects">
       <span class="ct">Projects</span>
       {#if P.boardo.connected}
         <span class="muted">
           Connected to Boardo{P.boardo.account ? ` as ${P.boardo.account.email}` : ''}. Cards assigned to you there show
-          in Projects on the days they're due, and the time you work on them goes back to the card.
+          in Projects on every device you use, and the time you work on them goes back to the card.
         </span>
         <div class="row-btns">
           <button class="btn-plain" onclick={() => P.boardo.refresh()}>Check for new cards</button>
           <button class="btn-plain" onclick={() => P.boardo.disconnect()}>Disconnect</button>
         </div>
+      {:else if P.boardo.match}
+        <span class="muted">
+          You're in {P.boardo.match.boards === 1 ? 'a board' : `${P.boardo.match.boards} boards`} in Boardo as
+          {P.boardo.match.email}. Show the cards assigned to you in your day, on every device you use, and time your
+          work on them.
+        </span>
+        <div class="row-btns">
+          <button class="btn-plain" disabled={P.boardo.busy} onclick={() => P.boardo.link()}
+            >Show my Boardo cards</button
+          >
+          <button class="btn-plain" disabled={P.boardo.busy} onclick={() => P.boardo.connect()}
+            >Use another Boardo account</button
+          >
+        </div>
       {:else}
         <span class="muted">
           Connect Boardo, the shared project boards app, to see the cards assigned to you in your day and time your work
-          on them. This device keeps the connection; it isn't synced.
+          on them. It's linked to your account, so every device you use gets it.
         </span>
         <button class="btn-plain self" disabled={P.boardo.busy} onclick={() => P.boardo.connect()}
           >Connect Boardo</button

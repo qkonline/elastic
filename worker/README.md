@@ -31,6 +31,19 @@ Each account has a Durable Object (`Account`, `src/account.ts`) holding its plan
 
 When an alert is due, every device of the account with a push address gets an empty push, except one that has the app open and in front of it.
 
+## Boardo
+
+The account's link to [Boardo](https://kaiserkhan.com/boardo/), the shared project boards app (`src/boardo.ts`, D1 table `boardo_links`). It's one link per account, so every device signed in to it shows the cards assigned to the person there. This Worker talks to Boardo's over a service binding (`BOARDO`, Boardo's `ElasticLink` entrypoint), and devices never hold Boardo's token. All of these need an account that's set up:
+
+- `POST /boardo`: linked (as which Boardo account), or `match`, the Boardo account with this account's email, and whether the person said no to it (`declined`).
+- `POST /boardo/link`: link to the Boardo account with this account's email.
+- `POST /boardo/connect` with `{ code, verifier, redirect_uri }`: link to the account approved on Boardo's connect page (OAuth with PKCE).
+- `POST /boardo/adopt` with `{ token }`: a device's own token from before links were per account becomes the account's link.
+- `POST /boardo/cards`, `/boardo/ops`: the person's cards, and start, stop and done marks for them.
+- `POST /boardo/disconnect`, `/boardo/decline`.
+
+Boardo calls back through its own binding to the `BoardoHooks` entrypoint when someone's cards change, and their account tells its open devices (`{ "t": "boardo" }` on the sync socket). Locally, run both Workers with `wrangler dev` and they find each other.
+
 Requests are only accepted from the origins in `ALLOWED_ORIGINS`, for the browsers' own push services, and for times within the next 24 hours.
 
 ```bash

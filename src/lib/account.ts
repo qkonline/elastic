@@ -83,6 +83,9 @@ async function call<T>(path: string, body: object = {}, token?: string): Promise
   return data as T;
 }
 
+/** A call to the worker as the signed-in account (Boardo's link uses it too). */
+export const apiCall = <T>(path: string, body: object, token: string) => call<T>(path, body, token);
+
 /** The browser's passkey prompt was closed, or timed out: not worth an error message. */
 export const cancelled = (e: unknown) =>
   e instanceof Error && (e.name === 'NotAllowedError' || e.name === 'AbortError');
