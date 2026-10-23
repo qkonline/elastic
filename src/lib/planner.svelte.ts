@@ -216,6 +216,9 @@ export class Planner {
   }
   /** Something is typed on the sign-in page: a new build waits until signing in is done. */
   holdUpdates = false;
+  /** Saving on this device is failing: 'full' (out of storage) or 'failed'. Cleared by a save that works. */
+  saveError = $state<'full' | 'failed' | null>(null);
+  private saveTries = 0;
   /** The account sends this device's alerts (signed in and syncing). */
   private get accountAlerts(): boolean {
     return !!this.session && this.syncStatus !== 'paused';
@@ -311,7 +314,7 @@ export class Planner {
   private reloading = false;
   private alertsCheckedAt = 0;
   private sync = new Sync(API, {
-    flush: () => this.flush(),
+    flush: async () => void (await this.flush()),
     changed: (ids) => this.fromAccount(ids),
     status: (st) => {
       this.syncStatus = st;
@@ -439,7 +442,11 @@ export class Planner {
     if (this.screen.type === 'settings') return;
     if (this.signInFirst && (this.holdUpdates || this.session)) return;
     this.reloading = true;
-    void this.flush().then(reloadToUpdate);
+    // Only once everything is saved: a reload would lose what isn't.
+    void this.flush().then((ok) => {
+      if (ok) return reloadToUpdate();
+      this.reloading = false;
+    });
   }
 
   /** Notifications still to come: the running timer's time's up, and heads-ups before fixed times. */
@@ -724,21 +731,37 @@ export class Planner {
     this.update((d) => A.patchItem(d, id, A.setAside(it, this.n)), `${it.title} set aside`);
   }
 
-  async flush(): Promise<void> {
+  /** Save the days changed since the last save. False if that failed (they stay waiting). */
+  async flush(): Promise<boolean> {
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = null;
-    if (!this.pending.size) return;
+    if (!this.pending.size) return true;
     const keys = [...this.pending];
     this.pending.clear();
     const days = keys.map((k) => this.days[k]).filter(Boolean);
     try {
       await db.putDays(days);
-      this.post({ t: 'days', keys });
-      void db.requestPersistence();
     } catch (e) {
-      console.error('Could not save', e);
       keys.forEach((k) => this.pending.add(k));
+      this.saveFailed(e);
+      return false;
     }
+    this.saveError = null;
+    this.saveTries = 0;
+    this.post({ t: 'days', keys });
+    void db.requestPersistence();
+    return true;
+  }
+
+  /**
+   * A save failed (storage full, or the browser refused): say so until one works, and try
+   * again, less often each time, up to once a minute. Nothing reloads meanwhile.
+   */
+  private saveFailed(e: unknown): void {
+    console.error('Could not save', e);
+    this.saveError = e instanceof DOMException && e.name === 'QuotaExceededError' ? 'full' : 'failed';
+    if (!this.saveTimer)
+      this.saveTimer = setTimeout(() => void this.flush(), Math.min(60_000, 2000 * 2 ** this.saveTries++));
   }
 
   private post(m: Msg): void {
@@ -1727,12 +1750,15 @@ export class Planner {
 
   async exportData(): Promise<void> {
     await this.flush();
-    const [days, series, goals, reviews] = await Promise.all([
-      db.getAllDays(),
-      db.getAllSeries(),
-      db.getGoals(),
-      db.getReviews(),
+    const [stored, series, goals, reviews] = await Promise.all([
+      db.getAllDays().catch(() => [] as Day[]),
+      db.getAllSeries().catch(() => this.series),
+      db.getGoals().catch(() => this.goals),
+      db.getReviews().catch(() => this.reviews),
     ]);
+    // Days that couldn't be saved yet come from memory, so a backup keeps them.
+    const unsaved = [...this.pending].map((k) => this.days[k]).filter(Boolean);
+    const days = [...stored.filter((d) => !this.pending.has(d.key)), ...unsaved];
     download({
       app: 'elastic-day',
       version: 3,

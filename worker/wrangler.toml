@@ -31,6 +31,13 @@ new_sqlite_classes = ["Timer"]
 tag = "v2"
 new_sqlite_classes = ["Account"]
 
+# Requests per network a minute on the routes anyone can call (booking pushes, starting a passkey
+# sign-in): Cloudflare's rate limiting, counted where the request lands, nothing stored.
+[[ratelimits]]
+name = "LIMITER"
+namespace_id = "1001"
+simple = { limit = 60, period = 60 }
+
 [[d1_databases]]
 binding = "DB"
 database_name = "elastic-day"

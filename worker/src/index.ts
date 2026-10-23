@@ -43,7 +43,7 @@ import {
   boardoStatus,
 } from './boardo';
 import { bookableTimes, isPushEndpoint } from './checks';
-import { devOutbox, mailOn } from './mail';
+import { devMail, devOutbox, mailOn } from './mail';
 import { sendPush } from './push';
 import type { VapidKeys } from './vapid';
 
@@ -54,7 +54,12 @@ export interface Env extends VapidKeys, AuthEnv, BoardoEnv {
   ACCOUNTS: DurableObjectNamespace<Account>;
   /** Comma-separated origins allowed to call this worker. */
   ALLOWED_ORIGINS: string;
+  /** Requests per network a minute on the routes anyone can call (absent in tests). */
+  LIMITER?: RateLimit;
 }
+
+/** Routes that need no sign-in, so each network may only call them so often. */
+const OPEN = new Set(['/schedule', '/cancel', '/auth/login/start', '/auth/register/start']);
 
 const MAX_BODY = 64 * 1024;
 
@@ -83,8 +88,12 @@ export default {
 
     if (pathname === '/sync') return connect(req, env);
     // Local development only: the codes that would have been emailed.
-    if (pathname === '/dev/mail' && env.DEV_MAIL) return reply(200, devOutbox);
+    if (pathname === '/dev/mail' && devMail(env)) return reply(200, devOutbox);
     if (req.method !== 'POST') return reply(404);
+    if (OPEN.has(pathname) && env.LIMITER) {
+      const { success } = await env.LIMITER.limit({ key: req.headers.get('cf-connecting-ip') ?? 'unknown' });
+      if (!success) return reply(429, { error: 'Too many requests. Try again in a minute.' });
+    }
 
     let body: Record<string, unknown>;
     try {

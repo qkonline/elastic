@@ -20,7 +20,7 @@ import type { AlertGroup } from './reminders';
 import type { Day, Series, Settings } from './types';
 
 /** 'paused': the account has no name or email yet, so it doesn't sync until it has. */
-export type SyncStatus = 'off' | 'connecting' | 'live' | 'offline' | 'paused';
+export type SyncStatus = 'off' | 'connecting' | 'live' | 'offline' | 'paused' | 'full';
 
 /** The settings shared across an account's devices. */
 export const SHARED_SETTINGS = [
@@ -78,10 +78,12 @@ export function shared(kind: RecordKind, local: unknown): unknown {
   return Object.fromEntries(SHARED_SETTINGS.map((k) => [k, s[k]]));
 }
 
-/** A record from the account checked like an import (null: deleted, or not usable). */
+/** A record from the account checked like an import (null: deleted, or not readable). */
 function clean(kind: RecordKind, key: string, data: unknown): unknown {
   if (data == null) return null;
   if (kind === 'day') {
+    // A list of tasks in some other form isn't an empty day.
+    if (!Array.isArray((data as { items?: unknown }).items)) return null;
     const d = normalizeDay(data);
     return d && d.key === key ? d : null;
   }
@@ -125,6 +127,10 @@ export class Sync {
   private inflight: { id: number; sent: Map<string, unknown> } | null = null;
   private putId = 0;
   private rev = 0;
+  /** New records the account had no room for: not sent again until the next connection. */
+  private full = new Set<string>();
+  /** Records the account holds that this version couldn't read: id → the version first seen. */
+  private held: Record<string, number> = {};
   private tries = 0;
   private retry: ReturnType<typeof setTimeout> | null = null;
   private ping: ReturnType<typeof setInterval> | null = null;
@@ -148,6 +154,7 @@ export class Sync {
     this.session = session;
     db.track(true, () => this.kick());
     this.rev = (await db.getMeta<number>('syncRev')) ?? 0;
+    this.held = (await db.getMeta<Record<string, number>>('held')) ?? {};
     this.visible = typeof document === 'undefined' || !document.hidden;
     if (typeof addEventListener === 'function') addEventListener('online', this.online);
     this.hooks.status('connecting');
@@ -234,10 +241,12 @@ export class Sync {
     this.ws = ws;
     this.hooks.status('connecting');
     ws.onopen = () => {
+      this.full.clear();
       this.lastEndpoint = this.hooks.endpoint();
       this.send({
         t: 'hello',
-        since: this.rev,
+        // From before the first record held back, so it comes again once it can be read.
+        since: Math.min(this.rev, ...Object.values(this.held).map((r) => r - 1)),
         device: this.session!.device,
         visible: this.visible,
         endpoint: this.lastEndpoint,
@@ -347,6 +356,10 @@ export class Sync {
         this.rev = Math.max(this.rev, ok.rev);
       }
       for (const r of (m.conflicts ?? []) as Remote[]) if (await this.take(r, true)) changed.push(recId(r.kind, r.key));
+      // The account is full: these stay here (still in the outbox) and it says so.
+      const full = (m.full ?? []) as { kind: RecordKind; key: string }[];
+      for (const f of full) this.full.add(recId(f.kind, f.key));
+      if (full.length) this.hooks.status('full');
       // A change the account wouldn't take at all (damaged): drop it rather than send it forever.
       if (m.error)
         for (const id of sent.keys()) {
@@ -368,6 +381,18 @@ export class Sync {
     const base = await db.getSynced(id);
     if (!conflict && base && base.rev >= r.rev) return false;
     const theirs = clean(r.kind, r.key, r.data);
+    // A record this version can't read (made by a newer one, or damaged) is no deletion: the
+    // local copy stays and isn't sent, and it's asked for again after an update (`hello`).
+    if (r.data != null && theirs == null) {
+      this.held = { ...this.held, [id]: Math.min(this.held[id] ?? r.rev, r.rev) };
+      await db.putMeta('held', this.held);
+      return false;
+    }
+    if (id in this.held) {
+      const { [id]: _, ...rest } = this.held;
+      this.held = rest;
+      await db.putMeta('held', this.held);
+    }
     const whole = await db.getRecord(r.kind, r.key);
     const mine = shared(r.kind, whole);
     const dirty = conflict || (await db.getOutbox()).includes(id);
@@ -392,7 +417,8 @@ export class Sync {
 
   private async sendOutbox(): Promise<void> {
     if (!this.ready || this.inflight || this.ws?.readyState !== 1) return;
-    const ids = await db.getOutbox();
+    // Records the account has in a form this version can't read wait until it can.
+    const ids = (await db.getOutbox()).filter((id) => !(id in this.held) && !this.full.has(id));
     if (!ids.length) return;
     const sent = new Map<string, unknown>();
     const recs: object[] = [];

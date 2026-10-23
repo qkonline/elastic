@@ -90,7 +90,9 @@ export class Account extends DurableObject<VapidKeys> {
       case 'put': {
         ws.serializeAttachment(att);
         const res = this.put(m.recs);
-        const ack = res ? { ok: res.ok, conflicts: res.conflicts } : { ok: [], conflicts: [], error: 'bad' };
+        const ack = res
+          ? { ok: res.ok, conflicts: res.conflicts, ...(res.full.length ? { full: res.full } : {}) }
+          : { ok: [], conflicts: [], error: 'bad' };
         ws.send(JSON.stringify({ t: 'ack', id: m.id, ...ack }));
         if (res?.changed.length) this.broadcast(res.changed, ws);
         return;
@@ -161,14 +163,19 @@ export class Account extends DurableObject<VapidKeys> {
    * Apply changes. Each one made on the record's current version is kept under the next rev;
    * any other comes back as a conflict, with the record as it is now.
    */
-  private put(
-    raw: unknown,
-  ): { ok: { kind: RecordKind; key: string; rev: number }[]; conflicts: Rec[]; changed: Rec[] } | null {
+  private put(raw: unknown): {
+    ok: { kind: RecordKind; key: string; rev: number }[];
+    conflicts: Rec[];
+    changed: Rec[];
+    full: { kind: RecordKind; key: string }[];
+  } | null {
     const list = changes(raw);
     if (!list) return null;
     const ok: { kind: RecordKind; key: string; rev: number }[] = [];
     const conflicts: Rec[] = [];
     const changed: Rec[] = [];
+    /** New records past the account's limit: not kept, and the device is told. */
+    const full: { kind: RecordKind; key: string }[] = [];
     let rev = this.rev();
     let count: number | null = null;
     this.ctx.storage.transactionSync(() => {
@@ -191,7 +198,10 @@ export class Account extends DurableObject<VapidKeys> {
         }
         if (!cur) {
           count ??= this.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM records').one().n;
-          if (count++ >= MAX_RECORDS) continue;
+          if (count++ >= MAX_RECORDS) {
+            full.push({ kind: c.kind, key: c.key });
+            continue;
+          }
         }
         rev++;
         this.sql.exec(
@@ -206,7 +216,7 @@ export class Account extends DurableObject<VapidKeys> {
       }
       this.sql.exec("INSERT OR REPLACE INTO kv (k, v) VALUES ('rev', ?)", String(rev));
     });
-    return { ok, conflicts, changed };
+    return { ok, conflicts, changed, full };
   }
 
   // ---------- devices & alerts ----------

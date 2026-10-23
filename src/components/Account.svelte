@@ -18,6 +18,7 @@
     live: 'Synced',
     offline: "Offline. Your changes will sync when you're back online.",
     paused: 'Not syncing yet',
+    full: 'Your account is full, so some new changes stay on this device.',
   } as const;
 
   const refresh = () => void P.accountDetails().then((i) => (info = i));

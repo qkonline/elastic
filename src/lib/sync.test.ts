@@ -309,6 +309,43 @@ describe('sync', () => {
     expect(titles(a.p)).toEqual(['Mine']);
   });
 
+  it("never takes a record it can't read as a deletion, and asks for it again later", async () => {
+    const a = await device({ fresh: true });
+    add(a.p, 'Mine');
+    await settle();
+    const rev = server.records.get(`day:${TODAY}`)!.rev;
+    // A newer version (or damage) leaves the day in a form this one can't read.
+    server.records.set(`day:${TODAY}`, {
+      kind: 'day',
+      key: TODAY,
+      rev: rev + 1,
+      data: { key: TODAY, items: 'new form' },
+    });
+    server.rev = rev + 1;
+    for (const ws of server.sockets)
+      ws.deliver(JSON.stringify({ t: 'changes', recs: [server.records.get(`day:${TODAY}`)], rev: server.rev }));
+    await settle();
+    expect(titles(a.p)).toEqual(['Mine']);
+    expect(await a.db.getDay(TODAY)).toBeTruthy();
+    // An edit here waits rather than overwriting the account's copy.
+    add(a.p, 'Later');
+    await settle();
+    expect(server.data('day', TODAY)).toEqual({ key: TODAY, items: 'new form' });
+    expect(await a.db.getMeta('held')).toEqual({ [`day:${TODAY}`]: rev + 1 });
+    // Updated (here: the account's copy readable after all), it asks from before that record.
+    const rec = server.records.get(`day:${TODAY}`)!;
+    rec.data = {
+      ...(server.data('day', TODAY) as object),
+      items: [{ id: 'n1', title: 'From the new version', min: 30 }],
+    };
+    const s = (a.p as unknown as { sync: { stop(): void; start(x: unknown): Promise<void> } }).sync;
+    s.stop();
+    await s.start(a.p.session);
+    await settle();
+    expect(titles(a.p)).toContain('From the new version');
+    expect(await a.db.getMeta('held')).toEqual({});
+  });
+
   it('brings goals and reviews to the other device', async () => {
     const a = await device({ fresh: true });
     const b = await device();

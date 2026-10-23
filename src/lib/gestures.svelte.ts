@@ -87,7 +87,12 @@ export function dayGestures(p: Planner) {
           gestures.refreshing = true;
           gestures.pull = PULL;
           p.say('Refreshing');
-          void p.flush().then(() => location.reload());
+          // Not while saving is failing: the reload would lose what isn't saved.
+          void p.flush().then((ok) => {
+            if (ok) return location.reload();
+            gestures.refreshing = false;
+            gestures.pull = 0;
+          });
         } else gestures.pull = 0;
       }
       mode = null;

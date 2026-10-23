@@ -13,7 +13,7 @@ Each browser gets a Durable Object (`Timer`, named after its push endpoint) that
 
 Signing in (`src/auth.ts`, D1 database `elastic-day`, schema in `migrations/`):
 
-- `POST /auth/email/send`, `/auth/email/verify`: a six-digit code by email (through [Resend](https://resend.com); key in the `RESEND_API_KEY` secret, sender in `EMAIL_FROM`). Without a session, a code signs in, or makes the account if the address is new (the reply to `send` is the same either way). With one, it adds or changes the account's email (and can set its name at the same time). Codes last 10 minutes and allow 5 tries; at most 6 an hour go to one address and 30 to one network. Without a key `/auth/config` says `{ "email": false }`; with `DEV_MAIL` set (local), codes are kept at `GET /dev/mail` instead of sent.
+- `POST /auth/email/send`, `/auth/email/verify`: a six-digit code by email (through [Resend](https://resend.com); key in the `RESEND_API_KEY` secret, sender in `EMAIL_FROM`). Without a session, a code signs in, or makes the account if the address is new (the reply to `send` is the same either way). With one, it adds or changes the account's email (and can set its name at the same time). Codes last 10 minutes and allow 5 tries; at most 6 an hour go to one address and 30 to one network. The counts and tries are each kept in one statement, so requests at the same moment can't get past them, and a code is used up once. Resend gets 10 seconds to answer. Without a key `/auth/config` says `{ "email": false }`; with `DEV_MAIL` set (local) and no key, codes are kept at `GET /dev/mail` instead of sent. Where a key is set, `DEV_MAIL` does nothing.
 - `POST /auth/name`: set the account's name.
 - `POST /auth/register/start`, `/auth/register/finish` (signed in): add a passkey to the account, labelled with the browser and device it was made on.
 - `POST /auth/login/start`, `/auth/login/finish`: sign in with any passkey made for the site.
@@ -44,7 +44,9 @@ The account's link to [Boardo](https://kaiserkhan.com/boardo/), the shared proje
 
 Boardo calls back through its own binding to the `BoardoHooks` entrypoint when someone's cards change, and their account tells its open devices (`{ "t": "boardo" }` on the sync socket). Locally, run both Workers with `wrangler dev` and they find each other.
 
-Requests are only accepted from the origins in `ALLOWED_ORIGINS`, for the browsers' own push services, and for times within the next 24 hours.
+Requests are only accepted from the origins in `ALLOWED_ORIGINS`, for the browsers' own push services, and for times within the next 24 hours. The routes anyone can call without signing in (`/schedule`, `/cancel`, and starting a passkey sign-in or registration) take at most 60 requests a minute from one network (Cloudflare's rate limiting, the `LIMITER` binding).
+
+An account holds up to 20,000 records. New ones past that aren't kept, and the `ack` lists them as `full`, so the app can say so rather than retrying them.
 
 ```bash
 npx wrangler d1 migrations apply elastic-day --local   # once, for wrangler dev

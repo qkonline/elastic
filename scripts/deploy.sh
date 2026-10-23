@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build and publish Elastic to kaiserkhan.com/planner/ (Hostinger shared hosting over SSH).
 #
-#   npm run deploy               # test, build, upload
+#   npm run deploy               # test, check types and formatting, build, upload
 #   npm run deploy -- --dry-run  # show what would change on the server
 #
 # Server details come from the environment or from a .deploy.env file next to package.json
@@ -34,6 +34,9 @@ DRY=""
 [[ "${1:-}" == "--dry-run" ]] && DRY="--dry-run"
 
 npm test
+npm run check
+npx tsc -p worker/tsconfig.json
+npm run format:check
 npm run build
 
 # Directories 755, files 644 on the server whatever the local umask (macOS's openrsync has

@@ -336,16 +336,17 @@ function sixDigits(): string {
  * sending codes, per address and per network.
  */
 async function withinLimit(env: AuthEnv, key: string, max: number, now: number): Promise<boolean> {
-  const row = await env.DB.prepare('SELECT count, start FROM limits WHERE key = ?')
-    .bind(key)
-    .first<{ count: number; start: number }>();
-  if (!row || now - row.start > 3600_000) {
-    await env.DB.prepare('INSERT OR REPLACE INTO limits (key, count, start) VALUES (?, 1, ?)').bind(key, now).run();
-    return true;
-  }
-  if (row.count >= max) return false;
-  await env.DB.prepare('UPDATE limits SET count = count + 1 WHERE key = ?').bind(key).run();
-  return true;
+  // One statement, so requests at the same moment can't all read the same count.
+  const row = await env.DB.prepare(
+    `INSERT INTO limits (key, count, start) VALUES (?1, 1, ?2)
+     ON CONFLICT (key) DO UPDATE SET
+       count = CASE WHEN ?2 - start > 3600000 THEN 1 ELSE count + 1 END,
+       start = CASE WHEN ?2 - start > 3600000 THEN ?2 ELSE start END
+     RETURNING count`,
+  )
+    .bind(key, now)
+    .first<{ count: number }>();
+  return (row?.count ?? 1) <= max;
 }
 
 /**
@@ -405,19 +406,20 @@ export async function emailVerify(
   if (!email || code.length !== 6) throw wrong;
   const name = body.name === undefined ? undefined : cleanName(body.name);
   if (name === null) throw new Refusal(400, 'Enter your name.');
+  // Every try counts before the code is compared, in one statement, so tries at the same moment
+  // can't get past the limit; the right code is then used up once (a second, concurrent use fails).
   const row = await env.DB.prepare(
-    'SELECT user_id, hash, expires, tries FROM email_codes WHERE email = ? AND purpose = ?',
+    `UPDATE email_codes SET tries = tries + 1
+     WHERE email = ? AND purpose = ? AND tries < ? AND expires >= ? RETURNING user_id, hash`,
   )
-    .bind(email, purpose)
-    .first<{ user_id: string; hash: string; expires: number; tries: number }>();
-  if (!row || row.expires < Date.now() || row.tries >= CODE_TRIES || (userId && row.user_id !== userId)) throw wrong;
-  if ((await sha256(`${email}|${code}`)) !== row.hash) {
-    await env.DB.prepare('UPDATE email_codes SET tries = tries + 1 WHERE email = ? AND purpose = ?')
-      .bind(email, purpose)
-      .run();
-    throw wrong;
-  }
-  await env.DB.prepare('DELETE FROM email_codes WHERE email = ? AND purpose = ?').bind(email, purpose).run();
+    .bind(email, purpose, CODE_TRIES, Date.now())
+    .first<{ user_id: string; hash: string }>();
+  if (!row || (userId && row.user_id !== userId)) throw wrong;
+  if ((await sha256(`${email}|${code}`)) !== row.hash) throw wrong;
+  const used = await env.DB.prepare('DELETE FROM email_codes WHERE email = ? AND purpose = ? AND hash = ? RETURNING 1')
+    .bind(email, purpose, row.hash)
+    .first();
+  if (!used) throw wrong;
   if (!userId) {
     const owner = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first<{ id: string }>();
     if (owner) return signedIn(env, owner.id, false);

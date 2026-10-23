@@ -33,6 +33,37 @@ describe('mergeDay', () => {
     expect(titles(out)).toEqual(['a', 'mine', 'c']);
   });
 
+  it('keeps what each side changed in the same task, either way round', () => {
+    const mine = patch(base, 'b', { title: 'Finish report' });
+    const theirs = patch(base, 'b', { note: 'Send to manager' });
+    for (const out of [mergeDay(base, mine, theirs), mergeDay(base, theirs, mine)]) {
+      expect(out.items[1]).toMatchObject({ title: 'Finish report', note: 'Send to manager' });
+    }
+  });
+
+  it("keeps a timer's fields together, from the side that changed them", () => {
+    const mine = patch(base, 'b', { status: 'running', startedAt: 600, note: 'mine' });
+    const theirs = patch(base, 'b', { status: 'done', startedAt: 590, endedAt: 620, title: 'theirs' });
+    const b = mergeDay(base, mine, theirs).items[1];
+    expect(b).toMatchObject({ status: 'running', startedAt: 600, endedAt: null, note: 'mine', title: 'theirs' });
+  });
+
+  it('keeps a task type with its time and length', () => {
+    const mine = patch(base, 'b', { kind: 'fixed', fixedAt: 720 });
+    const theirs = patch(base, 'b', { min: 60, hue: 'lime' });
+    const b = mergeDay(base, mine, theirs).items[1];
+    expect(b).toMatchObject({ kind: 'fixed', fixedAt: 720, min: 30, hue: 'lime' });
+  });
+
+  it('drops a field one side removed, unless the other changed it', () => {
+    const withGoal = day([it_('a', { goalId: 'g1' })]);
+    const mine = patch(withGoal, 'a', { goalId: undefined, title: 'mine' });
+    delete (mine.items[0] as Partial<Item>).goalId;
+    const out = mergeDay(withGoal, mine, patch(withGoal, 'a', { note: 'theirs' })).items[0];
+    expect(out).toMatchObject({ title: 'mine', note: 'theirs' });
+    expect('goalId' in out).toBe(false);
+  });
+
   it('takes theirs for a task I left alone', () => {
     const out = mergeDay(base, base, patch(base, 'b', { note: 'from the laptop' }));
     expect(out.items[1].note).toBe('from the laptop');

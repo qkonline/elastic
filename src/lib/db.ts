@@ -311,7 +311,7 @@ export async function clearSync(): Promise<void> {
   const tx = db.transaction(['synced', 'outbox', 'meta'], 'readwrite');
   tx.objectStore('synced').clear();
   tx.objectStore('outbox').clear();
-  for (const k of ['account', 'syncRev']) tx.objectStore('meta').delete(k);
+  for (const k of ['account', 'syncRev', 'held']) tx.objectStore('meta').delete(k);
   return txDone(tx);
 }
 

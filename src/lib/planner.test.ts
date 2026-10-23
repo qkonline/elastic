@@ -1,7 +1,7 @@
 // The app state against an in-memory IndexedDB: what gets stored, and what comes back after
 // a reload (a fresh Planner reading the same database).
 
-import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
+import { IDBFactory, IDBKeyRange, IDBObjectStore } from 'fake-indexeddb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as db from './db';
 import type { Series } from './types';
@@ -45,6 +45,26 @@ describe('Planner', () => {
     expect(p.viewKey).toBe(TODAY);
     expect(p.day.items).toEqual([]);
     expect(p.settings.themePref).toBe('match');
+  });
+
+  it('keeps a day that could not be saved, says so, and saves it once it can', async () => {
+    const p = await boot();
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = () => {
+      throw new DOMException('Out of space', 'QuotaExceededError');
+    };
+    try {
+      add(p, 'Write');
+      expect(await p.flush()).toBe(false);
+      expect(p.saveError).toBe('full');
+      expect(p.day.items.map((i) => i.title)).toEqual(['Write']);
+    } finally {
+      IDBObjectStore.prototype.put = put;
+    }
+    expect(await p.flush()).toBe(true);
+    expect(p.saveError).toBeNull();
+    const q = await boot();
+    expect(q.day.items.map((i) => i.title)).toEqual(['Write']);
   });
 
   it('keeps tasks and timer state across a reload', async () => {

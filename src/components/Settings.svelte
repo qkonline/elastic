@@ -70,7 +70,9 @@
         ? 'Finish setting up your account to keep syncing.'
         : P.syncStatus === 'offline'
           ? "On. You're offline, so changes will sync when you're back."
-          : 'On. Your plan is the same on every device you sign in on.',
+          : P.syncStatus === 'full'
+            ? 'On, but your account is full, so some new changes stay on this device.'
+            : 'On. Your plan is the same on every device you sign in on.',
   );
 
   const THEMES: [ThemePref, string][] = [

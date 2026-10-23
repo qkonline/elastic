@@ -4,6 +4,7 @@
   import { prefersDark } from '../lib/ui.svelte';
   import ComingUp from './ComingUp.svelte';
   import RunningElsewhere from './RunningElsewhere.svelte';
+  import SaveError from './SaveError.svelte';
 
   // The top of every screen: a small line (the date, or a count) with the theme switch and
   // Settings beside it, then the screen's title with its own controls (Day / Week / Month on
@@ -73,6 +74,7 @@
 </header>
 <!-- The plan shows these itself; the other screens keep them in view too. -->
 {#if P.screen.type !== 'today'}
+  <SaveError />
   <RunningElsewhere />
   <ComingUp />
 {/if}
