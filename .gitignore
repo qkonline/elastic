@@ -1,5 +1,7 @@
 node_modules
 dist
+dist-farewell
+dist-old
 .DS_Store
 *.local
 .deploy.env

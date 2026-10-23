@@ -13,10 +13,14 @@ self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./', ...ASSETS])));
 });
 
+// The previous build's cache stays until the one after: a page it served may still be loading
+// its files when this worker takes over (it activates at once), and on the server they're gone.
+// caches.keys() lists caches oldest first.
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     (async () => {
-      for (const k of await caches.keys()) if (k.startsWith('elastic-day-') && k !== CACHE) await caches.delete(k);
+      const older = (await caches.keys()).filter((k) => k.startsWith('elastic-day-') && k !== CACHE);
+      for (const k of older.slice(0, -1)) await caches.delete(k);
       await self.clients.claim();
     })(),
   );
@@ -28,8 +32,8 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   const scope = new URL(self.registration.scope);
   if (url.origin !== scope.origin || !url.pathname.startsWith(scope.pathname)) return;
-  // Which build is current: always the server's answer, never a cached one.
-  if (url.pathname === scope.pathname + 'version.json') return;
+  // Which build is current: always the server's answer, never a cached one. Nor the API.
+  if (url.pathname === scope.pathname + 'version.json' || url.pathname.startsWith(scope.pathname + 'api/')) return;
 
   if (req.mode === 'navigate') {
     // Only the app page itself is stored as the offline shell, never some other file opened in a tab.
@@ -42,8 +46,9 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
+  // Build files never vary (their names carry a hash of their content), whatever a server's Vary says.
   e.respondWith(
-    caches.match(req).then(
+    caches.match(req, { ignoreVary: true }).then(
       (hit) =>
         hit ||
         fetch(req).then((res) => {

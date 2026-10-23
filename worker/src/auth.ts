@@ -17,6 +17,8 @@ import { b64url, fromB64url } from './vapid';
 
 export interface AuthEnv extends MailEnv {
   DB: D1Database;
+  /** The passkey site for this domain and its subdomains (kaiserkhan.com). */
+  RP_ID?: string;
 }
 
 export interface User {
@@ -62,7 +64,16 @@ async function sha256(s: string): Promise<string> {
 }
 
 /** The relying party is the site the app is served from, as the browser reports it. */
-const rpOf = (origin: string) => ({ rpID: new URL(origin).hostname, origin });
+/**
+ * The passkey site: RP_ID (kaiserkhan.com) for the page on it or any of its subdomains, so a
+ * passkey made on kaiserkhan.com/planner/ works on elastic.kaiserkhan.com; otherwise the page's
+ * own host (localhost in development).
+ */
+function rpOf(env: AuthEnv, origin: string) {
+  const host = new URL(origin).hostname;
+  const root = env.RP_ID;
+  return { rpID: root && (host === root || host.endsWith('.' + root)) ? root : host, origin };
+}
 
 // ---------- sessions ----------
 
@@ -165,6 +176,38 @@ export async function removePasskey(env: AuthEnv, userId: string, body: { id?: u
   await env.DB.prepare('DELETE FROM passkeys WHERE id = ? AND user_id = ?').bind(body.id, userId).run();
 }
 
+// ---------- moving to another address ----------
+
+const HANDOFF_MS = 2 * 60_000;
+
+/**
+ * A one-time code for this sign-in to carry over to the app's new address (another origin, so
+ * it has none of this one's storage). Good for two minutes; it makes a new session there.
+ */
+export async function handoffStart(env: AuthEnv, userId: string): Promise<{ code: string }> {
+  const code = randomId(24);
+  const now = Date.now();
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM handoffs WHERE expires < ?').bind(now),
+    env.DB.prepare('INSERT INTO handoffs (code_hash, user_id, expires) VALUES (?, ?, ?)').bind(
+      await sha256(code),
+      userId,
+      now + HANDOFF_MS,
+    ),
+  ]);
+  return { code };
+}
+
+export async function handoffFinish(env: AuthEnv, body: { code?: unknown }): Promise<SignedIn> {
+  const gone = new Refusal(400, 'That link has expired. Sign in here instead.');
+  if (typeof body.code !== 'string' || body.code.length > 64) throw gone;
+  const row = await env.DB.prepare('DELETE FROM handoffs WHERE code_hash = ? AND expires >= ? RETURNING user_id')
+    .bind(await sha256(body.code), Date.now())
+    .first<{ user_id: string }>();
+  if (!row) throw gone;
+  return signedIn(env, row.user_id, false);
+}
+
 // ---------- passkeys ----------
 
 async function saveChallenge(env: AuthEnv, challenge: string, userId: string, purpose: string): Promise<string> {
@@ -200,7 +243,7 @@ async function takeChallenge(env: AuthEnv, id: unknown, purpose: string) {
  */
 export async function registerStart(env: AuthEnv, origin: string, userId: string | null) {
   if (!userId) throw new Refusal(403, 'Make your account with your email first.');
-  const { rpID } = rpOf(origin);
+  const { rpID } = rpOf(env, origin);
   const user = await userOf(env, userId);
   if (!user) throw new Refusal(401, 'Signed out');
   const userName = user.email ?? 'Elastic';
@@ -236,7 +279,7 @@ export async function registerFinish(
   if (!userId) throw new Refusal(403, 'Make your account with your email first.');
   const ch = await takeChallenge(env, body.challengeId, 'add');
   if (ch.user_id !== userId) throw new Refusal(400, 'That took too long. Try again.');
-  const { rpID } = rpOf(origin);
+  const { rpID } = rpOf(env, origin);
   let v;
   try {
     v = await verifyRegistrationResponse({
@@ -273,7 +316,7 @@ export async function registerFinish(
 
 /** Options for signing in: any passkey this site made can answer. */
 export async function loginStart(env: AuthEnv, origin: string) {
-  const { rpID } = rpOf(origin);
+  const { rpID } = rpOf(env, origin);
   const options = await generateAuthenticationOptions({ rpID, userVerification: 'preferred' });
   const challengeId = await saveChallenge(env, options.challenge, '', 'login');
   return { challengeId, options };
@@ -294,7 +337,7 @@ export async function loginFinish(
           .first<{ user_id: string; public_key: string; counter: number; transports: string | null }>()
       : null;
   if (!key) throw new Refusal(400, "That passkey isn't linked to an account any more.");
-  const { rpID } = rpOf(origin);
+  const { rpID } = rpOf(env, origin);
   let v;
   try {
     v = await verifyAuthenticationResponse({

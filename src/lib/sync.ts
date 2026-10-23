@@ -410,6 +410,13 @@ export class Sync {
     return !same(next, mine);
   }
 
+  /** Connected, with nothing of this device's waiting to reach the account (records held back aside). */
+  async drained(): Promise<boolean> {
+    if (!this.ready || this.inflight) return false;
+    const ids = await db.getOutbox();
+    return ids.every((id) => id in this.held || this.full.has(id));
+  }
+
   /** Something was saved here: send it as soon as the connection is ready. */
   kick(): void {
     if (this.ready) this.queue(() => this.sendOutbox());

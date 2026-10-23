@@ -6,14 +6,27 @@ name = "elastic-day-push"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
 workers_dev = true
+# The app lives at elastic.kaiserkhan.com, served by this Worker with its API under /api (since
+# 23 Oct 2026; before, the app was at kaiserkhan.com/planner/ on Hostinger). workers.dev stays
+# on for app versions from before, which call the API there at the root.
+routes = [{ pattern = "elastic.kaiserkhan.com", custom_domain = true }]
+
+# The built app (`npm run build` first). /api/* always reaches the Worker; any other path that
+# isn't one of the app's files does too (the old root API paths on workers.dev).
+[assets]
+directory = "../dist"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
 
 [vars]
 VAPID_PUBLIC_KEY = "BIUrkbS-EnZQ2hLavgQmshFuBLt_mD2aD4l9VLtB5mEhCQjF9CQDBRRWlEMcdkkdtiVz--i3rZocPSV3abVpycY"
-VAPID_SUBJECT = "https://kaiserkhan.com/planner/"
+VAPID_SUBJECT = "https://elastic.kaiserkhan.com/"
 # www.kaiserkhan.com serves the same files; the app moves itself to kaiserkhan.com, but copies
 # already opened on www still need to reach the Worker.
-ALLOWED_ORIGINS = "https://kaiserkhan.com,https://www.kaiserkhan.com,http://localhost:4173"
+ALLOWED_ORIGINS = "https://elastic.kaiserkhan.com,https://kaiserkhan.com,https://www.kaiserkhan.com,http://localhost:4173,http://localhost:8787"
 EMAIL_FROM = "Elastic <elastic@kaiserkhan.com>"
+# Passkeys belong to kaiserkhan.com, so the ones made at kaiserkhan.com/planner/ keep working here.
+RP_ID = "kaiserkhan.com"
 
 [[durable_objects.bindings]]
 name = "TIMERS"

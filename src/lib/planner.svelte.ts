@@ -3,6 +3,7 @@
 
 import * as A from './actions';
 import * as api from './account';
+import { arrival, MOVED_TO, moveUrl } from './move';
 import { API, ApiError, cancelled, complete, passkeysAvailable, type Session, type SignedIn } from './account';
 import { chime, notifyHidden, requestNotifications, unlockAudio, unlockOnFirstGesture, vibrate } from './alert';
 import { download, parseBackup } from './backup';
@@ -216,6 +217,10 @@ export class Planner {
   }
   /** Something is typed on the sign-in page: a new build waits until signing in is done. */
   holdUpdates = false;
+  /** The last build at an old address, handing this copy over (moveHome()). */
+  moving = $state<'saving' | 'offline' | 'going' | null>(null);
+  /** init() has loaded the device's plan and sign-in. */
+  private started = false;
   /** Saving on this device is failing: 'full' (out of storage) or 'failed'. Cleared by a save that works. */
   saveError = $state<'full' | 'failed' | null>(null);
   private saveTries = 0;
@@ -377,6 +382,10 @@ export class Planner {
       void this.boardo.load();
       void this.sync.start(session);
     }
+    // Arrived from the app's old address: this device's settings, and its sign-in (move.ts).
+    const came = arrival();
+    if (came) void this.arrive(came);
+    this.started = true;
     try {
       this.bc = new BroadcastChannel('elastic-day');
       this.bc.onmessage = (e) => void this.onMessage(e.data as Msg);
@@ -2041,6 +2050,55 @@ export class Planner {
     await this.boardo.wipe();
     await this.reloadAll();
     this.post({ t: 'all' });
+  }
+
+  /** Arrived from the app's old address with its device settings and, if signed in there, a sign-in code. */
+  private async arrive(came: NonNullable<ReturnType<typeof arrival>>): Promise<void> {
+    const { notify, ...rest } = came.settings;
+    this.setSettings(came.code ? { ...rest, onboarded: true } : rest);
+    // Notifications are allowed address by address: offered again here.
+    if (notify) this.notifyPrompt = 'timer';
+    const code = came.code;
+    if (code && !this.session) await this.accountAction(async () => this.signedIn(await api.finishHandoff(code)));
+  }
+
+  /**
+   * The last build left at an old address (`MOVED_TO`): once everything changed here has reached
+   * the account, go to the new address, taking this sign-in (a one-time code) and this device's
+   * settings. Offline it waits, and says so.
+   */
+  async moveHome(): Promise<void> {
+    if (!MOVED_TO || this.moving === 'going') return;
+    this.moving = 'saving';
+    // The sign-in has to be loaded first, or this would leave without it.
+    while (!this.started && !this.failed) await new Promise((r) => setTimeout(r, 100));
+    const since = Date.now();
+    for (;;) {
+      const saved = await this.flush();
+      const s = this.session;
+      // An account not set up yet doesn't sync: it carries on at the new address as it is.
+      const synced = !s || this.syncStatus === 'paused' || (await this.sync.drained());
+      // Records the account won't take stay behind rather than keep everyone waiting.
+      const stuck = this.syncStatus === 'live' && Date.now() - since > 30_000;
+      if (saved && (synced || stuck)) {
+        try {
+          const code = s ? (await api.startHandoff(s.token)).code : null;
+          this.moving = 'going';
+          location.replace(moveUrl(code, this.settings));
+          return;
+        } catch (e) {
+          // Signed out meanwhile: go anyway, to sign in there.
+          if (e instanceof ApiError && e.status === 401) {
+            this.moving = 'going';
+            location.replace(moveUrl(null, this.settings));
+            return;
+          }
+        }
+      }
+      const offline = (typeof navigator !== 'undefined' && navigator.onLine === false) || this.syncStatus === 'offline';
+      this.moving = offline ? 'offline' : 'saving';
+      await new Promise((r) => setTimeout(r, 1000));
+    }
   }
 
   /** Remember the sign-in on this device, for its other tabs and the next launch. */

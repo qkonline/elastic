@@ -19,6 +19,8 @@ import {
   deleteUser,
   emailSend,
   emailVerify,
+  handoffFinish,
+  handoffStart,
   loginFinish,
   loginStart,
   Refusal,
@@ -59,7 +61,7 @@ export interface Env extends VapidKeys, AuthEnv, BoardoEnv {
 }
 
 /** Routes that need no sign-in, so each network may only call them so often. */
-const OPEN = new Set(['/schedule', '/cancel', '/auth/login/start', '/auth/register/start']);
+const OPEN = new Set(['/schedule', '/cancel', '/auth/login/start', '/auth/register/start', '/auth/handoff']);
 
 const MAX_BODY = 64 * 1024;
 
@@ -84,7 +86,11 @@ export default {
 
     if (req.method === 'OPTIONS') return reply(allowed ? 204 : 403);
     if (!allowed) return reply(403);
-    const { pathname } = new URL(req.url);
+    // On the app's own address (elastic.kaiserkhan.com) the API is under /api, and everything
+    // else is the app's files (served before this runs). On workers.dev, which app versions from
+    // before 23 Oct 2026 call, it's at the root.
+    let { pathname } = new URL(req.url);
+    if (pathname.startsWith('/api/')) pathname = pathname.slice(4);
 
     if (pathname === '/sync') return connect(req, env);
     // Local development only: the codes that would have been emailed.
@@ -150,6 +156,10 @@ export default {
         case '/auth/passkeys/remove':
           await removePasskey(env, await mustUser(), body);
           return reply(204);
+        case '/auth/handoff':
+          return reply(200, await handoffFinish(env, body));
+        case '/account/handoff':
+          return reply(200, await handoffStart(env, await mustUser()));
         case '/auth/signout':
           if (typeof token === 'string') await signOut(env, token);
           return reply(204);

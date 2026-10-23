@@ -27,8 +27,9 @@ function serviceWorker(api: string): Plugin {
         if (name !== 'index.html' && !name.endsWith('.map') && !name.endsWith('.woff')) files.push(name);
       }
       // Top-level files only: folders like public/screenshots are for the install dialog, not offline use.
+      // Nor _headers and the dot files, which are host settings and never served.
       const pub = readdirSync(here('./public')).filter(
-        (f) => !f.startsWith('.') && statSync(here(`./public/${f}`)).isFile(),
+        (f) => !f.startsWith('.') && !f.startsWith('_') && statSync(here(`./public/${f}`)).isFile(),
       );
       for (const name of pub.sort()) {
         hash.update(name).update(readFileSync(here(`./public/${name}`)));
@@ -48,9 +49,11 @@ function serviceWorker(api: string): Plugin {
   };
 }
 
-// Served from kaiserkhan.com/planner/, so every asset URL is prefixed with /planner/.
+// Served at the root of elastic.kaiserkhan.com. The `farewell` build is the last one left at
+// kaiserkhan.com/planner/, where the app lived until October 2026: it hands each copy over to
+// the new address (src/lib/move.ts).
 export default defineConfig(({ mode }) => ({
-  base: '/planner/',
+  base: mode === 'farewell' ? '/planner/' : '/',
   plugins: [svelte(), serviceWorker(loadEnv(mode, here('.'), 'VITE_').VITE_PUSH_URL ?? '')],
   test: {
     include: ['src/**/*.test.ts', 'worker/src/**/*.test.ts'],

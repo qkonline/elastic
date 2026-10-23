@@ -2,9 +2,9 @@
   "name": "Elastic",
   "short_name": "Elastic",
   "description": "Plan the day you actually have, keep your habits and work towards your goals.",
-  "id": "/planner/",
-  "start_url": "/planner/",
-  "scope": "/planner/",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#f4f5f7",
   "theme_color": "#f4f5f7",
@@ -47,7 +47,7 @@
     {
       "name": "Add a task",
       "short_name": "Add task",
-      "url": "/planner/?add",
+      "url": "./?add",
       "icons": [
         {
           "src": "icon-192.png?v=4",

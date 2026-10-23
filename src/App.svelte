@@ -14,6 +14,8 @@
   import Header from './components/Header.svelte';
   import InstallGuide from './components/InstallGuide.svelte';
   import NotifyPrompt from './components/NotifyPrompt.svelte';
+  import Moving from './components/Moving.svelte';
+  import { MOVED_TO } from './lib/move';
   import SaveError from './components/SaveError.svelte';
   import BoardoOffer from './components/BoardoOffer.svelte';
   import PullIndicator from './components/PullIndicator.svelte';
@@ -134,7 +136,9 @@
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && P.sheet && P.closeSheet()} />
 
-{#if P.failed}
+{#if MOVED_TO}
+  <Moving />
+{:else if P.failed}
   <div class="failed">
     <h1>Elastic can't start here</h1>
     <p>

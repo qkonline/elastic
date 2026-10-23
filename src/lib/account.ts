@@ -158,6 +158,11 @@ export const accountInfo = (token: string) => call<AccountInfo>('/account', {}, 
 export const deleteAccount = (token: string) => call<void>('/account/delete', {}, token);
 
 /** Best effort: the token is forgotten here either way. */
+/** A one-time code to carry this sign-in to the app's new address (src/lib/move.ts). */
+export const startHandoff = (token: string) => call<{ code: string }>('/account/handoff', {}, token);
+/** Arriving at the new address: the old one's code, for a sign-in here. */
+export const finishHandoff = (code: string) => call<SignedIn>('/auth/handoff', { code });
+
 export async function signOutRemote(token: string): Promise<void> {
   await call('/auth/signout', {}, token).catch(() => {});
 }
