@@ -295,6 +295,30 @@ describe('sync', () => {
     expect(await a.db.getAllDays()).toEqual([]);
   });
 
+  it("doesn't ask an existing account the welcome's questions when its settings arrive", async () => {
+    // Signed in on a device with no settings of its own yet (as arriving at a new address does).
+    server.records.set('settings:main', {
+      kind: 'settings',
+      key: 'main',
+      rev: 1,
+      data: {
+        clock24: false,
+        showTimes: 'started',
+        fixedLead: 5,
+        defStart: 420,
+        defWrap: 960,
+        dayLength: 540,
+        flexStart: false,
+        reviewDay: 0,
+        reviewAt: 1080,
+      },
+    });
+    server.rev = 1;
+    const a = await device();
+    expect(a.p.settings.defStart).toBe(420);
+    expect(a.p.showWelcome).toBe(false);
+  });
+
   it('keeps the plan when the same person signs back in', async () => {
     const a = await device({ fresh: true });
     add(a.p, 'Mine');

@@ -160,6 +160,18 @@ const SERIES_FIELDS: (keyof Item)[] = [
 /** How far back stored days are kept at hand for habit streaks and history. */
 const PAST_DAYS = 400;
 
+/**
+ * This device's stored settings, filled in. Settings saved before day length existed get it from
+ * their hours. Ones saved before the welcome, or that came from the account onto a device with
+ * none of its own, have no `onboarded`: the person has used Elastic, so no welcome.
+ */
+function stored(s: Partial<Settings>): Settings {
+  const out = { ...DEFAULT_SETTINGS, ...s };
+  if (s.dayLength == null) out.dayLength = Math.max(60, out.defWrap - out.defStart);
+  if (s.onboarded == null) out.onboarded = true;
+  return out;
+}
+
 export class Planner {
   ready = $state(false);
   failed = $state<string | null>(null);
@@ -346,11 +358,7 @@ export class Planner {
       ]);
       this.goals = goals;
       this.reviews = reviews;
-      this.settings = { ...DEFAULT_SETTINGS, ...(s ?? {}), ...(s ? {} : { themePref: this.settings.themePref }) };
-      // Settings saved before day length and the welcome existed: derive the one, skip the other.
-      if (s && s.dayLength == null)
-        this.settings = { ...this.settings, dayLength: Math.max(60, this.settings.defWrap - this.settings.defStart) };
-      if (s && s.onboarded == null) this.settings = { ...this.settings, onboarded: true };
+      this.settings = s ? stored(s) : { ...DEFAULT_SETTINGS, themePref: this.settings.themePref };
       this.series = series;
       // Yesterday has to be loaded first: if it's still going, it's Today.
       await this.loadRecent();
@@ -802,7 +810,7 @@ export class Planner {
       const s = await db.getSettings();
       if (!s) return;
       const prev = this.settings;
-      this.settings = { ...DEFAULT_SETTINGS, ...s };
+      this.settings = stored(s);
       if (prev.defStart !== this.settings.defStart || prev.defWrap !== this.settings.defWrap) this.rebuildUnstored();
       return;
     }
@@ -880,7 +888,7 @@ export class Planner {
     ]);
     this.goals = goals;
     this.reviews = reviews;
-    this.settings = { ...DEFAULT_SETTINGS, ...(s ?? {}) };
+    this.settings = s ? stored(s) : { ...DEFAULT_SETTINGS };
     this.series = series;
     this.sheet = null;
     this.confirm = null;
