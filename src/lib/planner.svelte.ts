@@ -253,7 +253,8 @@ export class Planner {
       (this.day.items.some((i) => i.status === 'todo' && i.kind !== 'buffer') || this.projectsToStart),
   );
   /** First visit: show the welcome until it's been completed or skipped. */
-  showWelcome = $derived(this.ready && !this.settings.onboarded);
+  /** First visit. Signing in from it ("I use Elastic on another device") steps it aside for the account sheet. */
+  showWelcome = $derived(this.ready && !this.settings.onboarded && this.sheet?.type !== 'account');
   celebrate = $state<Celebration | null>(null);
   active = $derived(this.day.items.find(isActive) ?? null);
   /** A timer running or paused on a day other than the one on screen (e.g. left on last night). */

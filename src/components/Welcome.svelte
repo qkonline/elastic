@@ -47,14 +47,11 @@
             <button class="pri" onclick={() => (step = 1)}>Get started</button>
             <button class="text" onclick={() => finish()}>Skip for now</button>
             {#if accountsAvailable()}
-              <button class="text" disabled={P.accountBusy} onclick={() => P.signIn()}
+              <button class="text" onclick={() => P.openSheet({ type: 'account' })}
                 >I use Elastic on another device</button
               >
             {/if}
           </div>
-          {#if P.accountMsg?.err}
-            <p class="hint err" role="status">{P.accountMsg.t}</p>
-          {/if}
         {:else if step === 1}
           <p class="count">1 of 2</p>
           <h2>When does your day usually start?</h2>
@@ -185,8 +182,5 @@
     border: none;
     background: transparent;
     color: var(--muted);
-  }
-  .err {
-    color: var(--redT);
   }
 </style>
