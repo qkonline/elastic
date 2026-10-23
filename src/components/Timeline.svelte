@@ -70,6 +70,20 @@
     display: flex;
     flex-direction: column;
   }
+  /* The day as one line: down the middle of the colour bars, joining them (and idle stretches)
+     from the first task to the last. Above the rows' backgrounds, under the bars. */
+  .timeline::before {
+    content: '';
+    position: absolute;
+    z-index: 1;
+    top: 10px;
+    bottom: 12px;
+    left: calc(var(--px) + var(--tc) + var(--sc) / 2 - 1px);
+    width: 2px;
+    border-radius: 1px;
+    background: var(--line);
+    pointer-events: none;
+  }
   /* Times hidden (setting, or the day hasn't started): drop their column, and the spine and
      tasks move over into the space. Every row sizes that column from --tc. */
   .timeline.no-times {
