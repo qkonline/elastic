@@ -4,7 +4,7 @@ A planner where **the order of the list is the plan**, with habits, quarterly go
 
 You add what you want to do and roughly how long it takes. You never type a start or end time: they're worked out from the order of the list, from anything pinned to a fixed time, and from what actually happened. Run a task long, pause it, push it to later, and the rest of the day moves to fit.
 
-Live at **[kaiserkhan.com/planner](https://kaiserkhan.com/planner/)**. It works on a phone or a desktop, in light or dark, installs like an app, and keeps working offline.
+Live at **[elastic.kaiserkhan.com](https://elastic.kaiserkhan.com/)**. It works on a phone or a desktop, in light or dark, installs like an app, and keeps working offline.
 
 <p>
   <img src="docs/screenshot-light.png" width="300" alt="A day in progress in the light theme, with a task running">
@@ -49,12 +49,12 @@ Needs Node 20.19+ (or 22.12+).
 
 ```bash
 npm install
-npm run dev        # http://localhost:5173/planner/
+npm run dev        # http://localhost:5173/
 npm test           # unit and integration tests (Vitest)
 npm run check      # type-check the Svelte and TypeScript code
 npm run format     # Prettier
 npm run build      # production build in dist/
-npm run preview    # serve the build at http://localhost:4173/planner/
+npm run preview    # serve the build at http://localhost:4173/
 ```
 
 Built with Svelte 5, TypeScript and Vite. The only things shipped besides the app's own code are the Instrument Sans and Space Grotesk fonts and [SimpleWebAuthn](https://simplewebauthn.dev)'s browser helpers for passkeys.
@@ -82,8 +82,8 @@ src/
   components/          the screens and sheets
   sw.js                service worker: opening the app from the device (offline too), and showing pushed notifications
 worker/                Cloudflare Worker: notification pushes, accounts and sync
-public/                icons, web app manifest, .htaccess for the host
-scripts/deploy.sh      build and upload the site
+public/                icons, web app manifest, _headers (cache rules)
+scripts/deploy.sh      test, build and deploy the worker with the app
 ```
 
 A few rules the code sticks to:
@@ -116,16 +116,9 @@ Then set `VITE_PUSH_URL` in `.env.production` to the worker's address and add yo
 
 ## Deploying the site
 
-The app is plain static files served from `/planner/`, so it can go on any web host. `npm run deploy` runs the tests, builds, and copies `dist/` to the server with rsync over SSH. It reads the server details from a `.deploy.env` file that isn't committed:
+The worker in `worker/` serves the built app as well as its API (under `/api`), so the app and the server go out together. `npm run deploy` runs the tests and checks, builds, and deploys the worker with `wrangler deploy` (Node 22 or newer). Point its `routes` in `worker/wrangler.toml` at your own domain, set `VITE_PUSH_URL` in `.env.production` to `https://<that domain>/api`, and list the domain in `ALLOWED_ORIGINS`. `RP_ID` is the domain passkeys belong to; set it to your site's registrable domain, or leave it out to use each page's own host.
 
-```bash
-DEPLOY_USER=you
-DEPLOY_HOST=203.0.113.10
-DEPLOY_PORT=22
-DEPLOY_PATH=path/to/public_html/planner
-```
-
-`npm run deploy -- --dry-run` shows what would change first. To serve it from a different path, change `base` in `vite.config.ts` and the paths in `public/manifest.webmanifest`.
+Without the worker, the app is plain static files and can go on any web host at the root of a domain (`npm run build`, then copy `dist/`).
 
 ## License
 

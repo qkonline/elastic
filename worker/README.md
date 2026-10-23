@@ -1,5 +1,7 @@
 # Elastic worker
 
+Serves the app itself at elastic.kaiserkhan.com (the built `../dist`, as Workers static assets), with everything below under `/api` there. The `workers.dev` address answers the same routes at the root, for app versions from before the move.
+
 Sends Elastic's notifications (time's up, and heads-ups before fixed-time tasks) while the app is closed or the phone is locked, and holds accounts for using one plan on several devices.
 
 ## Notifications without an account
@@ -18,6 +20,9 @@ Signing in (`src/auth.ts`, D1 database `elastic-day`, schema in `migrations/`):
 - `POST /auth/register/start`, `/auth/register/finish` (signed in): add a passkey to the account, labelled with the browser and device it was made on.
 - `POST /auth/login/start`, `/auth/login/finish`: sign in with any passkey made for the site.
 - `POST /auth/passkeys/remove`, `/auth/signout`, `/account` (details, with the passkeys), `/account/delete`.
+- `POST /account/handoff` (signed in) and `/auth/handoff` with `{ code }`: carry a sign-in to the app's new address. The first gives a one-time code good for two minutes (stored hashed); the second signs in with it.
+
+Passkeys belong to `RP_ID` (kaiserkhan.com) when the page is on it or a subdomain, so the ones made at kaiserkhan.com/planner/ work at elastic.kaiserkhan.com; anywhere else (localhost) they belong to the page's own host.
 
 An account syncs once it has a verified email and a name. Accounts made with only a passkey (before October 2026) still sign in, but `/sync` answers them with `{ "t": "setup" }` and their alerts stop until they add both.
 
@@ -50,11 +55,11 @@ An account holds up to 20,000 records. New ones past that aren't kept, and the `
 
 ```bash
 npx wrangler d1 migrations apply elastic-day --local   # once, for wrangler dev
-npx wrangler dev                                       # local, with the private key in .dev.vars
+npx wrangler dev --local-upstream localhost:8787       # local (build the app first), private key in .dev.vars
 npx wrangler secret put VAPID_PRIVATE_KEY
 npx wrangler secret put RESEND_API_KEY                  # run in a terminal: it asks for the key
 npx wrangler d1 migrations apply elastic-day --remote
-npx wrangler deploy
+npx wrangler deploy                                    # or npm run deploy from the repo root
 ```
 
 Wrangler needs Node 22 or newer. `scripts/vapid-keys.mjs` generates a key pair.
