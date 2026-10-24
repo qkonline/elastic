@@ -362,6 +362,30 @@ describe('sync', () => {
     expect(saved!.items.find((i) => i.id === id)?.note).toBe('paused there');
   });
 
+  it('signing in again while syncing never sends the plan as deletions', async () => {
+    const a = await device({ fresh: true });
+    add(a.p, 'Keep me');
+    await a.p.setRepeat(a.p.day.items[0].id, 'Every day');
+    await settle();
+    expect(server.records.get(`day:${TODAY}`)?.data).toBeTruthy();
+    // Still syncing, a passkey sign-in to the same account: asked which plan to keep, the account's.
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ records: 3 }), { status: 200 }));
+    await (a.p as unknown as { signedIn(r: object): Promise<void> }).signedIn({
+      token: 't',
+      user: { id: 'u', email: 'a@example.com', name: 'A' },
+      fresh: false,
+    });
+    expect(a.p.joinAsk).toBe(true);
+    await settle();
+    await a.p.joinAccount('account');
+    await settle();
+    expect(server.records.get(`day:${TODAY}`)?.data).toBeTruthy();
+    expect([...server.records.values()].filter((r) => r.kind === 'series' && r.data)).toHaveLength(1);
+    // And this device has the account's plan again.
+    await settle();
+    expect(titles(a.p)).toEqual(['Keep me']);
+  });
+
   it('keeps the plan when the same person signs back in', async () => {
     const a = await device({ fresh: true });
     add(a.p, 'Mine');

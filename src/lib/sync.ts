@@ -482,7 +482,11 @@ export class Sync {
     if (!this.ready || this.inflight || this.ws?.readyState !== 1) return;
     // Records the account has in a form this version can't read wait until it can.
     const ids = (await db.getOutbox()).filter((id) => !(id in this.held) && !this.full.has(id));
-    if (!ids.length) return;
+    const bulk = await db.getMeta<number>('bulk');
+    if (!ids.length) {
+      if (bulk) await db.deleteMeta('bulk');
+      return;
+    }
     const sent = new Map<string, unknown>();
     const recs: object[] = [];
     let bytes = 0;
@@ -503,7 +507,9 @@ export class Sync {
     }
     if (!recs.length) return;
     this.inflight = { id: ++this.putId, sent };
-    if (!this.send({ t: 'put', id: this.putId, recs })) this.inflight = null;
+    // A replacement of everything made on purpose, within the last day: the account lets it through.
+    const meant = !!bulk && Date.now() - bulk < 86_400_000;
+    if (!this.send({ t: 'put', id: this.putId, recs, ...(meant ? { bulk: true } : {}) })) this.inflight = null;
   }
 
   /** The alerts to come may have changed: tell the account if they have. */

@@ -93,7 +93,7 @@ export class Account extends DurableObject<VapidKeys> {
         return;
       case 'put': {
         ws.serializeAttachment(att);
-        const res = this.put(m.recs);
+        const res = this.put(m.recs, m.bulk === true);
         const ack = res
           ? { ok: res.ok, conflicts: res.conflicts, ...(res.full.length ? { full: res.full } : {}) }
           : { ok: [], conflicts: [], error: 'bad' };
@@ -169,7 +169,10 @@ export class Account extends DurableObject<VapidKeys> {
    * Apply changes. Each one made on the record's current version is kept under the next rev;
    * any other comes back as a conflict, with the record as it is now.
    */
-  private put(raw: unknown): {
+  private put(
+    raw: unknown,
+    bulk = false,
+  ): {
     ok: { kind: RecordKind; key: string; rev: number }[];
     conflicts: Rec[];
     changed: Rec[];
@@ -177,6 +180,7 @@ export class Account extends DurableObject<VapidKeys> {
   } | null {
     const list = changes(raw);
     if (!list) return null;
+    if (!bulk && !this.deletionsAllowed(list)) return null;
     const ok: { kind: RecordKind; key: string; rev: number }[] = [];
     const conflicts: Rec[] = [];
     const changed: Rec[] = [];
@@ -224,6 +228,34 @@ export class Account extends DurableObject<VapidKeys> {
       this.sql.exec("INSERT OR REPLACE INTO kv (k, v) VALUES ('rev', ?)", String(rev));
     });
     return { ok, conflicts, changed, full };
+  }
+
+  /**
+   * A burst of deletions of much of the account is refused, unless the device says it's meant
+   * (Erase everything, Import): on 23 Oct 2026 a device signing in again sent its whole plan as
+   * deletions and wiped the account. Deletions of records the account has, counted over an hour,
+   * may reach 10 or a fifth of what it holds, whichever is more. A refused put is sent again one
+   * record at a time and each refused deletion dropped (sync.ts), so the account keeps its copy.
+   */
+  private deletionsAllowed(list: { kind: string; key: string; data: string | null }[]): boolean {
+    const now = Date.now();
+    const dels = list.filter(
+      (c) =>
+        c.data == null &&
+        this.sql.exec('SELECT 1 FROM records WHERE kind = ? AND key = ? AND data IS NOT NULL', c.kind, c.key).toArray()
+          .length,
+    ).length;
+    if (!dels) return true;
+    const row = this.sql.exec<{ v: string }>("SELECT v FROM kv WHERE k = 'deletes'").toArray()[0];
+    let win = row ? (JSON.parse(row.v) as { n: number; since: number }) : { n: 0, since: now };
+    if (now - win.since > 3_600_000) win = { n: 0, since: now };
+    const live = this.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM records WHERE data IS NOT NULL').one().n;
+    if (win.n + dels > Math.max(10, Math.ceil(live / 5))) return false;
+    this.sql.exec(
+      "INSERT OR REPLACE INTO kv (k, v) VALUES ('deletes', ?)",
+      JSON.stringify({ n: win.n + dels, since: win.since }),
+    );
+    return true;
   }
 
   // ---------- devices & alerts ----------

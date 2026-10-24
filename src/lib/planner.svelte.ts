@@ -2135,6 +2135,11 @@ export class Planner {
    */
   private async signedIn(r: SignedIn): Promise<void> {
     await this.flush();
+    // Signing in where a sign-in is still syncing (a passkey on the sign-in page while asked
+    // which plan to keep, say): stop it first. Otherwise what happens to this device's plan below
+    // (wiped for another account, replaced by the account's) is recorded as changes to send, and
+    // sent as deletions: on 23 Oct 2026 that wiped an account.
+    this.sync.stop();
     const session: Session = { token: r.token, user: r.user, device: A.uid() };
     await db.clearSync();
     // Someone else's plan is on this device (they signed out): it goes, so it never reaches this

@@ -233,7 +233,12 @@ export async function replaceAll(data: {
   }
   for (const k of ['settings', 'alerts']) meta.delete(k);
   if (data.settings) meta.put(plain(data.settings), 'settings');
-  if (tracking) outbox.put(true, recId('settings', 'main'));
+  if (tracking) {
+    outbox.put(true, recId('settings', 'main'));
+    // Everything replaced on purpose (Erase everything, Import): the account is told it's meant,
+    // or it refuses so many deletions at once (worker account.ts).
+    meta.put(Date.now(), 'bulk');
+  }
   await txDone(tx);
   if (tracking) afterWrite?.();
 }
