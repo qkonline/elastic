@@ -395,6 +395,7 @@ export class Planner {
     this.iv = setInterval(() => this.tick(), 250);
     // The app opens from the service worker's cache: ask straight away whether there's a newer
     // build, and take it now if nothing is under way (otherwise at the next quiet moment).
+    this.settleUntil = Date.now() + 60_000;
     void this.checkForUpdate(true);
     const session = this.session;
     if (session) {
@@ -455,7 +456,11 @@ export class Planner {
     else this.pushScheduled = schedulePush(plan.map((g) => g.at));
   }
 
+  /** Until when the app has only just opened or come back: the moment to take a new build. */
+  private settleUntil = 0;
+
   private onVisible(): void {
+    this.settleUntil = Date.now() + 60_000;
     this.sync.setVisible(true);
     // Sound may need another tap to come back after the background (iOS).
     unlockOnFirstGesture();
@@ -496,8 +501,12 @@ export class Planner {
       // later moment try again.
       if (ok)
         return reloadToUpdate().then((went) => {
-          if (went === false) this.reloading = false;
-          else setTimeout(() => (this.reloading = false), 20_000);
+          if (went === false) {
+            this.reloading = false;
+            // Still arriving (its service worker is storing it): just after opening or coming
+            // back, look again shortly; otherwise at the next quiet moment.
+            if (Date.now() < this.settleUntil) setTimeout(() => this.updateIfQuiet(), 3000);
+          } else setTimeout(() => (this.reloading = false), 20_000);
         });
       this.reloading = false;
     });

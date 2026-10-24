@@ -3,12 +3,19 @@
 // meta tag written at build time, see vite.config.ts) and asks the server for the current one
 // (version.json, never cached); the store reloads when they differ (see Planner.checkForUpdate).
 // The service worker opens the app from its cache, so this is also how a new build arrives at
-// all: the app asks as soon as it opens, and reloads for it at the first quiet moment.
+// all: the app asks as soon as it opens; the new build's service worker then fetches and stores
+// all of it in the background (sw.js, install), and only once it's all on the device does the app
+// reload, at the first quiet moment, from that copy. No reload waits on the network: on a network
+// that hangs (24 Oct 2026, a router whose DNS gave only an unreachable address) the old way, a
+// reload from the server, left the app frozen halfway.
 
 const BUILD =
   typeof document === 'undefined'
     ? null
     : (document.querySelector<HTMLMetaElement>('meta[name="build"]')?.content ?? null);
+
+/** The newest build the server has said it has. */
+let latest: string | null = null;
 
 /** Whether the server has a newer build than the one running. False in development or offline. */
 export async function newBuildOut(): Promise<boolean> {
@@ -21,7 +28,9 @@ export async function newBuildOut(): Promise<boolean> {
     if (!res.ok) return false;
     const { v } = (await res.json()) as { v?: unknown };
     if (v === BUILD) forgetTried();
-    return typeof v === 'string' && v !== BUILD;
+    if (typeof v !== 'string' || v === BUILD) return false;
+    latest = v;
+    return true;
   } catch {
     return false;
   }
@@ -42,30 +51,43 @@ function forgetTried(): void {
 }
 
 /**
- * Fetch the new service worker too, then load the page again from the server. The service worker
- * opens the app from its cache, so `?fresh` asks it for the network's copy this once. On a network
- * that can't fetch it, the service worker gives up after a few seconds and opens the copy it has
- * (sw.js), the old build: then this waits a while before trying again, rather than reloading every
- * time the app opens. False when it didn't reload.
+ * Whether the newest build is all on the device: its service worker stored it (its cache has the
+ * app page, which install adds with every file in one go) and has taken over.
+ */
+async function storedHere(reg: ServiceWorkerRegistration): Promise<boolean> {
+  if (!latest || reg.installing || reg.waiting || reg.active?.state !== 'activated') return false;
+  try {
+    return !!(await (await caches.open(`elastic-day-${latest}`)).match('./'));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Reload into the newest build, once it's all on the device; until then, have the service worker
+ * fetch it in the background and say so (false), for the app to ask again at its next quiet
+ * moment. A reload that didn't bring it (it shouldn't) isn't tried again for a while, so it can
+ * never loop.
  */
 export async function reloadToUpdate(): Promise<boolean> {
   try {
     const tried = Number(localStorage.getItem(TRIED_KEY));
     if (tried && Date.now() - tried < RETRY_MS) return false;
-    localStorage.setItem(TRIED_KEY, String(Date.now()));
   } catch {
-    /* storage blocked: try anyway */
+    /* storage blocked */
+  }
+  const reg = await navigator.serviceWorker?.getRegistration().catch(() => undefined);
+  // Without a service worker (yet) the page comes from the server anyway.
+  if (reg?.active && !(await storedHere(reg))) {
+    void reg.update().catch(() => {});
+    return false;
   }
   try {
-    const reg = await navigator.serviceWorker?.getRegistration();
-    // A network that hangs mustn't hold the app up: the reload brings the worker along anyway.
-    await Promise.race([reg?.update(), new Promise((r) => setTimeout(r, 4000))]);
+    localStorage.setItem(TRIED_KEY, String(Date.now()));
   } catch {
-    /* the reload still gets the new page */
+    /* storage blocked */
   }
-  const url = new URL(location.href);
-  url.searchParams.set('fresh', String(Date.now()));
-  location.replace(url.href);
+  location.reload();
   return true;
 }
 
