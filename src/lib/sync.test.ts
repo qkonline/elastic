@@ -319,6 +319,25 @@ describe('sync', () => {
     expect(a.p.showWelcome).toBe(false);
   });
 
+  it('keeps a change from the account that arrives while a change here waits to be saved', async () => {
+    const a = await device({ fresh: true });
+    add(a.p, 'Started');
+    await settle();
+    const id = a.p.day.items[0].id;
+    // Another device paused it: the account's version is already in storage here...
+    const theirs = await a.db.getDay(TODAY);
+    await a.db.putDay({ ...theirs!, items: theirs!.items.map((i) => ({ ...i, note: 'paused there' })) });
+    // ...when this one changes the day, not saved yet, and the change is announced.
+    add(a.p, 'Added here');
+    await (a.p as unknown as { onMessage(m: object): Promise<void> }).onMessage({ t: 'days', keys: [TODAY] });
+    expect(titles(a.p)).toEqual(['Started', 'Added here']);
+    expect(a.p.day.items.find((i) => i.id === id)?.note).toBe('paused there');
+    await settle();
+    const saved = await a.db.getDay(TODAY);
+    expect(saved!.items.map((i) => i.title)).toEqual(['Started', 'Added here']);
+    expect(saved!.items.find((i) => i.id === id)?.note).toBe('paused there');
+  });
+
   it('keeps the plan when the same person signs back in', async () => {
     const a = await device({ fresh: true });
     add(a.p, 'Mine');

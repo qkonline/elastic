@@ -7,6 +7,7 @@ import { arrival, MOVED_TO, moveUrl, reachable } from './move';
 import { API, ApiError, cancelled, complete, passkeysAvailable, type Session, type SignedIn } from './account';
 import { chime, notifyHidden, requestNotifications, unlockAudio, unlockOnFirstGesture, vibrate } from './alert';
 import { download, parseBackup } from './backup';
+import { mergeDay } from './merge';
 import { Boardo, type BoardoCard, type BoardoOp, cardsFor } from './boardo.svelte';
 import * as db from './db';
 import { hasNotifications, needsInstallForNotifications } from './platform';
@@ -318,6 +319,8 @@ export class Planner {
 
   private stored = new Set<string>();
   private pending = new Set<string>();
+  /** Days with changes not saved yet, as they were before them (what storage holds). */
+  private unsaved = new Map<string, Day>();
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private seriesTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private alerted = new Set<string>();
@@ -669,6 +672,7 @@ export class Planner {
 
   private put(day: Day): void {
     day = this.cardOps(this.days[day.key], day);
+    if (!this.pending.has(day.key) && this.days[day.key]) this.unsaved.set(day.key, this.days[day.key]);
     this.days = { ...this.days, [day.key]: day };
     this.stored.add(day.key);
     this.pending.add(day.key);
@@ -766,6 +770,7 @@ export class Planner {
       this.saveFailed(e);
       return false;
     }
+    for (const k of keys) if (!this.pending.has(k)) this.unsaved.delete(k);
     this.saveError = null;
     this.saveTries = 0;
     this.post({ t: 'days', keys });
@@ -822,8 +827,15 @@ export class Planner {
     for (const k of m.keys) {
       if (!(k in this.days)) continue;
       const d = await db.getDay(k);
-      // Merge one key at a time, after the await, so edits made meanwhile aren't overwritten.
-      if (this.pending.has(k)) continue;
+      // One key at a time, after the await. A change made here and not saved yet (they wait a
+      // moment) is merged with it, as sync merges: kept, without losing what came in, which the
+      // save would otherwise write over (a pause from another device, say).
+      if (this.pending.has(k)) {
+        if (!d) continue;
+        this.days = { ...this.days, [k]: mergeDay(this.unsaved.get(k) ?? null, this.days[k], d) };
+        this.unsaved.set(k, d);
+        continue;
+      }
       if (d) {
         this.days = { ...this.days, [k]: d };
         this.stored.add(k);
@@ -880,6 +892,7 @@ export class Planner {
     this.days = {};
     this.stored.clear();
     this.pending.clear();
+    this.unsaved.clear();
     const [s, series, goals, reviews] = await Promise.all([
       db.getSettings(),
       db.getAllSeries(),
