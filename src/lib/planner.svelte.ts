@@ -488,6 +488,21 @@ export class Planner {
     if (returning || (typeof document !== 'undefined' && document.hidden)) this.updateIfQuiet();
   }
 
+  /**
+   * Pull to refresh: the plan again from this device's storage, the connection to the account
+   * checked (or made), Boardo's cards fetched and a new build looked for. No page reload. Not
+   * while saving is failing: re-reading would drop what isn't saved.
+   */
+  async refresh(): Promise<void> {
+    if (!(await this.flush())) return;
+    await this.reloadAll();
+    this.sync.refresh();
+    this.boardo.nudge();
+    this.settleUntil = Date.now() + 60_000;
+    await this.checkForUpdate(true);
+    this.say('Refreshed');
+  }
+
   /** Save and reload for a newer build, unless a sheet, drag, question or celebration is up. */
   private updateIfQuiet(): void {
     if (!this.updateReady || this.reloading) return;

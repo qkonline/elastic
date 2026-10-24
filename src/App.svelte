@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import { cubicOut } from 'svelte/easing';
+  import { openAgain } from './lib/update';
   import Account from './components/Account.svelte';
   import AddTask from './components/AddTask.svelte';
   import Celebration from './components/Celebration.svelte';
@@ -267,7 +268,7 @@
       <div class="failed">
         <h1>Something went wrong on this screen</h1>
         <p>Your plan is saved on this device. Reload to carry on.</p>
-        <button class="btn-plain" onclick={() => location.reload()}>Reload</button>
+        <button class="btn-plain" onclick={openAgain}>Reload</button>
         <p class="detail">{error instanceof Error ? error.message : String(error)}</p>
       </div>
     {/snippet}

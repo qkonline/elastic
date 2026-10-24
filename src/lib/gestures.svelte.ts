@@ -87,9 +87,9 @@ export function dayGestures(p: Planner) {
           gestures.refreshing = true;
           gestures.pull = PULL;
           p.say('Refreshing');
-          // Not while saving is failing: the reload would lose what isn't saved.
-          void p.flush().then((ok) => {
-            if (ok) return location.reload();
+          // Everything again from this device, the account and Boardo, without reloading the page
+          // (a reload can hang on a bad network, see update.ts).
+          void p.refresh().finally(() => {
             gestures.refreshing = false;
             gestures.pull = 0;
           });

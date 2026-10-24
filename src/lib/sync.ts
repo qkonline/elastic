@@ -328,6 +328,12 @@ export class Sync {
     }, wait);
   }
 
+  /** Pull to refresh: check the connection, or make one now, and catch up. */
+  refresh(): void {
+    if (this.ws) this.probe();
+    else this.reconnectNow();
+  }
+
   /** The account was set up (name and email): connect again straight away. */
   resume(): void {
     this.reconnectNow();

@@ -87,8 +87,17 @@ export async function reloadToUpdate(): Promise<boolean> {
   } catch {
     /* storage blocked */
   }
-  location.reload();
+  openAgain();
   return true;
+}
+
+/**
+ * Load the app again, from the service worker's copy. As a plain navigation, not
+ * location.reload(): on iPhone a reload seems to go to the server, bypassing the service worker,
+ * and on a network that hangs it froze the app (24 Oct 2026).
+ */
+export function openAgain(): void {
+  location.replace(location.pathname + location.search);
 }
 
 // The address after such a reload loses its ?fresh again.
