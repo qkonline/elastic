@@ -41,7 +41,7 @@
               P.settings.clock24,
             ).toLowerCase()}{/if}
         </dd>{/if}
-      {#if c.myDone}<dt>Your part</dt>
+      {#if c.myDone && !c.completed}<dt>Your part</dt>
         <dd>Done</dd>{/if}
     </dl>
     <div class="acts">

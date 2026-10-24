@@ -42,7 +42,10 @@
               <span class="proj" style:color={colour(r.card.board.hue)}>{r.card.board.name}</span>
               {#if r.card.status.label}<span class="st">{r.card.status.label}</span>{/if}
               {#if r.deadline}<span class:late={r.overdue}>{r.deadline}</span>{/if}
-              {#if r.ticked}<span>{r.card.completed ? 'Completed' : 'Your part is done'}</span>{/if}
+              <!-- A Completed card's status already says so; "your part" only means something while
+                   others still have theirs to do (a card for one person is Completed with it). -->
+              {#if r.ticked && !r.card.completed}<span>Your part is done</span>
+              {:else if r.ticked && !r.card.status.label}<span>Completed</span>{/if}
             </span>
           </button>
           {#if !r.ticked && P.isToday}
