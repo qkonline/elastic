@@ -109,31 +109,39 @@ export function alertGroups(v: unknown, now = Date.now()): AlertGroup[] | null {
 
 export type RecordKind = 'day' | 'series' | 'settings' | 'goal' | 'review';
 const KINDS: RecordKind[] = ['day', 'series', 'settings', 'goal', 'review'];
-/** A change to one of an account's records. `data` null deletes it; `base` is the version it was made on. */
-export interface Change {
+/** What a device changed in one of an account's records: paths, each with its value and clock (shared/lww.ts). */
+export interface Patch {
   kind: RecordKind;
   key: string;
-  base: number;
-  data: string | null;
+  paths: Record<string, [unknown, string]>;
 }
 
-/** How big one record (a day, a repeating task, the settings) can be, as JSON. */
+/** How big what a device sends for one record (a day, a repeating task, the settings) can be, as JSON. */
 export const MAX_RECORD = 256 * 1024;
 const MAX_CHANGES = 500;
 
-/** The changes in a `put`, each record's data as JSON, or null if anything in it is off. */
-export function changes(v: unknown): Change[] | null {
+/** The changes in a `put`, or null if anything in it is off. */
+export function patches(v: unknown): Patch[] | null {
   if (!Array.isArray(v) || v.length > MAX_CHANGES) return null;
-  const out: Change[] = [];
+  const out: Patch[] = [];
   for (const c of v) {
     if (!c || typeof c !== 'object') return null;
     if (!KINDS.includes(c.kind)) return null;
     if (typeof c.key !== 'string' || !c.key || c.key.length > 64) return null;
-    if (!Number.isInteger(c.base) || c.base < 0) return null;
-    if (c.data !== null && (typeof c.data !== 'object' || Array.isArray(c.data))) return null;
-    const data = c.data === null ? null : JSON.stringify(c.data);
-    if (data && data.length > MAX_RECORD) return null;
-    out.push({ kind: c.kind, key: c.key, base: c.base, data });
+    const p = c.paths;
+    if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
+    for (const [path, x] of Object.entries(p))
+      if (
+        path.length > 200 ||
+        !Array.isArray(x) ||
+        x.length !== 2 ||
+        typeof x[1] !== 'string' ||
+        !x[1] ||
+        x[1].length > 64
+      )
+        return null;
+    if (JSON.stringify(p).length > MAX_RECORD) return null;
+    out.push({ kind: c.kind, key: c.key, paths: p as Patch['paths'] });
   }
   return out;
 }

@@ -254,6 +254,23 @@ export function inkOn(h: Hue): string {
 /** The heads-up choices in Settings, in minutes before a fixed time (0 = none). */
 export const FIXED_LEADS = [0, 5, 10, 15] as const;
 
+/** The settings shared across an account's devices (about how days work); the rest are each device's own. */
+export const SHARED_SETTINGS = [
+  'clock24',
+  'showTimes',
+  'fixedLead',
+  'defStart',
+  'defWrap',
+  'dayLength',
+  'flexStart',
+  'reviewDay',
+  'reviewAt',
+] as const;
+
+/** The shared part of the settings. */
+export const sharedSettings = (s: Partial<Settings>) =>
+  Object.fromEntries(SHARED_SETTINGS.filter((k) => s[k] !== undefined).map((k) => [k, s[k]]));
+
 export const DEFAULT_SETTINGS: Settings = {
   themePref: 'match',
   clock24: false,

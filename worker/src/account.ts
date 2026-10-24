@@ -1,12 +1,13 @@
-// One per account: the plan (every day, repeating task and the shared settings), kept as
-// versioned records, plus the account's devices and the alerts to send them.
+// One per account: the plan (every day, repeating task, goal, review and the shared settings),
+// plus the account's devices and the alerts to send them.
 //
-// Each signed-in device keeps a WebSocket open while the app is open. It sends the records it
-// changed, each with the version it was changed from (`base`); a change made on an older
-// version than the account's is refused and sent back with the current one, and the device
-// merges and tries again (src/lib/merge.ts). Accepted changes go straight out to the other
-// devices. Every change gets the next number in one sequence (`rev`), so a device coming back
-// asks for everything after the last number it saw.
+// Each record is kept as its paths, each with the moment it was set (shared/lww.ts). Each
+// signed-in device keeps a WebSocket open while the app is open and sends what it changed, as
+// paths; they're merged in (the later setting of each path wins, so nothing is ever refused for
+// being out of date) and what that changed goes straight out to the other devices. Every record
+// changed gets the next number in one sequence (`rev`), so a device coming back asks for
+// everything after the last number it saw. Records from before paths (16 Oct to 24 Oct 2026)
+// read as set at ZERO, older than any change.
 //
 // Alerts: the devices keep the account's list of upcoming alerts up to date (time's up, heads-
 // ups). When one is due, every device with notifications on gets an empty push, except one
@@ -14,17 +15,21 @@
 // `dueAlerts()` what to show.
 
 import { DurableObject } from 'cloudflare:workers';
-import { type AlertGroup, alertGroups, changes, isPushEndpoint, type RecordKind } from './checks';
+import { fromPaths, merge, newer, type Paths, toPaths, ZERO } from '../../shared/lww';
+import { type AlertGroup, alertGroups, isPushEndpoint, patches, type RecordKind } from './checks';
 import { sendPush } from './push';
 import type { VapidKeys } from './vapid';
 
-/** A record as it goes out to devices. `data` null: deleted. */
+/** A record (or what changed in it) as it goes out to devices. */
 interface Rec {
   kind: RecordKind;
   key: string;
   rev: number;
-  data: unknown;
+  paths: Paths;
 }
+
+/** The WebSocket subprotocol (src/lib/sync.ts). */
+export const PROTOCOL = 'elastic-day-2';
 
 /** What each WebSocket remembers across the object sleeping. */
 interface Attachment {
@@ -41,6 +46,21 @@ const CHUNK = 400_000;
 const MAX_RECORDS = 20_000;
 /** A device the account hasn't heard from in this long is forgotten. */
 const DEVICE_IDLE_MS = 90 * 24 * 3600_000;
+
+type Row = {
+  kind: RecordKind;
+  key: string;
+  rev: number;
+  data: string | null;
+  paths: string | null;
+};
+
+/** A stored record's paths (one from before paths: its data, as set at ZERO). */
+function pathsOf(r: Row): Paths {
+  if (r.paths) return JSON.parse(r.paths) as Paths;
+  if (r.data == null) return { _: [null, ZERO] };
+  return toPaths(r.kind, JSON.parse(r.data));
+}
 
 export class Account extends DurableObject<VapidKeys> {
   private sql: SqlStorage;
@@ -61,6 +81,14 @@ export class Account extends DurableObject<VapidKeys> {
       CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, endpoint TEXT, seen INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
     `);
+    // Since 24 Oct 2026: each record's paths (`data` is the record built from them).
+    if (
+      !this.sql
+        .exec('PRAGMA table_info(records)')
+        .toArray()
+        .some((c) => c.name === 'paths')
+    )
+      this.sql.exec('ALTER TABLE records ADD COLUMN paths TEXT');
   }
 
   // ---------- connections ----------
@@ -70,7 +98,7 @@ export class Account extends DurableObject<VapidKeys> {
     const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ device: null, visible: false, at: Date.now() } satisfies Attachment);
-    return new Response(null, { status: 101, webSocket: client, headers: { 'sec-websocket-protocol': 'elastic-day' } });
+    return new Response(null, { status: 101, webSocket: client, headers: { 'sec-websocket-protocol': PROTOCOL } });
   }
 
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
@@ -94,9 +122,7 @@ export class Account extends DurableObject<VapidKeys> {
       case 'put': {
         ws.serializeAttachment(att);
         const res = this.put(m.recs, m.bulk === true);
-        const ack = res
-          ? { ok: res.ok, conflicts: res.conflicts, ...(res.full.length ? { full: res.full } : {}) }
-          : { ok: [], conflicts: [], error: 'bad' };
+        const ack = res ? (res.full.length ? { full: res.full } : {}) : { error: 'bad' };
         ws.send(JSON.stringify({ t: 'ack', id: m.id, ...ack }));
         if (res?.changed.length) this.broadcast(res.changed, ws);
         return;
@@ -129,12 +155,13 @@ export class Account extends DurableObject<VapidKeys> {
     const rev = this.rev();
     let recs: Rec[] = [];
     let size = 0;
-    for (const r of this.sql.exec<{ kind: RecordKind; key: string; rev: number; data: string | null }>(
-      'SELECT kind, key, rev, data FROM records WHERE rev > ? ORDER BY rev',
+    for (const r of this.sql.exec<Row>(
+      'SELECT kind, key, rev, data, paths FROM records WHERE rev > ? ORDER BY rev',
       since,
     )) {
-      recs.push({ kind: r.kind, key: r.key, rev: r.rev, data: r.data == null ? null : JSON.parse(r.data) });
-      size += (r.data?.length ?? 0) + 100;
+      const paths = pathsOf(r);
+      recs.push({ kind: r.kind, key: r.key, rev: r.rev, paths });
+      size += JSON.stringify(paths).length + 100;
       if (size > CHUNK) {
         ws.send(JSON.stringify({ t: 'changes', recs, more: true }));
         recs = [];
@@ -166,47 +193,24 @@ export class Account extends DurableObject<VapidKeys> {
   }
 
   /**
-   * Apply changes. Each one made on the record's current version is kept under the next rev;
-   * any other comes back as a conflict, with the record as it is now.
+   * Merge in what a device changed. A record whose merge changes it gets the next rev, and what
+   * changed goes to the other devices. New records past the account's limit aren't kept, and the
+   * device is told. Null: something in it is off, or it deletes too much at once (below).
    */
-  private put(
-    raw: unknown,
-    bulk = false,
-  ): {
-    ok: { kind: RecordKind; key: string; rev: number }[];
-    conflicts: Rec[];
-    changed: Rec[];
-    full: { kind: RecordKind; key: string }[];
-  } | null {
-    const list = changes(raw);
+  private put(raw: unknown, bulk = false): { changed: Rec[]; full: { kind: RecordKind; key: string }[] } | null {
+    const list = patches(raw);
     if (!list) return null;
     if (!bulk && !this.deletionsAllowed(list)) return null;
-    const ok: { kind: RecordKind; key: string; rev: number }[] = [];
-    const conflicts: Rec[] = [];
     const changed: Rec[] = [];
-    /** New records past the account's limit: not kept, and the device is told. */
     const full: { kind: RecordKind; key: string }[] = [];
     let rev = this.rev();
     let count: number | null = null;
     this.ctx.storage.transactionSync(() => {
       for (const c of list) {
-        const cur = this.sql
-          .exec<{ rev: number; data: string | null }>(
-            'SELECT rev, data FROM records WHERE kind = ? AND key = ?',
-            c.kind,
-            c.key,
-          )
+        const row = this.sql
+          .exec<Row>('SELECT kind, key, rev, data, paths FROM records WHERE kind = ? AND key = ?', c.kind, c.key)
           .toArray()[0];
-        if ((cur?.rev ?? 0) !== c.base) {
-          conflicts.push({
-            kind: c.kind,
-            key: c.key,
-            rev: cur?.rev ?? 0,
-            data: cur?.data == null ? null : JSON.parse(cur.data),
-          });
-          continue;
-        }
-        if (!cur) {
+        if (!row) {
           // Deletions are kept (as data: null) but don't count.
           count ??= this.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM records WHERE data IS NOT NULL').one().n;
           if (count++ >= MAX_RECORDS) {
@@ -214,20 +218,26 @@ export class Account extends DurableObject<VapidKeys> {
             continue;
           }
         }
+        const cur = row ? pathsOf(row) : {};
+        const news = newer(cur, c.paths);
+        if (!Object.keys(news).length) continue;
+        const paths = merge(cur, c.paths);
+        const doc = fromPaths(c.kind, c.key, paths);
         rev++;
         this.sql.exec(
-          'INSERT INTO records (kind, key, rev, data) VALUES (?, ?, ?, ?) ON CONFLICT (kind, key) DO UPDATE SET rev = excluded.rev, data = excluded.data',
+          'INSERT INTO records (kind, key, rev, data, paths) VALUES (?, ?, ?, ?, ?) ON CONFLICT (kind, key) DO UPDATE SET rev = excluded.rev, data = excluded.data, paths = excluded.paths',
           c.kind,
           c.key,
           rev,
-          c.data,
+          doc == null ? null : JSON.stringify(doc),
+          JSON.stringify(paths),
         );
-        ok.push({ kind: c.kind, key: c.key, rev });
-        changed.push({ kind: c.kind, key: c.key, rev, data: c.data == null ? null : JSON.parse(c.data) });
+        // The whole record goes out: a device that hasn't got it yet can't build it from a part.
+        changed.push({ kind: c.kind, key: c.key, rev, paths });
       }
       this.sql.exec("INSERT OR REPLACE INTO kv (k, v) VALUES ('rev', ?)", String(rev));
     });
-    return { ok, conflicts, changed, full };
+    return { changed, full };
   }
 
   /**
@@ -237,11 +247,11 @@ export class Account extends DurableObject<VapidKeys> {
    * may reach 10 or a fifth of what it holds, whichever is more. A refused put is sent again one
    * record at a time and each refused deletion dropped (sync.ts), so the account keeps its copy.
    */
-  private deletionsAllowed(list: { kind: string; key: string; data: string | null }[]): boolean {
+  private deletionsAllowed(list: { kind: string; key: string; paths: Paths }[]): boolean {
     const now = Date.now();
     const dels = list.filter(
       (c) =>
-        c.data == null &&
+        c.paths._?.[0] === null &&
         this.sql.exec('SELECT 1 FROM records WHERE kind = ? AND key = ? AND data IS NOT NULL', c.kind, c.key).toArray()
           .length,
     ).length;

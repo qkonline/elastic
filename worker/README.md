@@ -30,7 +30,7 @@ Signing in returns a token; only its SHA-256 is stored. A session unused for a y
 
 Each account has a Durable Object (`Account`, `src/account.ts`) holding its plan as versioned records (each day, each repeating task, and the shared settings), its devices, and the alerts to send them:
 
-- `GET /sync` is a WebSocket (token as the second subprotocol, after `elastic-day`). The app says `hello` with the last version it saw and gets everything since; it sends `put`s, each record with the version it was changed from, and gets an `ack` with the new versions and, for any record another device changed first, the current one to merge with. Accepted changes go out to the account's other open connections at once.
+- `GET /sync` is a WebSocket (token as the second subprotocol, after `elastic-day-2`). Each record (a day, a repeating task, a goal, a review, the shared settings) is kept as paths, each with the moment it was set, and the later setting of each path wins (`shared/lww.ts`, the same code the app uses). The app says `hello` with the last number it saw and gets every record changed since; it sends `put`s of the paths it changed and gets an `ack`. Each record a put changes gets the next number and goes out whole to the account's other open connections at once. Nothing is refused for being out of date, so there's nothing to merge and resend. A burst of deletions of much of the account is refused unless the put says it's meant (Erase everything, Import). An app still on the older `elastic-day` protocol is closed with code 4426 until it updates.
 - `POST /sync/beacon` (text/plain, token in the body): what the app sends as it goes into the background.
 - `POST /alerts/due` (text/plain, token in the body): for the service worker, the alerts due now.
 

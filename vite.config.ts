@@ -56,6 +56,6 @@ export default defineConfig(({ mode }) => ({
   base: mode === 'farewell' ? '/planner/' : '/',
   plugins: [svelte(), serviceWorker(loadEnv(mode, here('.'), 'VITE_').VITE_PUSH_URL ?? '')],
   test: {
-    include: ['src/**/*.test.ts', 'worker/src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'worker/src/**/*.test.ts', 'shared/**/*.test.ts'],
   },
 }));

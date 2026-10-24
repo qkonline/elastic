@@ -1,43 +1,31 @@
-// Keeping this device's plan and the account's the same, while signed in.
+// Keeping this device's plan and the account's the same, while signed in (see shared/lww.ts).
 //
-// Every change saved here is noted in the outbox (db.ts) in the same transaction, so nothing is
-// lost if the app closes before it goes out. While the app is open, one tab per device (the one
-// holding the 'elastic-day-sync' lock) keeps a WebSocket to the account (worker/src/account.ts):
-// it sends what's in the outbox, each record with the version it was changed from, and takes in
-// what other devices change. A change the account refuses (another device got in first) comes
-// back with the account's version; the two are merged (merge.ts) and sent again. `synced` keeps
-// the version last agreed for each record: the base for those merges.
+// Changes made here wait in `pending` (db.ts) until the account has them. While the app is open,
+// one tab per device (the one holding the 'elastic-day-sync' lock) keeps a WebSocket to the
+// account (worker/src/account.ts): it says how far it has got (`hello`), takes in every record
+// changed since, path by path, and sends what's pending. The account merges each change the same
+// way and passes it on to the other devices. Nothing is refused for being out of date, so nothing
+// is merged here and sent again: a change that arrives twice, late or out of order ends the same.
 //
 // Settings: only the ones about how days work are shared. Theme, sound and notifications belong
 // to each device.
 
+import type { Clock, Paths } from '../../shared/lww';
 import type { Session } from './account';
-import { normalizeDay, normalizeGoal, normalizeReview, normalizeSeries, normalizeSettings } from './backup';
 import * as db from './db';
-import { type RecordKind, recId } from './db';
-import { mergeDay, mergeSeries, mergeSettings } from './merge';
+import { type RecordKind, splitId } from './db';
 import type { AlertGroup } from './reminders';
-import type { Day, Series, Settings } from './types';
+
+export { SHARED_SETTINGS } from './types';
 
 /** 'paused': the account has no name or email yet, so it doesn't sync until it has. */
 export type SyncStatus = 'off' | 'connecting' | 'live' | 'offline' | 'paused' | 'full';
 
-/** The settings shared across an account's devices. */
-export const SHARED_SETTINGS = [
-  'clock24',
-  'showTimes',
-  'fixedLead',
-  'defStart',
-  'defWrap',
-  'dayLength',
-  'flexStart',
-  'reviewDay',
-  'reviewAt',
-] as const;
-type Shared = Pick<Settings, (typeof SHARED_SETTINGS)[number]>;
+/** The WebSocket subprotocol: since 24 Oct 2026, records travel as paths with clocks. */
+export const PROTOCOL = 'elastic-day-2';
 
 export interface SyncHooks {
-  /** Save edits still held in memory, so they're in the outbox before anything is merged. */
+  /** Save edits still held in memory, so they're pending before anything else comes in. */
   flush(): Promise<void>;
   /** These records (recId) changed from the account: reload them. */
   changed(ids: string[]): void;
@@ -48,6 +36,9 @@ export interface SyncHooks {
   alerts(): AlertGroup[];
   /** This device's push address, when notifications are on here. */
   endpoint(): string | null;
+  /** A clock for changes made now (the store's), and a clock seen from another device. */
+  clock(): Clock;
+  see(c: Clock): void;
   /** The account's Boardo cards changed (or its link did): fetch them again. */
   boardo?(): void;
 }
@@ -56,10 +47,9 @@ interface Remote {
   kind: RecordKind;
   key: string;
   rev: number;
-  data: unknown;
+  paths: Paths;
 }
 
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const BACKOFF = [1, 2, 5, 10, 30].map((s) => s * 1000);
 const PING_MS = 20_000;
 /** A connection that hasn't answered a ping, or opened, in this long is given up on. */
@@ -67,57 +57,6 @@ const ANSWER_MS = 10_000;
 const OPEN_MS = 15_000;
 const BATCH = 100;
 const BATCH_BYTES = 400_000;
-
-function split(id: string): [RecordKind, string] {
-  const i = id.indexOf(':');
-  return [id.slice(0, i) as RecordKind, id.slice(i + 1)];
-}
-
-/** What the account holds for a local record (null: there is none). */
-export function shared(kind: RecordKind, local: unknown): unknown {
-  if (local == null) return null;
-  if (kind !== 'settings') return local;
-  const s = local as Settings;
-  return Object.fromEntries(SHARED_SETTINGS.map((k) => [k, s[k]]));
-}
-
-/** A record from the account checked like an import (null: deleted, or not readable). */
-function clean(kind: RecordKind, key: string, data: unknown): unknown {
-  if (data == null) return null;
-  if (kind === 'day') {
-    // A list of tasks in some other form isn't an empty day.
-    if (!Array.isArray((data as { items?: unknown }).items)) return null;
-    const d = normalizeDay(data);
-    return d && d.key === key ? d : null;
-  }
-  if (kind === 'series') {
-    const s = normalizeSeries(data, 0);
-    return s && s.id === key ? s : null;
-  }
-  if (kind === 'goal') {
-    const g = normalizeGoal(data);
-    return g && g.id === key ? g : null;
-  }
-  if (kind === 'review') {
-    const r = normalizeReview(data);
-    return r && r.id === key ? r : null;
-  }
-  const s = normalizeSettings(data);
-  return shared('settings', s);
-}
-
-/** Merge a record changed both here and on the account. Mine wins over a deletion. */
-function merge(kind: RecordKind, base: unknown, mine: unknown, theirs: unknown): unknown {
-  if (mine == null) return same(theirs, base) ? null : theirs;
-  if (theirs == null) return mine;
-  // In the same form as the account's (normalized), or fields only one side spells out read as changes.
-  const day = (d: unknown) => (d == null ? null : (normalizeDay(d) ?? (d as Day)));
-  if (kind === 'day') return mergeDay(day(base), day(mine)!, theirs as Day);
-  if (kind === 'series') return mergeSeries(base as Series | null, mine as Series, theirs as Series);
-  if (kind === 'goal' || kind === 'review')
-    return mergeSettings(base as object | null, mine as object, theirs as object);
-  return mergeSettings(base as Shared | null, mine as Shared, theirs as Shared);
-}
 
 export class Sync {
   private session: Session | null = null;
@@ -129,13 +68,13 @@ export class Sync {
   private claims = 0;
   /** The first catch-up after connecting has arrived; sending can start. */
   private ready = false;
-  private inflight: { id: number; sent: Map<string, unknown> } | null = null;
+  private inflight: { id: number; sent: Record<string, Paths> } | null = null;
   private putId = 0;
   private rev = 0;
   /** New records the account had no room for: not sent again until the next connection. */
   private full = new Set<string>();
-  /** Records the account holds that this version couldn't read: id → the version first seen. */
-  private held: Record<string, number> = {};
+  /** Waiting for the catch-up a `syncNow()` asked for. */
+  private caughtUp: (() => void)[] = [];
   private tries = 0;
   private retry: ReturnType<typeof setTimeout> | null = null;
   private ping: ReturnType<typeof setInterval> | null = null;
@@ -161,12 +100,16 @@ export class Sync {
     return !!this.session;
   }
 
-  /** Start syncing for this session: note changes from now on, and connect if this tab leads. */
+  /** Start syncing for this session, and connect if this tab leads. */
   async start(session: Session): Promise<void> {
     this.session = session;
-    db.track(true, () => this.kick());
     this.rev = (await db.getMeta<number>('syncRev')) ?? 0;
-    this.held = (await db.getMeta<Record<string, number>>('held')) ?? {};
+    // Records an older version had still to send (db.ts upgrade): they go again, whole, as of now.
+    const unsent = await db.getMeta<string[]>('unsent');
+    if (unsent) {
+      if (unsent.length) await db.markAll(this.hooks.clock(), unsent);
+      await db.deleteMeta('unsent');
+    }
     this.visible = typeof document === 'undefined' || !document.hidden;
     if (typeof addEventListener === 'function') addEventListener('online', this.online);
     this.hooks.status('connecting');
@@ -210,7 +153,6 @@ export class Sync {
 
   stop(): void {
     this.session = null;
-    db.track(false);
     this.leader = false;
     this.claims++;
     this.waiting?.abort();
@@ -247,7 +189,7 @@ export class Sync {
     this.retry = null;
     let ws: WebSocket;
     try {
-      ws = new WebSocket(this.url.replace(/^http/, 'ws') + '/sync', ['elastic-day', this.session.token]);
+      ws = new WebSocket(this.url.replace(/^http/, 'ws') + '/sync', [PROTOCOL, this.session.token]);
     } catch {
       return this.later();
     }
@@ -261,14 +203,7 @@ export class Sync {
       this.solo = false;
       this.full.clear();
       this.lastEndpoint = this.hooks.endpoint();
-      this.send({
-        t: 'hello',
-        // From before the first record held back, so it comes again once it can be read.
-        since: Math.min(this.rev, ...Object.values(this.held).map((r) => r - 1)),
-        device: this.session!.device,
-        visible: this.visible,
-        endpoint: this.lastEndpoint,
-      });
+      this.hello(true);
       this.ping = setInterval(() => this.visible && this.probe(), PING_MS);
     };
     ws.onmessage = (e) => {
@@ -380,97 +315,81 @@ export class Sync {
     if (m.t === 'changes') {
       await this.hooks.flush();
       const recs = (Array.isArray(m.recs) ? m.recs : []) as Remote[];
-      const changed: string[] = [];
-      for (const r of recs) {
-        if (await this.take(r, false)) changed.push(recId(r.kind, r.key));
-        this.rev = Math.max(this.rev, r.rev);
-      }
+      for (const r of recs) for (const [, c] of Object.values(r.paths ?? {})) this.hooks.see(c);
+      const changed = await db.applyRemote(recs.map((r) => ({ kind: r.kind, key: r.key, patch: r.paths ?? {} })));
+      for (const r of recs) this.rev = Math.max(this.rev, r.rev);
       if (typeof m.rev === 'number') this.rev = Math.max(this.rev, m.rev);
       await db.putMeta('syncRev', this.rev);
       if (changed.length) this.hooks.changed(changed);
-      if (m.done && !this.ready) {
-        this.ready = true;
-        this.tries = 0;
-        this.hooks.status('live');
-        this.lastAlerts = '';
-        this.alertsChanged();
+      if (m.done) {
+        if (!this.ready) {
+          this.ready = true;
+          this.tries = 0;
+          this.hooks.status('live');
+          this.lastAlerts = '';
+          this.alertsChanged();
+        }
+        for (const r of this.caughtUp.splice(0)) r();
       }
       return this.sendOutbox();
     }
     if (m.t === 'ack' && this.inflight && m.id === this.inflight.id) {
       const { sent } = this.inflight;
       this.inflight = null;
-      const changed: string[] = [];
-      for (const ok of (m.ok ?? []) as { kind: RecordKind; key: string; rev: number }[]) {
-        const id = recId(ok.kind, ok.key);
-        const data = sent.get(id);
-        const now = shared(ok.kind, await db.getRecord(ok.kind, ok.key));
-        await db.putSyncedRecord(ok.kind, ok.key, undefined, { rev: ok.rev, data }, !same(now, data));
-        this.rev = Math.max(this.rev, ok.rev);
-      }
-      for (const r of (m.conflicts ?? []) as Remote[]) if (await this.take(r, true)) changed.push(recId(r.kind, r.key));
-      // The account is full: these stay here (still in the outbox) and it says so.
+      // The account is full: these stay here (still pending) and it says so.
       const full = (m.full ?? []) as { kind: RecordKind; key: string }[];
-      for (const f of full) this.full.add(recId(f.kind, f.key));
+      for (const f of full) this.full.add(`${f.kind}:${f.key}`);
       if (full.length) this.hooks.status('full');
-      // A change the account wouldn't take at all (damaged, or too big): drop it rather than send it
-      // forever. In a put of several, which one isn't said: they go again one at a time.
-      if (m.error && sent.size > 1) this.solo = true;
-      else if (m.error)
-        for (const id of sent.keys()) {
-          console.error('Sync: the account refused', id);
-          const agreed = (await db.getSynced(id)) ?? { rev: 0, data: null };
-          await db.putSyncedRecord(...split(id), undefined, agreed, false);
-        }
-      await db.putMeta('syncRev', this.rev);
-      if (changed.length) this.hooks.changed(changed);
+      const kept = Object.fromEntries(Object.entries(sent).filter(([id]) => !this.full.has(id)));
+      if (!m.error) await db.ackPending(kept);
+      // A change the account wouldn't take (damaged, too big, or too many deletions at once): in
+      // a put of several, which one isn't said, so they go again one at a time, and a single one
+      // refused is dropped rather than sent for ever.
+      else if (Object.keys(sent).length > 1) this.solo = true;
+      else {
+        console.error('Sync: the account refused', Object.keys(sent));
+        await db.ackPending(sent);
+      }
       return this.sendOutbox();
     }
   }
 
-  /**
-   * Take in the account's version of a record. Unchanged here: it replaces the local copy.
-   * Changed here too: merged, and still to be sent. True if the local copy changed.
-   */
-  private async take(r: Remote, conflict: boolean): Promise<boolean> {
-    const id = recId(r.kind, r.key);
-    const base = await db.getSynced(id);
-    if (!conflict && base && base.rev >= r.rev) return false;
-    const theirs = clean(r.kind, r.key, r.data);
-    // A record this version can't read (made by a newer one, or damaged) is no deletion: the
-    // local copy stays and isn't sent, and it's asked for again after an update (`hello`).
-    if (r.data != null && theirs == null) {
-      this.held = { ...this.held, [id]: Math.min(this.held[id] ?? r.rev, r.rev) };
-      await db.putMeta('held', this.held);
-      return false;
-    }
-    if (id in this.held) {
-      const { [id]: _, ...rest } = this.held;
-      this.held = rest;
-      await db.putMeta('held', this.held);
-    }
-    const whole = await db.getRecord(r.kind, r.key);
-    const mine = shared(r.kind, whole);
-    const dirty = conflict || (await db.getOutbox()).includes(id);
-    const agreed = { rev: r.rev, data: theirs };
-    if (same(mine, theirs)) {
-      await db.putSyncedRecord(r.kind, r.key, undefined, agreed, false);
-      return false;
-    }
-    const next = dirty ? merge(r.kind, base?.data ?? null, mine, theirs) : theirs;
-    const still = dirty && !same(next, theirs);
-    // Settings: the shared ones go into this device's own.
-    const local =
-      r.kind === 'settings' ? (next == null ? undefined : { ...(whole as object), ...(next as object) }) : next;
-    await db.putSyncedRecord(r.kind, r.key, local, agreed, still);
-    return !same(next, mine);
-  }
-
-  /** Connected, with nothing of this device's waiting to reach the account (records held back aside). */
+  /** Connected, with nothing of this device's waiting to reach the account (records it has no room for aside). */
   async drained(): Promise<boolean> {
     if (!this.ready || this.inflight) return false;
-    const ids = await db.getOutbox();
-    return ids.every((id) => id in this.held || this.full.has(id));
+    return Object.keys(await db.getPending()).every((id) => this.full.has(id));
+  }
+
+  /** Ask the account for everything changed since this device last heard (or, `first`, say who's here). */
+  private hello(first = false): void {
+    this.send({
+      t: 'hello',
+      since: this.rev,
+      ...(first
+        ? { device: this.session!.device, visible: this.visible, endpoint: (this.lastEndpoint = this.hooks.endpoint()) }
+        : {}),
+    });
+  }
+
+  /**
+   * Pull to refresh: connect (or check the connection), catch up with the account and send
+   * what's waiting. True once caught up, false if the account can't be reached in time.
+   */
+  async syncNow(wait = 8000): Promise<boolean> {
+    if (!this.session) return false;
+    const caught = new Promise<void>((r) => this.caughtUp.push(r));
+    if (this.ready) {
+      this.hello();
+      this.probe();
+    } else if (this.leader) this.reconnectNow();
+    else this.claim(true);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const ok = await Promise.race([
+      caught.then(() => true),
+      new Promise<boolean>((r) => (timer = setTimeout(() => r(false), wait))),
+    ]);
+    clearTimeout(timer);
+    return ok;
   }
 
   /** Something was saved here: send it as soon as the connection is ready. */
@@ -480,34 +399,25 @@ export class Sync {
 
   private async sendOutbox(): Promise<void> {
     if (!this.ready || this.inflight || this.ws?.readyState !== 1) return;
-    // Records the account has in a form this version can't read wait until it can.
-    const ids = (await db.getOutbox()).filter((id) => !(id in this.held) && !this.full.has(id));
+    const pending = Object.entries(await db.getPending()).filter(([id]) => !this.full.has(id));
     const bulk = await db.getMeta<number>('bulk');
-    if (!ids.length) {
+    if (!pending.length) {
       if (bulk) await db.deleteMeta('bulk');
       return;
     }
-    const sent = new Map<string, unknown>();
+    const sent: Record<string, Paths> = {};
     const recs: object[] = [];
     let bytes = 0;
-    // After a put the account refused, one record at a time, so only the bad one is dropped.
-    for (const id of ids.slice(0, this.solo ? 1 : BATCH)) {
-      const [kind, key] = split(id);
-      const data = shared(kind, await db.getRecord(kind, key));
-      const base = (await db.getSynced(id))?.rev ?? 0;
-      // A record made and deleted here before it ever reached the account: nothing to send.
-      if (data == null && !base) {
-        await db.putSyncedRecord(kind, key, undefined, { rev: 0, data: null }, false);
-        continue;
-      }
-      bytes += JSON.stringify(data).length;
+    for (const [id, paths] of pending.slice(0, this.solo ? 1 : BATCH)) {
+      bytes += JSON.stringify(paths).length;
       if (recs.length && bytes > BATCH_BYTES) break;
-      sent.set(id, data);
-      recs.push({ kind, key, base, data });
+      const [kind, key] = splitId(id);
+      sent[id] = paths;
+      recs.push({ kind, key, paths });
     }
-    if (!recs.length) return;
     this.inflight = { id: ++this.putId, sent };
-    // A replacement of everything made on purpose, within the last day: the account lets it through.
+    // Everything replaced on purpose (Erase everything, Import) within the last day: the account
+    // lets that many deletions through.
     const meant = !!bulk && Date.now() - bulk < 86_400_000;
     if (!this.send({ t: 'put', id: this.putId, recs, ...(meant ? { bulk: true } : {}) })) this.inflight = null;
   }

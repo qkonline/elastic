@@ -1,18 +1,20 @@
 // Two devices signed in to one account, each with its own IndexedDB and its own copy of the
 // app, syncing through a stand-in for the account's Durable Object (worker/src/account.ts) that
-// speaks the same protocol over a fake WebSocket.
+// speaks the same protocol, and merges with the same code, over a fake WebSocket.
 
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fromPaths, Hlc, type Kind, merge, newer, type Paths, toPaths } from '../../shared/lww';
 import type { Planner } from './planner.svelte';
 
 interface Rec {
   kind: string;
   key: string;
   rev: number;
-  data: unknown;
+  paths: Paths;
 }
 
+/** The account's Durable Object, as far as syncing goes: it merges with the same code (shared/lww.ts). */
 class FakeAccount {
   records = new Map<string, Rec>();
   rev = 0;
@@ -28,30 +30,27 @@ class FakeAccount {
       ws.deliver(JSON.stringify({ t: 'changes', recs, rev: this.rev, done: true }));
     }
     if (m.t === 'put') {
-      const ok: object[] = [];
-      const conflicts: Rec[] = [];
       const changed: Rec[] = [];
       for (const c of m.recs) {
         const id = `${c.kind}:${c.key}`;
-        const cur = this.records.get(id);
-        if ((cur?.rev ?? 0) !== c.base) {
-          conflicts.push(cur ?? { kind: c.kind, key: c.key, rev: 0, data: null });
-          continue;
-        }
-        const rec = { kind: c.kind, key: c.key, rev: ++this.rev, data: structuredClone(c.data) };
+        const cur = this.records.get(id)?.paths ?? {};
+        const news = newer(cur, c.paths);
+        if (!Object.keys(news).length) continue;
+        const rec = { kind: c.kind, key: c.key, rev: ++this.rev, paths: merge(cur, c.paths) };
         this.records.set(id, rec);
-        ok.push({ kind: c.kind, key: c.key, rev: rec.rev });
         changed.push(rec);
       }
-      ws.deliver(JSON.stringify({ t: 'ack', id: m.id, ok, conflicts }));
+      ws.deliver(JSON.stringify({ t: 'ack', id: m.id }));
       if (changed.length)
         for (const other of this.sockets)
           if (other !== ws) other.deliver(JSON.stringify({ t: 'changes', recs: changed, rev: this.rev }));
     }
   }
 
+  /** A record as the account has it (null: none, or deleted). */
   data(kind: string, key: string): any {
-    return this.records.get(`${kind}:${key}`)?.data;
+    const r = this.records.get(`${kind}:${key}`);
+    return r ? fromPaths(kind as Kind, key, r.paths) : null;
   }
 }
 
@@ -99,7 +98,7 @@ async function device(opts: { fresh?: boolean } = {}): Promise<Device> {
   const { Planner } = await import('./planner.svelte');
   const session = { token: 't', user: { id: 'u', email: null }, device: `d${devices.length}` };
   await db.putMeta('account', session);
-  if (opts.fresh) await db.markAll();
+  if (opts.fresh) await db.markAll(new Hlc('setup').now());
   const p = new Planner();
   await p.init();
   const d = { p, db };
@@ -270,8 +269,9 @@ describe('sync', () => {
     expect(server.data('day', TODAY).items).toHaveLength(1);
     await p.joinAccount('both');
     await settle();
-    expect(titles(p)).toEqual(['From the phone', 'From the laptop']);
-    expect(titles(a.p)).toEqual(['From the phone', 'From the laptop']);
+    // Both plans, the same on both devices.
+    expect([...titles(p)].sort()).toEqual(['From the laptop', 'From the phone']);
+    expect(titles(a.p)).toEqual(titles(p));
   });
 
   it("can take the account's plan instead", async () => {
@@ -325,7 +325,7 @@ describe('sync', () => {
       kind: 'settings',
       key: 'main',
       rev: 1,
-      data: {
+      paths: toPaths('settings', {
         clock24: false,
         showTimes: 'started',
         fixedLead: 5,
@@ -335,7 +335,7 @@ describe('sync', () => {
         flexStart: false,
         reviewDay: 0,
         reviewAt: 1080,
-      },
+      }),
     });
     server.rev = 1;
     const a = await device();
@@ -348,11 +348,11 @@ describe('sync', () => {
     add(a.p, 'Started');
     await settle();
     const id = a.p.day.items[0].id;
-    // Another device paused it: the account's version is already in storage here...
-    const theirs = await a.db.getDay(TODAY);
-    await a.db.putDay({ ...theirs!, items: theirs!.items.map((i) => ({ ...i, note: 'paused there' })) });
-    // ...when this one changes the day, not saved yet, and the change is announced.
+    // This device changes the day, not saved yet, when another device's change to it comes in.
     add(a.p, 'Added here');
+    await a.db.applyRemote([
+      { kind: 'day', key: TODAY, patch: { [`i.${id}.f.note`]: ['paused there', new Hlc('other').now()] } },
+    ]);
     await (a.p as unknown as { onMessage(m: object): Promise<void> }).onMessage({ t: 'days', keys: [TODAY] });
     expect(titles(a.p)).toEqual(['Started', 'Added here']);
     expect(a.p.day.items.find((i) => i.id === id)?.note).toBe('paused there');
@@ -367,7 +367,7 @@ describe('sync', () => {
     add(a.p, 'Keep me');
     await a.p.setRepeat(a.p.day.items[0].id, 'Every day');
     await settle();
-    expect(server.records.get(`day:${TODAY}`)?.data).toBeTruthy();
+    expect(server.data('day', TODAY)).toBeTruthy();
     // Still syncing, a passkey sign-in to the same account: asked which plan to keep, the account's.
     vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ records: 3 }), { status: 200 }));
     await (a.p as unknown as { signedIn(r: object): Promise<void> }).signedIn({
@@ -379,8 +379,10 @@ describe('sync', () => {
     await settle();
     await a.p.joinAccount('account');
     await settle();
-    expect(server.records.get(`day:${TODAY}`)?.data).toBeTruthy();
-    expect([...server.records.values()].filter((r) => r.kind === 'series' && r.data)).toHaveLength(1);
+    expect(server.data('day', TODAY)).toBeTruthy();
+    expect(
+      [...server.records.values()].filter((r) => r.kind === 'series' && server.data('series', r.key)),
+    ).toHaveLength(1);
     // And this device has the account's plan again.
     await settle();
     expect(titles(a.p)).toEqual(['Keep me']);
@@ -400,41 +402,30 @@ describe('sync', () => {
     expect(titles(a.p)).toEqual(['Mine']);
   });
 
-  it("never takes a record it can't read as a deletion, and asks for it again later", async () => {
+  it('keeps a day whole when a newer version sends paths this one has never heard of', async () => {
     const a = await device({ fresh: true });
     add(a.p, 'Mine');
     await settle();
-    const rev = server.records.get(`day:${TODAY}`)!.rev;
-    // A newer version (or damage) leaves the day in a form this one can't read.
-    server.records.set(`day:${TODAY}`, {
-      kind: 'day',
-      key: TODAY,
-      rev: rev + 1,
-      data: { key: TODAY, items: 'new form' },
-    });
-    server.rev = rev + 1;
-    for (const ws of server.sockets)
-      ws.deliver(JSON.stringify({ t: 'changes', recs: [server.records.get(`day:${TODAY}`)], rev: server.rev }));
+    const rev = ++server.rev;
+    const rec = { kind: 'day', key: TODAY, rev, paths: { 'x.future': [{ any: 'thing' }, new Hlc('new').now()] } };
+    for (const ws of server.sockets) ws.deliver(JSON.stringify({ t: 'changes', recs: [rec], rev }));
     await settle();
     expect(titles(a.p)).toEqual(['Mine']);
-    expect(await a.db.getDay(TODAY)).toBeTruthy();
-    // An edit here waits rather than overwriting the account's copy.
     add(a.p, 'Later');
     await settle();
-    expect(server.data('day', TODAY)).toEqual({ key: TODAY, items: 'new form' });
-    expect(await a.db.getMeta('held')).toEqual({ [`day:${TODAY}`]: rev + 1 });
-    // Updated (here: the account's copy readable after all), it asks from before that record.
-    const rec = server.records.get(`day:${TODAY}`)!;
-    rec.data = {
-      ...(server.data('day', TODAY) as object),
-      items: [{ id: 'n1', title: 'From the new version', min: 30 }],
-    };
-    const s = (a.p as unknown as { sync: { stop(): void; start(x: unknown): Promise<void> } }).sync;
-    s.stop();
-    await s.start(a.p.session);
+    expect(server.data('day', TODAY).items.map((i: { title: string }) => i.title)).toEqual(['Mine', 'Later']);
+  });
+
+  it('a device clearing or replacing its own copy sends nothing', async () => {
+    const a = await device({ fresh: true });
+    add(a.p, 'Keep me');
     await settle();
-    expect(titles(a.p)).toContain('From the new version');
-    expect(await a.db.getMeta('held')).toEqual({});
+    const before = server.rev;
+    await a.db.replaceAll({ days: [], series: [], settings: null });
+    await (a.p as unknown as { sync: { kick(): void } }).sync.kick();
+    await settle();
+    expect(server.rev).toBe(before);
+    expect(server.data('day', TODAY).items.map((i: { title: string }) => i.title)).toEqual(['Keep me']);
   });
 
   it('brings goals and reviews to the other device', async () => {
@@ -455,6 +446,137 @@ describe('sync', () => {
     a.p.setSettings({ reviewDay: 5 });
     await settle();
     expect(b.p.settings.reviewDay).toBe(5);
+  });
+
+  it('keeps a tick on one device and a rename on another, of the same task at once', async () => {
+    const a = await device({ fresh: true });
+    add(a.p, 'Write');
+    await settle();
+    const b = await device();
+    const id = a.p.day.items[0].id;
+    server.held = [];
+    a.p.edit(id, { title: 'Write the draft' });
+    b.p.edit(id, { note: 'from the laptop' });
+    b.p.startDay();
+    b.p.startItem(id);
+    await settle();
+    const held = server.held;
+    server.held = null;
+    held.forEach((go) => go());
+    await settle();
+    for (const d of [a, b]) {
+      const it = d.p.day.items.find((i) => i.id === id)!;
+      expect([it.title, it.note, it.status]).toEqual(['Write the draft', 'from the laptop', 'running']);
+    }
+  });
+
+  it("keeps another device's work on a day this one only built from repeating tasks", async () => {
+    const a = await device({ fresh: true });
+    add(a.p, 'Stretch');
+    await a.p.setRepeat(a.p.day.items[0].id, 'Every day');
+    await settle();
+    const before = new Set(server.sockets);
+    const b = await device();
+    // The phone goes offline...
+    for (const ws of [...server.sockets].filter((w) => !before.has(w))) {
+      ws.close();
+      ws.onclose?.({ code: 1006 });
+    }
+    // ...the laptop works on tomorrow's copy...
+    await a.p.switchDay('2026-10-18');
+    a.p.edit(a.p.day.items[0].id, { note: 'done early' });
+    await settle();
+    // ...and the phone, which only ever built tomorrow from the repeat, adds to it.
+    await b.p.switchDay('2026-10-18');
+    expect(b.p.day.items[0].note).toBeFalsy();
+    add(b.p, 'Phone task');
+    await new Promise((r) => setTimeout(r, 1100)); // the phone's first retry
+    await settle();
+    for (const d of [a, b]) {
+      expect(titles(d.p)).toEqual(['Stretch', 'Phone task']);
+      expect(d.p.day.items[0].note).toBe('done early');
+    }
+  });
+
+  it('settles: two devices following the now line stop changing the day', async () => {
+    const a = await device({ fresh: true });
+    add(a.p, 'Write');
+    add(a.p, 'Read');
+    a.p.startDay();
+    await settle();
+    await device();
+    await settle();
+    const rev = server.rev;
+    vi.setSystemTime(new Date(2026, 9, 17, 10, 30));
+    for (const d of devices) (d.p as unknown as { followNow(): void }).followNow?.();
+    await settle();
+    const after = server.rev;
+    for (const d of devices) (d.p as unknown as { followNow(): void }).followNow?.();
+    await settle();
+    expect(server.rev - after).toBe(0);
+    expect(after - rev).toBeLessThan(5);
+  });
+
+  it('sends what an older version still had to send, after updating', async () => {
+    // A device on the version before paths (IndexedDB v3), with a day changed and not yet sent.
+    vi.resetModules();
+    globalThis.indexedDB = new IDBFactory();
+    await new Promise<void>((res) => {
+      const r = indexedDB.open('elastic-day', 3);
+      r.onupgradeneeded = () => {
+        const d = r.result;
+        d.createObjectStore('days', { keyPath: 'key' });
+        d.createObjectStore('series', { keyPath: 'id' });
+        d.createObjectStore('meta');
+        d.createObjectStore('synced');
+        d.createObjectStore('outbox');
+        d.createObjectStore('goals', { keyPath: 'id' });
+        d.createObjectStore('reviews', { keyPath: 'id' });
+      };
+      r.onsuccess = () => {
+        const d = r.result;
+        const tx = d.transaction(['days', 'meta', 'outbox'], 'readwrite');
+        tx.objectStore('days').put({
+          key: TODAY,
+          dayStart: 540,
+          wrap: 1020,
+          dayStarted: null,
+          items: [
+            {
+              id: 'old1',
+              title: 'Made before the update',
+              min: 30,
+              kind: 'task',
+              hue: 'cyan',
+              fixedAt: null,
+              status: 'todo',
+              startedAt: null,
+              endedAt: null,
+              pausedAt: null,
+              pausedFor: 0,
+              repeat: 'Once',
+              subtasks: [],
+            },
+          ],
+        });
+        tx.objectStore('meta').put({ token: 't', user: { id: 'u', email: null }, device: 'old' }, 'account');
+        tx.objectStore('meta').put({ onboarded: true }, 'settings');
+        tx.objectStore('outbox').put(true, `day:${TODAY}`);
+        tx.oncomplete = () => {
+          d.close();
+          res();
+        };
+      };
+    });
+    const db = await import('./db');
+    const { Planner } = await import('./planner.svelte');
+    const p = new Planner();
+    await p.init();
+    devices.push({ p, db });
+    await settle();
+    expect(titles(p)).toEqual(['Made before the update']);
+    expect(server.data('day', TODAY).items.map((i: { title: string }) => i.title)).toEqual(['Made before the update']);
+    expect(await db.getMeta('unsent')).toBeUndefined();
   });
 
   it('sends changes made while offline once it reconnects', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alertGroups, changes, cleanEmail, cleanName, deviceLabel, MAX_RECORD } from './checks';
+import { alertGroups, cleanEmail, cleanName, deviceLabel, MAX_RECORD, patches } from './checks';
 
 describe('cleanEmail', () => {
   it('tidies an address and refuses what is not one', () => {
@@ -62,21 +62,20 @@ describe('alertGroups', () => {
 });
 
 describe('changes', () => {
-  it('takes days, series and settings, with data as JSON or null to delete', () => {
-    expect(
-      changes([
-        { kind: 'day', key: '2026-10-18', base: 0, data: { items: [] } },
-        { kind: 'series', key: 'abc', base: 3, data: null },
-      ]),
-    ).toEqual([
-      { kind: 'day', key: '2026-10-18', base: 0, data: '{"items":[]}' },
-      { kind: 'series', key: 'abc', base: 3, data: null },
-    ]);
+  it('takes changes to days, series and settings as paths with clocks', () => {
+    const c = '00000000a000dev';
+    const recs = [
+      { kind: 'day', key: '2026-10-18', paths: { _: [true, c], 'i.a.f.title': ['Write', c] } },
+      { kind: 'series', key: 'abc', paths: { _: [null, c] } },
+    ];
+    expect(patches(recs)).toEqual(recs);
   });
-  it('refuses unknown kinds, bad versions and records that are too big', () => {
-    expect(changes([{ kind: 'user', key: 'x', base: 0, data: {} }])).toBeNull();
-    expect(changes([{ kind: 'day', key: 'x', base: -1, data: {} }])).toBeNull();
-    expect(changes([{ kind: 'day', key: 'x', base: 0, data: [1] }])).toBeNull();
-    expect(changes([{ kind: 'day', key: 'x', base: 0, data: { s: 'x'.repeat(MAX_RECORD) } }])).toBeNull();
+  it('refuses unknown kinds, paths without a clock and changes that are too big', () => {
+    const c = '00000000a000dev';
+    expect(patches([{ kind: 'user', key: 'x', paths: {} }])).toBeNull();
+    expect(patches([{ kind: 'day', key: 'x', paths: { _: [true] } }])).toBeNull();
+    expect(patches([{ kind: 'day', key: 'x', paths: { _: [true, ''] } }])).toBeNull();
+    expect(patches([{ kind: 'day', key: 'x', paths: [1] }])).toBeNull();
+    expect(patches([{ kind: 'day', key: 'x', paths: { 'f.s': ['x'.repeat(MAX_RECORD), c] } }])).toBeNull();
   });
 });

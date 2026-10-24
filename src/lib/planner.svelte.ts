@@ -6,13 +6,13 @@ import * as api from './account';
 import { arrival, MOVED_TO, moveUrl, reachable } from './move';
 import { API, ApiError, cancelled, complete, passkeysAvailable, type Session, type SignedIn } from './account';
 import { chime, notifyHidden, requestNotifications, unlockAudio, unlockOnFirstGesture, vibrate } from './alert';
-import { download, parseBackup } from './backup';
-import { mergeDay } from './merge';
+import { download, normalizeDay, parseBackup } from './backup';
+import { diff, fromPaths, Hlc, type Kind as RecordKind, merge, type Paths, stamp, toPaths } from '../../shared/lww';
 import { Boardo, type BoardoCard, type BoardoOp, cardsFor } from './boardo.svelte';
 import * as db from './db';
 import { hasNotifications, needsInstallForNotifications } from './platform';
 import { cancelPush, preparePush, pushEndpoint, schedulePush, unsubscribePush } from './push';
-import { addQuarters, goalProgress, quarterOf, quarterRange, snapshot, suggestStatus } from './goals';
+import { addQuarters, goalProgress, quarterOf, snapshot, suggestStatus } from './goals';
 import { habitMet, isHabit, progressText } from './habits';
 import { type DueReview, dueQuarterly, dueWeekly, reviewNumbers, weekId, weekRange } from './review';
 import { type HeadsUp, headsUps, type Note, pushPlan } from './reminders';
@@ -48,7 +48,7 @@ import { SHARED_SETTINGS, Sync, type SyncStatus } from './sync';
 import { activeDayKey } from './today';
 import { newBuildOut, reloadToUpdate } from './update';
 import type { Day, Goal, Habit, Hue, Item, Kind, Review, Series, Settings } from './types';
-import { DEFAULT_SETTINGS, isHue, untimed } from './types';
+import { DEFAULT_SETTINGS, isHue, sharedSettings, untimed } from './types';
 
 /** The full-screen moment after Start my day or End my day. */
 export type Celebration =
@@ -327,8 +327,10 @@ export class Planner {
 
   private stored = new Set<string>();
   private pending = new Set<string>();
-  /** Days with changes not saved yet, as they were before them (what storage holds). */
-  private unsaved = new Map<string, Day>();
+  /** What was done to days not saved yet (saves wait a moment), by key, as changes with clocks. */
+  private unsent = new Map<string, Paths>();
+  /** The clock changes made here are stamped with (shared/lww.ts). */
+  private hlc = new Hlc(A.uid());
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private seriesTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private alerted = new Set<string>();
@@ -355,6 +357,8 @@ export class Planner {
     signedOut: () => void this.forgetSession('You were signed out on this device. Your plan is still here.'),
     alerts: () => pushPlan(this.alerts(), Date.now()),
     endpoint: () => (this.settings.notify ? pushEndpoint() : null),
+    clock: () => this.hlc.now(),
+    see: (c) => this.hlc.see(c),
   });
 
   // ---------- lifecycle ----------
@@ -489,18 +493,23 @@ export class Planner {
   }
 
   /**
-   * Pull to refresh: the plan again from this device's storage, the connection to the account
-   * checked (or made), Boardo's cards fetched and a new build looked for. No page reload. Not
-   * while saving is failing: re-reading would drop what isn't saved.
+   * Pull to refresh: save, then (signed in) catch up with the account and send what's waiting,
+   * fetch Boardo's cards and look for a new build, and say how it went. Signed out, the plan is
+   * read again from this device. Nothing reloads the page (a reload can hang on a bad network).
    */
   async refresh(): Promise<void> {
     if (!(await this.flush())) return;
-    await this.reloadAll();
-    this.sync.refresh();
-    this.boardo.nudge();
     this.settleUntil = Date.now() + 60_000;
-    await this.checkForUpdate(true);
-    this.say('Refreshed');
+    void this.checkForUpdate(true);
+    if (!this.session) {
+      await this.reloadAll();
+      return this.say('Refreshed');
+    }
+    this.boardo.nudge();
+    if (await this.sync.syncNow()) return this.say('Up to date');
+    const text = "Can't reach your account right now. Your changes are saved here and go when it's back.";
+    this.nudge = { text, at: Date.now() };
+    this.say(text);
   }
 
   /** Save and reload for a newer build, unless a sheet, drag, question or celebration is up. */
@@ -730,7 +739,15 @@ export class Planner {
 
   private put(day: Day): void {
     day = this.cardOps(this.days[day.key], day);
-    if (!this.pending.has(day.key) && this.days[day.key]) this.unsaved.set(day.key, this.days[day.key]);
+    // What was done, as changes: against the day as it was, stamped with now. Changes come from
+    // here, never from storage, so nothing the app does to storage by itself is ever sent. A day
+    // built from repeating tasks and never saved goes whole, but as built it counts as older
+    // than anything done anywhere (ZERO): another device's edits to that day win over it, and
+    // only what was done here is new.
+    const was = this.days[day.key];
+    let change = stamp(diff('day', was ?? null, day), this.hlc.now());
+    if (!this.stored.has(day.key)) change = merge(toPaths('day', was ?? null), change);
+    this.unsent.set(day.key, merge(this.unsent.get(day.key) ?? {}, change));
     this.days = { ...this.days, [day.key]: day };
     this.stored.add(day.key);
     this.pending.add(day.key);
@@ -821,15 +838,25 @@ export class Planner {
     if (!this.pending.size) return true;
     const keys = [...this.pending];
     this.pending.clear();
-    const days = keys.map((k) => this.days[k]).filter(Boolean);
+    const taken = new Map(keys.map((k) => [k, this.unsent.get(k) ?? {}]));
+    for (const k of keys) this.unsent.delete(k);
     try {
-      await db.putDays(days);
+      // Saved with what was done to them, and (signed in) that queued to go to the account.
+      await db.commit(
+        keys
+          .filter((k) => Object.keys(taken.get(k)!).length)
+          .map((k) => ({ kind: 'day', key: k, patch: taken.get(k)! })),
+        !!this.session,
+      );
     } catch (e) {
-      keys.forEach((k) => this.pending.add(k));
+      for (const k of keys) {
+        this.unsent.set(k, merge(taken.get(k)!, this.unsent.get(k) ?? {}));
+        this.pending.add(k);
+      }
       this.saveFailed(e);
       return false;
     }
-    for (const k of keys) if (!this.pending.has(k)) this.unsaved.delete(k);
+    if (this.session) this.sync.kick();
     this.saveError = null;
     this.saveTries = 0;
     this.post({ t: 'days', keys });
@@ -846,7 +873,18 @@ export class Planner {
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = null;
     this.pending.clear();
-    this.unsaved.clear();
+    this.unsent.clear();
+  }
+
+  /**
+   * A repeating series, goal, review or the shared settings changed from `prev` to `next` (null:
+   * none): saved with what changed, and (signed in) that queued to go to the account.
+   */
+  private async saveRecord(kind: RecordKind, key: string, prev: unknown, next: unknown): Promise<void> {
+    const patch = stamp(diff(kind, prev, next), this.hlc.now());
+    if (!Object.keys(patch).length) return;
+    await db.commit([{ kind, key, patch }], !!this.session);
+    if (this.session) this.sync.kick();
   }
 
   private saveFailed(e: unknown): void {
@@ -893,16 +931,16 @@ export class Planner {
     }
     for (const k of m.keys) {
       if (!(k in this.days)) continue;
-      const d = await db.getDay(k);
-      // One key at a time, after the await. A change made here and not saved yet (they wait a
-      // moment) is merged with it, as sync merges: kept, without losing what came in, which the
-      // save would otherwise write over (a pause from another device, say).
-      if (this.pending.has(k)) {
-        if (!d) continue;
-        this.days = { ...this.days, [k]: mergeDay(this.unsaved.get(k) ?? null, this.days[k], d) };
-        this.unsaved.set(k, d);
+      // One key at a time, after the await. What was done here and not saved yet (saves wait a
+      // moment) goes on top of what's stored, path by path, the later of each winning: neither
+      // is lost (shared/lww.ts).
+      if (this.unsent.has(k)) {
+        const replica = merge(await db.getReplica('day', k), this.unsent.get(k) ?? {});
+        const d = normalizeDay(fromPaths('day', k, replica));
+        if (d) this.days = { ...this.days, [k]: d };
         continue;
       }
+      const d = await db.getDay(k);
       if (d) {
         this.days = { ...this.days, [k]: d };
         this.stored.add(k);
@@ -1296,13 +1334,6 @@ export class Planner {
     this.update((d) => A.setProgress(d, id, value, this.n), this.habitSaid(id, 0, value));
   }
 
-  /** Change a habit's settings; later days follow, like any repeating task. */
-  editHabit(id: string, patch: Partial<Habit>, repeat?: string): void {
-    const it = this.item(id);
-    if (!it || !isHabit(it)) return;
-    this.edit(id, { habit: { ...it.habit, ...patch }, ...(repeat ? { repeat } : {}) });
-  }
-
   private habitSaid(id: string, by: number, value?: number): string {
     const it = this.item(id);
     if (!it || !isHabit(it)) return '';
@@ -1631,7 +1662,7 @@ export class Planner {
     const before = addDays(key, -1);
     const ended = { ...s, until: s.until != null && s.until < before ? s.until : before };
     this.series = this.series.map((x) => (x.id === s.id ? ended : x));
-    await db.putSeries(ended);
+    await this.saveRecord('series', s.id, s, ended);
     this.post({ t: 'series' });
     for (const d of await this.laterDays(key)) {
       const without = withoutSeries(d, s.id);
@@ -1656,13 +1687,6 @@ export class Planner {
     if (add.length > 1) this.say(`Added ${add.length} subtasks`);
   }
 
-  removeSub(id: string, sid: string): void {
-    const it = this.item(id);
-    if (!it) return;
-    this.edit(id, { subtasks: it.subtasks.filter((y) => y.id !== sid) });
-    if (it.seriesId) this.queueSeriesSync(it.seriesId, this.viewKey);
-  }
-
   async setRepeat(id: string, repeat: string): Promise<void> {
     if (this.locked) return;
     const it = this.item(id);
@@ -1676,7 +1700,7 @@ export class Planner {
     const s = seriesFromItem({ ...it, repeat }, key, A.uid(), orderAt(this.series, this.day.items, id));
     this.series = [...this.series, s];
     this.update((d) => A.patchItem(d, id, { repeat, seriesId: s.id }));
-    await db.putSeries(s);
+    await this.saveRecord('series', s.id, null, s);
     this.post({ t: 'series' });
     await this.propagate(s, null, s.id, key);
   }
@@ -1694,7 +1718,7 @@ export class Planner {
     if (!s) return;
     const ended = { ...s, until: key };
     this.series = this.series.map((x) => (x.id === sid ? ended : x));
-    await db.putSeries(ended);
+    await this.saveRecord('series', sid, s, ended);
     this.post({ t: 'series' });
     await this.propagate(ended, s, sid, key);
   }
@@ -1724,7 +1748,7 @@ export class Planner {
     if (!it || !old) return;
     const s: Series = { ...seriesFromItem(it, old.from, sid, old.order), until: old.until };
     this.series = this.series.map((x) => (x.id === sid ? s : x));
-    await db.putSeries(s);
+    await this.saveRecord('series', sid, old, s);
     this.post({ t: 'series' });
     await this.propagate(s, old, sid, key);
   }
@@ -1792,7 +1816,7 @@ export class Planner {
     if (!it || !s) return;
     const next = { ...s, order: orderNextTo(this.series, s.id, q.anchor, q.dir === 'up' ? 'before' : 'after') };
     this.series = this.series.map((x) => (x.id === s.id ? next : x));
-    await db.putSeries(next);
+    await this.saveRecord('series', s.id, s, next);
     this.post({ t: 'series' });
     for (const d of await this.laterDays(this.viewKey)) {
       const placed = placeBySeries(d, s.id, this.series);
@@ -1866,6 +1890,7 @@ export class Planner {
   // ---------- settings & data ----------
 
   setSettings(patch: Partial<Settings>): void {
+    const prev = this.settings;
     this.settings = { ...this.settings, ...patch };
     if ('defStart' in patch || 'defWrap' in patch) this.rebuildUnstored();
     if ('themePref' in patch) {
@@ -1875,8 +1900,10 @@ export class Planner {
         /* storage blocked */
       }
     }
+    // This device's own settings stored as they are; the shared ones also as a change to send.
     void db
       .putSettings(this.settings)
+      .then(() => this.saveRecord('settings', 'main', sharedSettings(prev), sharedSettings(this.settings)))
       .then(() => this.post({ t: 'settings' }))
       .catch((e) => this.saveFailed(e));
   }
@@ -1916,13 +1943,18 @@ export class Planner {
       return;
     }
     this.dropPending();
-    await db.replaceAll({
-      days: res.days,
-      series: res.series,
-      settings: res.settings,
-      goals: res.goals,
-      reviews: res.reviews,
-    });
+    await db.replaceAll(
+      {
+        days: res.days,
+        series: res.series,
+        settings: res.settings,
+        goals: res.goals,
+        reviews: res.reviews,
+      },
+      // Signed in, the account follows: deliberately, as of now.
+      this.session ? this.hlc.now() : undefined,
+    );
+    this.sync.kick();
     try {
       localStorage.setItem(THEME_KEY, res.settings.themePref);
     } catch {
@@ -1936,7 +1968,9 @@ export class Planner {
   async eraseAll(): Promise<void> {
     this.confirm = null;
     this.dropPending();
-    await db.replaceAll({ days: [], series: [], settings: null });
+    // Signed in, the account's copy goes too: deliberately, as of now.
+    await db.replaceAll({ days: [], series: [], settings: null }, this.session ? this.hlc.now() : undefined);
+    this.sync.kick();
     try {
       localStorage.removeItem(THEME_KEY);
     } catch {
@@ -1956,8 +1990,9 @@ export class Planner {
   quarterOf = quarterOf;
 
   private async saveGoal(g: Goal): Promise<void> {
+    const prev = this.goals.find((x) => x.id === g.id) ?? null;
     this.goals = [...this.goals.filter((x) => x.id !== g.id), g];
-    await db.putGoal(g);
+    await this.saveRecord('goal', g.id, prev, g);
     this.post({ t: 'goals' });
   }
 
@@ -1983,7 +2018,7 @@ export class Planner {
     this.confirm = null;
     const g = this.goals.find((x) => x.id === id);
     this.goals = this.goals.filter((x) => x.id !== id);
-    await db.deleteGoal(id);
+    await this.saveRecord('goal', id, g ?? null, null);
     this.post({ t: 'goals' });
     if (g) this.say(`Goal deleted: ${g.title}`);
   }
@@ -2068,13 +2103,11 @@ export class Planner {
   }
 
   private async saveReview(r: Review): Promise<void> {
+    const prev = this.reviews.find((x) => x.id === r.id) ?? null;
     this.reviews = [...this.reviews.filter((x) => x.id !== r.id), r];
-    await db.putReview(r);
+    await this.saveRecord('review', r.id, prev, r);
     this.post({ t: 'reviews' });
   }
-
-  /** A quarter's first and last day. */
-  quarterRange = quarterRange;
 
   // ---------- account ----------
 
@@ -2158,12 +2191,12 @@ export class Planner {
         this.joinAsk = true;
         return;
       }
-      await db.markAll();
+      await db.markAll(this.hlc.now());
     }
     await this.keepSession(session);
     // A new account takes everything here; it goes up once it has a name (the next step).
     if (r.fresh) {
-      await db.markAll();
+      await db.markAll(this.hlc.now());
       this.offerPasskey = passkeysAvailable();
     }
     await this.sync.start(session);
@@ -2265,7 +2298,7 @@ export class Planner {
       await db.replaceAll({ days: [], series: [], settings: this.settings });
       await this.reloadAll();
       this.post({ t: 'all' });
-    } else await db.markAll();
+    } else await db.markAll(this.hlc.now());
     await this.keepSession(session);
     this.accountMsg = { err: false, t: 'Signed in. Your plan now syncs with your other devices.' };
     await this.sync.start(session);

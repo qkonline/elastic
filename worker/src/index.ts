@@ -11,7 +11,7 @@
 // sending its alerts to every device.
 
 import { DurableObject } from 'cloudflare:workers';
-import { Account } from './account';
+import { Account, PROTOCOL } from './account';
 import {
   accountInfo,
   type AuthEnv,
@@ -267,7 +267,15 @@ export default {
 async function connect(req: Request, env: Env): Promise<Response> {
   if (req.headers.get('upgrade') !== 'websocket') return new Response(null, { status: 426 });
   const [proto, token] = (req.headers.get('sec-websocket-protocol') ?? '').split(',').map((s) => s.trim());
-  const id = proto === 'elastic-day' ? await sessionUser(env, token) : null;
+  // An app from before 24 Oct 2026 syncs whole records: it's asked to try again later (it reads
+  // that as offline, not signed out) and takes the new build meanwhile.
+  if (proto === 'elastic-day') {
+    const [client, server] = Object.values(new WebSocketPair());
+    server.accept();
+    server.close(4426, 'Update the app');
+    return new Response(null, { status: 101, webSocket: client, headers: { 'sec-websocket-protocol': proto } });
+  }
+  const id = proto === PROTOCOL ? await sessionUser(env, token) : null;
   const account = id ? env.ACCOUNTS.get(env.ACCOUNTS.idFromName(id)) : null;
   // Only held back once email works, or it would have no way to be set up.
   if (id && account && (!mailOn(env) || (await canSync(env, id)))) return account.fetch(req);
@@ -276,7 +284,7 @@ async function connect(req: Request, env: Env): Promise<Response> {
   server.accept();
   server.send(JSON.stringify({ t: id ? 'setup' : 'signedout' }));
   server.addEventListener('close', () => server.close());
-  return new Response(null, { status: 101, webSocket: client, headers: { 'sec-websocket-protocol': 'elastic-day' } });
+  return new Response(null, { status: 101, webSocket: client, headers: { 'sec-websocket-protocol': PROTOCOL } });
 }
 
 async function timer(path: string, body: { endpoint?: unknown; at?: unknown }, env: Env): Promise<number> {
