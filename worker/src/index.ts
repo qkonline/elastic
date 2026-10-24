@@ -58,10 +58,22 @@ export interface Env extends VapidKeys, AuthEnv, BoardoEnv {
   ALLOWED_ORIGINS: string;
   /** Requests per network a minute on the routes anyone can call (absent in tests). */
   LIMITER?: RateLimit;
+  /** The app's files (absent in tests). */
+  ASSETS?: Fetcher;
 }
 
 /** Routes that need no sign-in, so each network may only call them so often. */
-const OPEN = new Set(['/schedule', '/cancel', '/auth/login/start', '/auth/register/start', '/auth/handoff']);
+const OPEN = new Set([
+  '/schedule',
+  '/cancel',
+  '/auth/login/start',
+  '/auth/register/start',
+  '/auth/handoff',
+  '/auth/email/send',
+  '/auth/email/verify',
+]);
+/** Pages that only ever served the WordPress site share its origin: no passkeys from there. */
+const NO_PASSKEYS = new Set(['https://kaiserkhan.com', 'https://www.kaiserkhan.com']);
 
 const MAX_BODY = 64 * 1024;
 
@@ -85,6 +97,10 @@ export default {
       });
 
     if (req.method === 'OPTIONS') return reply(allowed ? 204 : 403);
+    // An address on the app's host that isn't one of its files (an old /planner/ link, say): the app.
+    const path = new URL(req.url).pathname;
+    if (!origin && req.method === 'GET' && env.ASSETS && !/^\/(api\/|sync$|dev\/)/.test(path))
+      return Response.redirect(new URL('/', req.url).href, 302);
     if (!allowed) return reply(403);
     // On the app's own address (elastic.kaiserkhan.com) the API is under /api, and everything
     // else is the app's files (served before this runs). On workers.dev, which app versions from
@@ -102,6 +118,7 @@ export default {
     }
 
     let body: Record<string, unknown>;
+    if (Number(req.headers.get('content-length') ?? 0) > MAX_BODY) return reply(413);
     try {
       const text = await req.text();
       if (text.length > MAX_BODY) return reply(413);
@@ -128,6 +145,8 @@ export default {
         return id;
       };
 
+      if (pathname.startsWith('/auth/login/') || pathname.startsWith('/auth/register/'))
+        if (NO_PASSKEYS.has(origin)) throw new Refusal(403, 'Sign in at elastic.kaiserkhan.com.');
       switch (pathname) {
         case '/schedule':
         case '/cancel':
@@ -161,7 +180,13 @@ export default {
         case '/account/handoff':
           return reply(200, await handoffStart(env, await mustUser()));
         case '/auth/signout':
-          if (typeof token === 'string') await signOut(env, token);
+          if (typeof token === 'string') {
+            // The device stops getting this account's pushes (its id came with the sign-out).
+            const id = await user();
+            if (id && typeof body.device === 'string' && body.device.length <= 64)
+              await account(id).forget(body.device);
+            await signOut(env, token);
+          }
           return reply(204);
 
         case '/account': {
@@ -172,9 +197,10 @@ export default {
         }
         case '/account/delete': {
           const id = await mustUser();
-          await account(id).erase();
-          await boardoForget(env, id);
+          // Sign-ins go first, so nothing reaches the data meanwhile.
           await deleteUser(env, id);
+          await boardoForget(env, id);
+          await account(id).erase();
           return reply(204);
         }
         case '/sync/beacon': {
@@ -288,6 +314,11 @@ export class Timer extends DurableObject<Env> {
       await this.ctx.storage.setAlarm(Math.max(rest[0], Date.now()));
     } else await this.ctx.storage.deleteAll();
     if (!endpoint) return;
-    if ((await sendPush(endpoint, this.env)) === 'gone') await this.cancel();
+    // A push that fails isn't retried: the alarm would run again and skip the next booked time.
+    try {
+      if ((await sendPush(endpoint, this.env)) === 'gone') await this.cancel();
+    } catch (e) {
+      console.error('Push failed', e);
+    }
   }
 }

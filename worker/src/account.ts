@@ -48,6 +48,12 @@ export class Account extends DurableObject<VapidKeys> {
   constructor(ctx: DurableObjectState, env: VapidKeys) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
+    this.tables();
+    // Keep-alives are answered without waking the object; their time still counts (watching()).
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
+  }
+
+  private tables(): void {
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS records (kind TEXT NOT NULL, key TEXT NOT NULL, rev INTEGER NOT NULL, data TEXT,
         PRIMARY KEY (kind, key));
@@ -55,8 +61,6 @@ export class Account extends DurableObject<VapidKeys> {
       CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, endpoint TEXT, seen INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
     `);
-    // Keep-alives are answered without waking the object; their time still counts (watching()).
-    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
   }
 
   // ---------- connections ----------
@@ -143,7 +147,9 @@ export class Account extends DurableObject<VapidKeys> {
   private broadcast(recs: Rec[], except: WebSocket | null): void {
     const msg = JSON.stringify({ t: 'changes', recs, rev: this.rev() });
     for (const ws of this.ctx.getWebSockets()) {
-      if (ws === except) continue;
+      // Not before its hello: a device saves the rev of what it's sent as how far it has got, and
+      // this would take it past records its catch-up hasn't brought yet.
+      if (ws === except || !(ws.deserializeAttachment() as Attachment).device) continue;
       try {
         ws.send(msg);
       } catch {
@@ -197,7 +203,8 @@ export class Account extends DurableObject<VapidKeys> {
           continue;
         }
         if (!cur) {
-          count ??= this.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM records').one().n;
+          // Deletions are kept (as data: null) but don't count.
+          count ??= this.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM records WHERE data IS NOT NULL').one().n;
           if (count++ >= MAX_RECORDS) {
             full.push({ kind: c.kind, key: c.key });
             continue;
@@ -220,6 +227,18 @@ export class Account extends DurableObject<VapidKeys> {
   }
 
   // ---------- devices & alerts ----------
+
+  /** A device signed out: no more pushes for this account, and its connection closes. */
+  async forget(device: string): Promise<void> {
+    this.sql.exec('DELETE FROM devices WHERE id = ?', device);
+    for (const ws of this.ctx.getWebSockets())
+      if ((ws.deserializeAttachment() as Attachment).device === device)
+        try {
+          ws.close(1000, 'Signed out');
+        } catch {
+          /* already closed */
+        }
+  }
 
   private setDevice(id: string, endpoint: unknown): void {
     const now = Date.now();
@@ -342,5 +361,7 @@ export class Account extends DurableObject<VapidKeys> {
     for (const ws of this.ctx.getWebSockets()) ws.close(4001, 'Account deleted');
     await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
+    // This instance can still be asked something (a device a moment behind): empty, not broken.
+    this.tables();
   }
 }

@@ -375,22 +375,25 @@ function sixDigits(): string {
 }
 
 /**
- * Count one use of `key` in an hour-long window; false once it's over `max`. Rate limits for
- * sending codes, per address and per network.
+ * Count one use of `key` in a window (an hour unless said); false once it's over `max`. Rate
+ * limits for sending codes, per address and per network, and for trying them.
  */
-async function withinLimit(env: AuthEnv, key: string, max: number, now: number): Promise<boolean> {
+async function withinLimit(env: AuthEnv, key: string, max: number, now: number, window = 3_600_000): Promise<boolean> {
   // One statement, so requests at the same moment can't all read the same count.
   const row = await env.DB.prepare(
     `INSERT INTO limits (key, count, start) VALUES (?1, 1, ?2)
      ON CONFLICT (key) DO UPDATE SET
-       count = CASE WHEN ?2 - start > 3600000 THEN 1 ELSE count + 1 END,
-       start = CASE WHEN ?2 - start > 3600000 THEN ?2 ELSE start END
+       count = CASE WHEN ?2 - start > ?3 THEN 1 ELSE count + 1 END,
+       start = CASE WHEN ?2 - start > ?3 THEN ?2 ELSE start END
      RETURNING count`,
   )
-    .bind(key, now)
+    .bind(key, now, window)
     .first<{ count: number }>();
   return (row?.count ?? 1) <= max;
 }
+
+/** Tries at codes for one address in a day, whatever the network: guessing stays hopeless. */
+const TRIES_A_DAY = 30;
 
 /**
  * Email a code: to sign in, or make an account (`userId` null; the same for new and known
@@ -416,14 +419,18 @@ export async function emailSend(
   const now = Date.now();
   if (last && now - last.sent < CODE_GAP_MS)
     throw new Refusal(429, 'A code is on its way. Wait a minute before asking for another.');
-  if (!(await withinLimit(env, `email:${email}`, PER_EMAIL, now)) || !(await withinLimit(env, `ip:${ip}`, PER_IP, now)))
+  // The network first: one that's used up its codes mustn't use up an address's too.
+  if (!(await withinLimit(env, `ip:${ip}`, PER_IP, now)) || !(await withinLimit(env, `email:${email}`, PER_EMAIL, now)))
     throw new Refusal(429, 'Too many codes asked for. Try again in an hour.');
   const code = sixDigits();
-  await env.DB.prepare(
-    'INSERT OR REPLACE INTO email_codes (email, purpose, user_id, hash, expires, tries, sent) VALUES (?, ?, ?, ?, ?, 0, ?)',
-  )
-    .bind(email, purpose, userId ?? '', await sha256(`${email}|${code}`), now + CODE_MS, now)
-    .run();
+  await env.DB.batch([
+    env.DB.prepare(
+      'INSERT OR REPLACE INTO email_codes (email, purpose, user_id, hash, expires, tries, sent) VALUES (?, ?, ?, ?, ?, 0, ?)',
+    ).bind(email, purpose, userId ?? '', await sha256(`${email}|${code}`), now + CODE_MS, now),
+    // Old counts and codes nobody used go, so neither table grows for ever.
+    env.DB.prepare('DELETE FROM limits WHERE start < ?').bind(now - 2 * DAY_MS),
+    env.DB.prepare('DELETE FROM email_codes WHERE expires < ?').bind(now - DAY_MS),
+  ]);
   const p = 'font:16px/1.5 system-ui,sans-serif';
   await sendMail(env, {
     to: email,
@@ -449,6 +456,8 @@ export async function emailVerify(
   if (!email || code.length !== 6) throw wrong;
   const name = body.name === undefined ? undefined : cleanName(body.name);
   if (name === null) throw new Refusal(400, 'Enter your name.');
+  if (!(await withinLimit(env, `tries:${email}`, TRIES_A_DAY, Date.now(), DAY_MS)))
+    throw new Refusal(429, 'Too many tries for this email today. Try again tomorrow.');
   // Every try counts before the code is compared, in one statement, so tries at the same moment
   // can't get past the limit; the right code is then used up once (a second, concurrent use fails).
   const row = await env.DB.prepare(

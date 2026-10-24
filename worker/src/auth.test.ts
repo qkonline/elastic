@@ -17,7 +17,13 @@ function fakeD1() {
     all: async () => ({ results: db.prepare(query).all(...(args as never[])) }),
     run: async () => db.prepare(query).run(...(args as never[])),
   });
-  return { db, d1: { prepare: (q: string) => statement(q) } };
+  // A batch runs as one transaction in D1; here, one statement after another.
+  const batch = async (list: { run: () => Promise<unknown> }[]) => {
+    const out = [];
+    for (const st of list) out.push(await st.run());
+    return out;
+  };
+  return { db, d1: { prepare: (q: string) => statement(q), batch } };
 }
 
 let env: any;
@@ -52,6 +58,24 @@ describe('email codes', () => {
     );
     await Promise.allSettled(tries);
     await expect(emailVerify(env, { email: 'a@example.com', code: right }, null)).rejects.toThrow(/isn't right/);
+  });
+
+  it("doesn't count an address against its limit when the network is over its own", async () => {
+    for (let i = 0; i < 30; i++) await emailSend(env, { email: `x${i}@example.com` }, null, '6.6.6.6');
+    for (let i = 0; i < 10; i++) await emailSend(env, { email: 'v@example.com' }, null, '6.6.6.6').catch(() => {});
+    expect(db.prepare("SELECT count FROM limits WHERE key = 'email:v@example.com'").get()).toBeUndefined();
+    await expect(emailSend(env, { email: 'v@example.com' }, null, '7.7.7.7')).resolves.toBeUndefined();
+  });
+
+  it("stops tries at codes for an address after a day's worth", async () => {
+    await emailSend(env, { email: 'g@example.com' }, null, '1.1.1.1');
+    const right = code('g@example.com');
+    for (let i = 0; i < 30; i++) {
+      db.prepare("UPDATE email_codes SET tries = 0 WHERE email = 'g@example.com'").run();
+      await emailVerify(env, { email: 'g@example.com', code: wrongFor(right) }, null).catch(() => {});
+    }
+    db.prepare("UPDATE email_codes SET tries = 0 WHERE email = 'g@example.com'").run();
+    await expect(emailVerify(env, { email: 'g@example.com', code: right }, null)).rejects.toThrow(/Too many tries/);
   });
 
   it('uses a right code once', async () => {
