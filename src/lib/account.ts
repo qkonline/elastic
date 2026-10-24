@@ -155,15 +155,6 @@ export async function passkeyAutofill(): Promise<boolean> {
   }
 }
 
-/** Whether email codes can be used yet. */
-export async function emailAvailable(): Promise<boolean> {
-  try {
-    return (await call<{ email: boolean }>('/auth/config')).email;
-  } catch {
-    return false;
-  }
-}
-
 /** Email a code: to sign in or make an account, or (with `token`) to add or change its email. */
 export const sendCode = (email: string, token?: string) => call<void>('/auth/email/send', { email }, token);
 

@@ -89,13 +89,6 @@ export function periodCount(dayAt: DayAt, s: Series, key: string, today: string,
   return count;
 }
 
-/** "2 of 3 this week". */
-export function periodText(dayAt: DayAt, s: Series, key: string, today: string, n: number): string {
-  const h = s.habit;
-  if (!h || h.per === 'day') return '';
-  return `${periodCount(dayAt, s, key, today, n)} of ${h.times} this ${h.per}`;
-}
-
 // ---------- streaks and history ----------
 
 /** How far back a streak or history looks. */

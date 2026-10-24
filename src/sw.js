@@ -1,8 +1,9 @@
 // Elastic service worker. Generated into dist/sw.js at build time (see vite.config.ts),
 // which fills in the cache version, the build's file list and the worker's address.
 // The app page opens from the cache first, so Elastic opens at once whatever the network is
-// doing; a newer build is noticed by the page (version.json, src/lib/update.ts), which reloads
-// with ?fresh to get it from the network. Other pages: network first. Build files: cache first.
+// doing; a newer build is noticed by the page (version.json, src/lib/update.ts), its worker
+// stores all of it on install, and the page then opens again from that copy. Other pages:
+// network first. Build files: cache first.
 
 const CACHE = 'elastic-day-__VERSION__';
 /** This build, as its page says it (`<meta name="build">`). */
@@ -44,7 +45,7 @@ self.addEventListener('fetch', (e) => {
   if (req.mode === 'navigate') {
     // Only the app page itself is stored as the offline shell, never some other file opened in a tab.
     const isShell = url.pathname === scope.pathname || url.pathname === scope.pathname + 'index.html';
-    if (isShell && !url.searchParams.has('fresh')) {
+    if (isShell) {
       e.respondWith(shell().then((hit) => hit || fromNetwork(e, true)));
       return;
     }

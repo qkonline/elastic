@@ -99,10 +99,3 @@ export async function reloadToUpdate(): Promise<boolean> {
 export function openAgain(): void {
   location.replace(location.pathname + location.search);
 }
-
-// The address after such a reload loses its ?fresh again.
-if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('fresh')) {
-  const url = new URL(location.href);
-  url.searchParams.delete('fresh');
-  history.replaceState(history.state, '', url.href);
-}

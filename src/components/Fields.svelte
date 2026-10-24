@@ -16,7 +16,6 @@
   let {
     field,
     min = 0,
-    allowNone = false,
     showLabel = true,
     onMin,
     hue,
@@ -25,8 +24,6 @@
   }: {
     field: 'duration' | 'colour';
     min?: number;
-    /** Offer "No time": a check that's ticked off rather than timed (min 0). */
-    allowNone?: boolean;
     /** The New task sheet labels its duration itself (the Timed switch). */
     showLabel?: boolean;
     onMin?: (m: number) => void;
@@ -79,16 +76,6 @@
           if (customOpen && min === 0) onMin?.(30);
         }}>{isPreset ? 'Custom' : dL(min)}</button
       >
-      {#if allowNone}
-        <button
-          class="chip"
-          aria-pressed={min === 0}
-          onclick={() => {
-            customOpen = false;
-            onMin?.(0);
-          }}>No time</button
-        >
-      {/if}
     </div>
     {#if customOpen}
       <div class="custom">
