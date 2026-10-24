@@ -62,17 +62,29 @@ self.addEventListener('fetch', (e) => {
   );
 });
 
-/** A page from the network (the app page is kept as the shell), or the cached shell offline. */
+/** How long a page from the network gets before the cached copy opens instead. */
+const PAGE_WAIT = 6000;
+
+/**
+ * A page from the network (the app page is kept as the shell), or the cached shell when offline,
+ * or when the network hasn't answered in a few seconds: a network can hang for minutes (one whose
+ * DNS gives only an address it can't reach, say), and the app would sit frozen on its way to a
+ * new build. The network's copy is still stored as the shell if it arrives later.
+ */
 function fromNetwork(req, isShell) {
-  return fetch(req)
-    .then((res) => {
-      if (isShell && res.ok && (res.headers.get('content-type') || '').includes('text/html')) {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put('./', copy));
-      }
-      return res;
-    })
-    .catch(() => caches.match(isShell ? './' : req).then((hit) => hit || caches.match('./')));
+  const cached = () => caches.match(isShell ? './' : req).then((hit) => hit || caches.match('./'));
+  const net = fetch(req).then((res) => {
+    if (isShell && res.ok && (res.headers.get('content-type') || '').includes('text/html')) {
+      const copy = res.clone();
+      caches.open(CACHE).then((c) => c.put('./', copy));
+    }
+    return res;
+  });
+  net.catch(() => {});
+  const late = new Promise((r) => setTimeout(r, PAGE_WAIT));
+  return Promise.race([net, late])
+    .then(async (res) => res || (await cached()) || net)
+    .catch(cached);
 }
 
 // Time's up, or a fixed-time task coming up, while the app is closed or in the background.

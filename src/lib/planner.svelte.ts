@@ -466,7 +466,7 @@ export class Planner {
     this.reloading = true;
     // Only once everything is saved: a reload would lose what isn't.
     void this.flush().then((ok) => {
-      if (ok) return reloadToUpdate();
+      if (ok) return reloadToUpdate().then((went) => void (went === false && (this.reloading = false)));
       this.reloading = false;
     });
   }

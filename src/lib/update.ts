@@ -17,25 +17,53 @@ export async function newBuildOut(): Promise<boolean> {
     const res = await fetch(`${import.meta.env.BASE_URL}version.json?t=${Date.now()}`, { cache: 'no-store' });
     if (!res.ok) return false;
     const { v } = (await res.json()) as { v?: unknown };
+    if (v === BUILD) forgetTried();
     return typeof v === 'string' && v !== BUILD;
   } catch {
     return false;
   }
 }
 
+/** When this device last reloaded for a new build (localStorage). */
+const TRIED_KEY = 'elastic-day:update-tried';
+/** How long after one that didn't bring the new build before trying again. */
+const RETRY_MS = 10 * 60_000;
+
+/** Up to date: the next new build is reloaded for at once. */
+function forgetTried(): void {
+  try {
+    localStorage.removeItem(TRIED_KEY);
+  } catch {
+    /* storage blocked */
+  }
+}
+
 /**
  * Fetch the new service worker too, then load the page again from the server. The service worker
- * opens the app from its cache, so `?fresh` asks it for the network's copy this once.
+ * opens the app from its cache, so `?fresh` asks it for the network's copy this once. On a network
+ * that can't fetch it, the service worker gives up after a few seconds and opens the copy it has
+ * (sw.js), the old build: then this waits a while before trying again, rather than reloading every
+ * time the app opens. False when it didn't reload.
  */
-export async function reloadToUpdate(): Promise<void> {
+export async function reloadToUpdate(): Promise<boolean> {
   try {
-    await (await navigator.serviceWorker?.getRegistration())?.update();
+    const tried = Number(localStorage.getItem(TRIED_KEY));
+    if (tried && Date.now() - tried < RETRY_MS) return false;
+    localStorage.setItem(TRIED_KEY, String(Date.now()));
+  } catch {
+    /* storage blocked: try anyway */
+  }
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    // A network that hangs mustn't hold the app up: the reload brings the worker along anyway.
+    await Promise.race([reg?.update(), new Promise((r) => setTimeout(r, 4000))]);
   } catch {
     /* the reload still gets the new page */
   }
   const url = new URL(location.href);
   url.searchParams.set('fresh', String(Date.now()));
   location.replace(url.href);
+  return true;
 }
 
 // The address after such a reload loses its ?fresh again.
