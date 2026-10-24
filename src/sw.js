@@ -18,14 +18,18 @@ self.addEventListener('install', (e) => {
 // The previous build's cache stays until the one after: a page it served may still be loading
 // its files when this worker takes over (it activates at once), and on the server they're gone.
 // caches.keys() lists caches oldest first.
-self.addEventListener('activate', (e) => {
-  e.waitUntil(
-    (async () => {
+// Activating does nothing that waits: while a worker activates, every page load waits for it, and
+// on iPhone the app froze at launch while one was activating (24 Oct 2026). So no clients.claim()
+// (pages it didn't load come to it as they next load) and the old caches go afterwards.
+self.addEventListener('activate', () => {
+  setTimeout(async () => {
+    try {
       const older = (await caches.keys()).filter((k) => k.startsWith('elastic-day-') && k !== CACHE);
       for (const k of older.slice(0, -1)) await caches.delete(k);
-      await self.clients.claim();
-    })(),
-  );
+    } catch {
+      /* next time */
+    }
+  }, 30_000);
 });
 
 self.addEventListener('fetch', (e) => {
@@ -75,8 +79,21 @@ const PAGE_WAIT = 6000;
 const shell = () =>
   caches
     .open(CACHE)
-    .then((c) => c.match('./'))
-    .then((hit) => hit || caches.match('./'));
+    .then((c) => c.match('./', { ignoreVary: true }))
+    // Any build's page rather than none: it loads its own files and updates itself from there.
+    .then((hit) => hit || caches.match('./', { ignoreVary: true }))
+    .catch(() => undefined);
+
+/** No copy of the app here and no answer from the network: say so, rather than wait for ever. */
+const unreachable = () =>
+  new Response(
+    `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Elastic</title>
+<body style="font:16px/1.5 system-ui,sans-serif;max-width:420px;margin:20vh auto 0;padding:0 24px;background:#0f1115;color:#e7e9ee">
+<h1 style="font-size:22px;font-weight:600">Can't reach Elastic</h1>
+<p style="color:#9aa1ad">This network isn't answering. Your plan is safe. Try again in a moment, or on another network.</p>
+<button onclick="location.replace(location.pathname)" style="font:inherit;padding:10px 18px;border-radius:8px;border:0;background:#e7e9ee;color:#0f1115">Try again</button>`,
+    { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } },
+  );
 
 /**
  * A page from the network (the app page is kept as the shell), or the cached shell when offline,
@@ -106,8 +123,8 @@ function fromNetwork(e, isShell) {
   net.catch(() => {});
   const late = new Promise((r) => setTimeout(r, PAGE_WAIT));
   return Promise.race([net, late])
-    .then(async (res) => (res && res.ok ? res : (await cached()) || res || net))
-    .catch(cached);
+    .then(async (res) => (res && res.ok ? res : (await cached()) || res || (isShell ? unreachable() : net)))
+    .catch(async () => (await cached()) || (isShell ? unreachable() : Response.error()));
 }
 
 // Time's up, or a fixed-time task coming up, while the app is closed or in the background.
