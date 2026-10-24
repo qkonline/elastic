@@ -210,6 +210,30 @@ describe('sync', () => {
     expect(titles(b.p)).toEqual(['Stretch']);
   });
 
+  it("doesn't double a repeating task when two devices first save the same day at once", async () => {
+    const a = await device({ fresh: true });
+    const b = await device();
+    add(a.p, 'Stretch');
+    await a.p.setRepeat(a.p.day.items[0].id, 'Every day');
+    await settle();
+    // A later day neither has stored: each builds it from the series.
+    await a.p.switchDay('2026-10-18');
+    await b.p.switchDay('2026-10-18');
+    server.held = [];
+    a.p.toggleSub?.(a.p.day.items[0].id, 'none');
+    a.p.edit(a.p.day.items[0].id, { note: 'from the phone' });
+    add(b.p, 'Laptop task');
+    await settle();
+    const held = server.held;
+    server.held = null;
+    held.forEach((go) => go());
+    await settle();
+    for (const d of [a, b]) {
+      expect(titles(d.p)).toEqual(['Stretch', 'Laptop task']);
+      expect(d.p.day.items[0].note).toBe('from the phone');
+    }
+  });
+
   it('takes an erase on one device to the others', async () => {
     const a = await device({ fresh: true });
     add(a.p, 'Write');

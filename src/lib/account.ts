@@ -59,22 +59,43 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Calls that use something up or send something (a code, a sign-in, an email): the request may
+ * have arrived even when no answer came back, so they're never sent twice.
+ */
+const ONCE = new Set([
+  '/auth/email/send',
+  '/auth/email/verify',
+  '/auth/handoff',
+  '/auth/login/finish',
+  '/auth/register/finish',
+  '/account/handoff',
+  '/account/delete',
+  '/boardo/connect',
+  '/boardo/adopt',
+]);
+/** How long a call waits for an answer: a network that hangs mustn't hold the app up. */
+const WAIT_MS = 15_000;
+
 async function call<T>(path: string, body: object = {}, token?: string): Promise<T> {
-  const init = {
+  const init = () => ({
     method: 'POST',
     headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify(body),
-  };
+    signal: AbortSignal.timeout?.(WAIT_MS),
+  });
+  const unreachable = () => new ApiError(0, "Can't reach Elastic. Check your connection and try again.");
   let res: Response;
   try {
-    res = await fetch(API + path, init);
+    res = await fetch(API + path, init());
   } catch {
+    if (ONCE.has(path)) throw unreachable();
     // No answer at all: try once more after a moment before saying so.
     await new Promise((r) => setTimeout(r, 800));
     try {
-      res = await fetch(API + path, init);
+      res = await fetch(API + path, init());
     } catch {
-      throw new ApiError(0, "Can't reach Elastic. Check your connection and try again.");
+      throw unreachable();
     }
   }
   if (res.status === 204) return undefined as T;
@@ -163,6 +184,7 @@ export const startHandoff = (token: string) => call<{ code: string }>('/account/
 /** Arriving at the new address: the old one's code, for a sign-in here. */
 export const finishHandoff = (code: string) => call<SignedIn>('/auth/handoff', { code });
 
-export async function signOutRemote(token: string): Promise<void> {
-  await call('/auth/signout', {}, token).catch(() => {});
+/** Sign this device out on the server: the session goes, and so do the account's pushes to it. */
+export async function signOutRemote(token: string, device?: string): Promise<void> {
+  await call('/auth/signout', device ? { device } : {}, token).catch(() => {});
 }

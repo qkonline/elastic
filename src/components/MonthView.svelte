@@ -23,7 +23,7 @@
   const cells = $derived(
     keys.map((k) => {
       const day = P.days[k];
-      const n = minutesInto(k, P.clock);
+      const n = minutesInto(k, P.minute);
       const rows = day ? calendarRows(P.planOf(day), n) : [];
       const totals = day ? dayTotals(day, n) : { planned: 0, logged: 0 };
       const counts = day ? untimedCounts(day, n) : null;

@@ -25,7 +25,11 @@
       if (due) P.finishReview(due);
     };
   });
-  const live = $derived(due ? P.numbersFor(due.from, due.to) : P.numbersFor(...P.thisWeek()));
+  // Once a minute is plenty (numbersFor reads the clock, which ticks 4 times a second).
+  const live = $derived.by(() => {
+    void P.minute;
+    return untrack(() => (due ? P.numbersFor(due.from, due.to) : P.numbersFor(...P.thisWeek())));
+  });
   const goals = $derived(due ? P.goalsFor(due) : []);
   const history = $derived(
     P.reviews

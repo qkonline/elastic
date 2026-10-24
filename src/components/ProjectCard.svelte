@@ -45,7 +45,7 @@
         <dd>Done</dd>{/if}
     </dl>
     <div class="acts">
-      {#if !c.myDone && !c.completed && P.isToday}
+      {#if !c.myDone && !c.completed && P.isToday && !P.locked}
         <button class="ctl primary" onclick={() => (P.closeSheet(), P.startCard(c))}>Start</button>
       {/if}
       <a class="ctl" href={c.url} target="_blank" rel="noopener">Open in Boardo</a>

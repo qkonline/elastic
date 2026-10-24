@@ -1,14 +1,14 @@
 <script lang="ts">
   import { completion, history, streak, type HistoryMark } from '../lib/habits';
   import { planner as P } from '../lib/planner.svelte';
-  import { addDays, keyDate, mondayOf } from '../lib/time';
+  import { addDays, keyDate, minutesInto, mondayOf } from '../lib/time';
   import { hueColor, inkOn, type Hue, type Series } from '../lib/types';
 
   // A habit's record: its streak, how often it was met lately, and a month of days.
   let { series, hue }: { series: Series; hue: Hue } = $props();
 
   const h = $derived(series.habit!);
-  const n = $derived(P.nowToday());
+  const n = $derived(minutesInto(P.today, P.minute));
   const run = $derived(streak(P.dayAt, series, P.today, n));
   const rate = $derived(completion(P.dayAt, series, P.today, n, 30));
   const runLabel = $derived(

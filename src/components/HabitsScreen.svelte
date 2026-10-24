@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { completion, habitMet, history, isHabit, periodCount, streak } from '../lib/habits';
   import { planner as P } from '../lib/planner.svelte';
-  import { addDays, keyDate, mondayOf, shortDate, weekdayShort } from '../lib/time';
+  import { addDays, keyDate, minutesInto, mondayOf, shortDate, weekdayShort } from '../lib/time';
   import { hueColor, type Habit, type Item, type Series } from '../lib/types';
   import { oftenText } from './HabitFields.svelte';
   import HabitRow from './HabitRow.svelte';
@@ -21,7 +21,7 @@
       .filter((s) => s.kind === 'habit' && s.habit && (s.until == null || s.until >= P.today))
       .sort((a, b) => a.order - b.order),
   );
-  const n = $derived(P.nowToday());
+  const n = $derived(minutesInto(P.today, P.minute));
   const days = $derived(Array.from({ length: 7 }, (_, i) => addDays(P.today, i - 6)));
   const todays = $derived(P.isToday ? (P.day.items.filter((i) => isHabit(i)) as (Item & { habit: Habit })[]) : []);
   const itemOf = (s: Series) => todays.find((i) => i.seriesId === s.id && i.status !== 'skipped');

@@ -37,8 +37,15 @@ export function seriesFromItem(it: Item, from: string, id = it.seriesId ?? uid()
   };
 }
 
-export function itemFromSeries(s: Series): Item {
+/**
+ * A series' copy for a day. Its ids come from the series and the day, so two devices that build
+ * the same day (neither had it stored yet) give its copies the same ids, and sync matches them
+ * rather than keeping both.
+ */
+export function itemFromSeries(s: Series, key: string): Item {
+  const id = `${s.id}@${key}`;
   return newItem({
+    id,
     title: s.title,
     min: s.min,
     kind: s.kind,
@@ -47,7 +54,7 @@ export function itemFromSeries(s: Series): Item {
     repeat: s.repeat,
     note: s.note,
     seriesId: s.id,
-    subtasks: (s.subtasks ?? []).map((x) => ({ id: uid(), t: x.t, d: false })),
+    subtasks: (s.subtasks ?? []).map((x, i) => ({ id: `${id}.${i}`, t: x.t, d: false })),
     ...(s.habit ? { habit: s.habit } : {}),
     ...(s.habitId ? { habitId: s.habitId } : {}),
     ...(s.goalId ? { goalId: s.goalId } : {}),
@@ -63,7 +70,7 @@ export function materialize(key: string, series: Series[], dayStart: number, wra
       ? series
           .filter((s) => seriesApplies(s, key))
           .sort(byOrder)
-          .map(itemFromSeries)
+          .map((s) => itemFromSeries(s, key))
       : [];
   return { key, dayStart, wrap, dayStarted: null, items };
 }
@@ -143,7 +150,7 @@ export function syncSeriesInto(day: Day, next: Series | null, prev: Series | nul
   if (idx < 0) {
     const newlyApplies = applies && !(prev && seriesApplies(prev, day.key));
     if (!newlyApplies) return day;
-    const it = itemFromSeries(next!);
+    const it = itemFromSeries(next!, day.key);
     return placeFixed({ ...day, items: [...day.items, it] }, it.id, 0);
   }
   const cur = day.items[idx];

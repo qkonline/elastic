@@ -123,12 +123,16 @@ function cardLink(v: unknown): Item['card'] | null {
 export function normalizeDay(raw: unknown): Day | null {
   const r = obj(raw);
   if (typeof r.key !== 'string' || !KEY.test(r.key)) return null;
-  const items = Array.isArray(r.items) ? r.items.map(normalizeItem) : [];
-  // At most one timer per day: any extra running/paused items are treated as finished.
+  const all = Array.isArray(r.items) ? r.items.map(normalizeItem) : [];
+  // Each task once (two with one id would break the lists on screen).
+  const ids = new Set<string>();
+  const items = all.filter((it) => !ids.has(it.id) && !!ids.add(it.id));
+  // At most one timer per day: any extra running/paused items are set aside, as starting
+  // another task does (never marked done: nobody said they were).
   let seen = false;
   for (const [i, it] of items.entries()) {
     if (it.status !== 'running' && it.status !== 'paused') continue;
-    if (seen) items[i] = { ...it, status: 'done', endedAt: it.pausedAt ?? it.startedAt! + it.min, pausedAt: null };
+    if (seen) items[i] = { ...it, status: 'postponed', endedAt: it.pausedAt ?? it.startedAt! + it.min, pausedAt: null };
     seen = true;
   }
   return {

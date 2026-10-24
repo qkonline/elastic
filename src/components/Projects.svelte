@@ -16,6 +16,15 @@
   const going = $derived(new Map(P.day.items.filter((i) => i.card && isActive(i)).map((i) => [i.card!.id, i])));
   const colour = (h: string) => (h === 'rose' ? '#f43f5e' : isHue(h) ? hueColor(h) : '#22d3ee');
   let list: HTMLUListElement | null = $state(null);
+  // The last fetch failed: these are the cards as they were then, which may be out of date.
+  const asOf = $derived.by(() => {
+    if (!B.error || !B.fetchedAt) return null;
+    const d = new Date(B.fetchedAt);
+    const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: !P.settings.clock24 });
+    return new Date().toDateString() === d.toDateString()
+      ? time
+      : `${d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}, ${time}`;
+  });
 </script>
 
 {#if B.connected && B.boards > 0}
@@ -29,6 +38,9 @@
     bind:list
   >
     {#snippet children(shut)}
+      {#if asOf}
+        <li class="none stale">Boardo can't be reached. These are as of {asOf}.</li>
+      {/if}
       {#if !rows.length}
         <li class="none">No project cards on this day.</li>
       {/if}
@@ -48,7 +60,7 @@
               {:else if r.ticked && !r.card.status.label}<span>Completed</span>{/if}
             </span>
           </button>
-          {#if !r.ticked && P.isToday}
+          {#if !r.ticked && P.isToday && !P.locked}
             {#if g}
               <button class="start on" onclick={() => P.startCard(r.card)}
                 >{g.status === 'paused' ? 'Resume' : 'Running'}</button
@@ -82,6 +94,9 @@
     color: var(--muted);
     font-size: 14px;
     min-height: 40px;
+  }
+  .stale {
+    color: var(--yelT);
   }
   .bar {
     width: 4px;

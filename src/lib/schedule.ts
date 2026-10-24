@@ -172,6 +172,13 @@ export function schedule(day: Day, n: number): { rows: Row[]; finish: number; st
         }
         prev = r.end;
       } else if (anchored(r.it) && r.it.kind === 'fixed') prev = Math.max(prev, r.end);
+      // Nor over time already taken: the task under way, or one done or worked on part-way.
+      else if (
+        r.it.kind !== 'buffer' &&
+        !untimed(r.it.kind) &&
+        (isActive(r.it) || r.it.status === 'done' || isPartial(r.it))
+      )
+        prev = Math.max(prev, r.end);
     }
   }
 

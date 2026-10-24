@@ -13,7 +13,9 @@ function fields<T extends object>(base: T | null, mine: T, theirs: T): T {
   const out = { ...theirs } as Record<string, unknown>;
   const b = base as Record<string, unknown> | null;
   const m = mine as Record<string, unknown>;
-  for (const k of Object.keys(m)) if (!b || !same(m[k], b[k])) out[k] = m[k];
+  // Without a base there's no telling what either side changed: mine wins, but an empty value of
+  // mine (a day this device never started, say) doesn't wipe one theirs has.
+  for (const k of Object.keys(m)) if (b ? !same(m[k], b[k]) : m[k] != null || !(k in out)) out[k] = m[k];
   // A field mine dropped since the base goes, unless theirs changed it.
   if (b) for (const k of Object.keys(b)) if (!(k in m) && same(out[k], b[k])) delete out[k];
   return out as T;
@@ -66,6 +68,35 @@ function mergeItem(base: Item, mine: Item, theirs: Item): Item {
 }
 
 /**
+ * How far a task has got, to choose between two copies with nothing to compare them to (the same
+ * repeating task, built for a day on two devices): one worked on beats one left as it came.
+ */
+const worked = (i: Item) =>
+  (i.status === 'todo' ? 0 : 4) +
+  (i.startedAt != null ? 2 : 0) +
+  (i.progress ? 1 : 0) +
+  i.subtasks.filter((x) => x.d).length / 100;
+
+const empty = (v: unknown) => v == null || v === '' || v === false || (Array.isArray(v) && v.length === 0);
+
+/**
+ * The same task on both sides with no agreed version to compare them to (a repeating task's copy,
+ * built for a day on two devices): the timer and what it led to from the one that got further,
+ * and every other field mine, unless mine is empty and theirs isn't.
+ */
+function mergeUnagreed(mine: Item, theirs: Item): Item {
+  const ahead = worked(theirs) > worked(mine) ? theirs : mine;
+  const out = { ...theirs } as Record<string, unknown>;
+  const m = mine as unknown as Record<string, unknown>;
+  const a = ahead as unknown as Record<string, unknown>;
+  for (const k of TOGETHER[0])
+    if (k in a) out[k] = a[k];
+    else delete out[k];
+  for (const k of Object.keys(m)) if (!TOGETHER[0].includes(k as keyof Item) && !empty(m[k])) out[k] = m[k];
+  return out as unknown as Item;
+}
+
+/**
  * Tasks are matched by id. A task changed on one side only takes that side's version, and one
  * changed on both is merged field by field (`mergeItem`). One
  * deleted on one side stays deleted unless the other side changed it meanwhile. The order is
@@ -89,7 +120,8 @@ export function mergeDay(base: Day | null, mine: Day, theirs: Day): Day {
       ti = t.get(id);
     const mineChanged = bi ? !mi || !same(mi, bi) : !!mi;
     const theirsChanged = bi ? !ti || !same(ti, bi) : !!ti;
-    if (mi && ti) kept.set(id, bi && mineChanged && theirsChanged ? mergeItem(bi, mi, ti) : mineChanged ? mi : ti);
+    if (mi && ti && !bi) kept.set(id, mergeUnagreed(mi, ti));
+    else if (mi && ti) kept.set(id, mineChanged && theirsChanged ? mergeItem(bi!, mi, ti) : mineChanged ? mi : ti);
     else if (mi) {
       // Not on theirs: they deleted it (keep it only if I changed it), or I added it.
       if (!bi || mineChanged) kept.set(id, mi);
@@ -123,5 +155,26 @@ export function mergeDay(base: Day | null, mine: Day, theirs: Day): Day {
     }
     order.splice(at, 0, id);
   }
-  return { ...head, items: order.map((id) => kept.get(id)!) } as Day;
+  return { ...head, items: oneTimer(order.map((id) => kept.get(id)!)) } as Day;
+}
+
+/**
+ * One timer at a time: two devices can each start a task before hearing of the other. The one
+ * started last keeps going; the other is set aside from that moment (as starting a task does),
+ * never marked done.
+ */
+function oneTimer(items: Item[]): Item[] {
+  const active = items.filter((i) => (i.status === 'running' || i.status === 'paused') && i.startedAt != null);
+  if (active.length < 2) return items;
+  const last = active.reduce((a, b) => (b.startedAt! > a.startedAt! ? b : a));
+  return items.map((i) =>
+    active.includes(i) && i !== last
+      ? {
+          ...i,
+          status: 'postponed',
+          endedAt: i.status === 'paused' ? i.pausedAt : Math.max(i.startedAt! + i.pausedFor, last.startedAt!),
+          pausedAt: null,
+        }
+      : i,
+  );
 }

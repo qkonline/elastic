@@ -289,6 +289,19 @@ describe('following the now line', () => {
     expect(A.letThrough(d, 930)).toBe(d);
   });
 
+  it('never stacks a task over the one under way or one done', () => {
+    const run = t('r', 120, { status: 'running', startedAt: 600 });
+    const d = day([run, t('next', 60)], { dayStarted: 600, wrap: 700 });
+    const [, next] = schedule(d, 610).rows;
+    expect(next.start).toBeGreaterThanOrEqual(720);
+    expect(isMissed(schedule(d, 705).rows[1], 705)).toBe(false);
+    const done = day([t('d', 160, { status: 'done', startedAt: 540, endedAt: 700 }), t('next', 60)], {
+      dayStarted: 540,
+      wrap: 720,
+    });
+    expect(schedule(done, 700).rows[1].start).toBeGreaterThanOrEqual(700);
+  });
+
   it('never stacks a task into a fixed item listed above it', () => {
     const d = day([t('a', 60), t('meet', 30, { kind: 'fixed', fixedAt: 1050 }), t('b', 30)], {
       dayStarted: 600,

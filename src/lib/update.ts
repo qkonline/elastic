@@ -14,7 +14,10 @@ const BUILD =
 export async function newBuildOut(): Promise<boolean> {
   if (!BUILD) return false;
   try {
-    const res = await fetch(`${import.meta.env.BASE_URL}version.json?t=${Date.now()}`, { cache: 'no-store' });
+    const res = await fetch(`${import.meta.env.BASE_URL}version.json?t=${Date.now()}`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout?.(8000),
+    });
     if (!res.ok) return false;
     const { v } = (await res.json()) as { v?: unknown };
     if (v === BUILD) forgetTried();

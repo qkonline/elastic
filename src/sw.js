@@ -5,6 +5,8 @@
 // with ?fresh to get it from the network. Other pages: network first. Build files: cache first.
 
 const CACHE = 'elastic-day-__VERSION__';
+/** This build, as its page says it (`<meta name="build">`). */
+const BUILD = CACHE.slice('elastic-day-'.length);
 const ASSETS = __ASSETS__;
 const API = __API__;
 
@@ -39,10 +41,10 @@ self.addEventListener('fetch', (e) => {
     // Only the app page itself is stored as the offline shell, never some other file opened in a tab.
     const isShell = url.pathname === scope.pathname || url.pathname === scope.pathname + 'index.html';
     if (isShell && !url.searchParams.has('fresh')) {
-      e.respondWith(caches.match('./').then((hit) => hit || fromNetwork(req, true)));
+      e.respondWith(shell().then((hit) => hit || fromNetwork(e, true)));
       return;
     }
-    e.respondWith(fromNetwork(req, isShell));
+    e.respondWith(fromNetwork(e, isShell));
     return;
   }
 
@@ -66,24 +68,45 @@ self.addEventListener('fetch', (e) => {
 const PAGE_WAIT = 6000;
 
 /**
- * A page from the network (the app page is kept as the shell), or the cached shell when offline,
- * or when the network hasn't answered in a few seconds: a network can hang for minutes (one whose
- * DNS gives only an address it can't reach, say), and the app would sit frozen on its way to a
- * new build. The network's copy is still stored as the shell if it arrives later.
+ * The app page this build stored. The previous build's cache is kept a while (see activate) and
+ * holds its own page, and caches.match() looks in the oldest cache first: it would open the old
+ * build, which then reloads for this one at every launch.
  */
-function fromNetwork(req, isShell) {
-  const cached = () => caches.match(isShell ? './' : req).then((hit) => hit || caches.match('./'));
+const shell = () =>
+  caches
+    .open(CACHE)
+    .then((c) => c.match('./'))
+    .then((hit) => hit || caches.match('./'));
+
+/**
+ * A page from the network (the app page is kept as the shell), or the cached shell when offline,
+ * when the server answers with an error, or when the network hasn't answered in a few seconds:
+ * a network can hang for minutes (one whose DNS gives only an address it can't reach, say), and
+ * the app would sit frozen on its way to a new build. Only this build's own page is stored as the
+ * shell: a newer build's page needs its files, which only its own worker stores (on install).
+ */
+function fromNetwork(e, isShell) {
+  const req = e.request;
+  const cached = () => (isShell ? shell() : caches.match(req).then((hit) => hit || shell()));
   const net = fetch(req).then((res) => {
-    if (isShell && res.ok && (res.headers.get('content-type') || '').includes('text/html')) {
-      const copy = res.clone();
-      caches.open(CACHE).then((c) => c.put('./', copy));
-    }
+    if (isShell && res.ok && (res.headers.get('content-type') || '').includes('text/html'))
+      e.waitUntil(
+        res
+          .clone()
+          .text()
+          .then((html) =>
+            html.includes(`name="build" content="${BUILD}"`)
+              ? caches.open(CACHE).then((c) => c.put('./', new Response(html, { headers: res.headers })))
+              : undefined,
+          )
+          .catch(() => {}),
+      );
     return res;
   });
   net.catch(() => {});
   const late = new Promise((r) => setTimeout(r, PAGE_WAIT));
   return Promise.race([net, late])
-    .then(async (res) => res || (await cached()) || net)
+    .then(async (res) => (res && res.ok ? res : (await cached()) || res || net))
     .catch(cached);
 }
 
@@ -114,6 +137,10 @@ self.addEventListener('push', (e) => {
 
 /** A little early is fine: the worker's clock and the phone's can differ by a few seconds. */
 const EARLY_MS = 30_000;
+/** A push that came late shows the latest alert again, if it's this recent; older ones are news no longer. */
+const AGAIN_MS = 10 * 60_000;
+/** Alerts older than this are never shown. */
+const STALE_MS = 60 * 60_000;
 
 /**
  * What this push is for: every booked group that is due and not shown yet, marked as shown.
@@ -127,9 +154,9 @@ function dueNotes() {
       const plan = get.result;
       if (!plan || !Array.isArray(plan.groups) || !plan.groups.length) return resolve(null);
       const now = Date.now();
-      const due = plan.groups.filter((g) => !g.shown && g.at <= now + EARLY_MS);
+      const due = plan.groups.filter((g) => !g.shown && g.at <= now + EARLY_MS && g.at > now - STALE_MS);
       if (!due.length) {
-        const last = plan.groups.filter((g) => g.shown).pop();
+        const last = plan.groups.filter((g) => g.shown && g.at > now - AGAIN_MS).pop();
         return resolve(last ? last.notes : null);
       }
       for (const g of due) g.shown = true;
@@ -169,21 +196,26 @@ async function accountNotes() {
       const shown = Array.isArray(get.result) ? get.result : [];
       const fresh = groups.filter((g) => !shown.includes(id(g)));
       meta.put([...shown, ...fresh.map(id)].slice(-50), 'shown');
-      resolve((fresh.length ? fresh : groups.slice(-1)).flatMap((g) => g.notes));
+      const again = groups.slice(-1).filter((g) => g.at > Date.now() - AGAIN_MS);
+      resolve(fresh.length ? fresh.flatMap((g) => g.notes) : again.length ? again[0].notes : null);
     };
   });
 }
 
-/** The old way: time's up for whichever task is running. */
+/**
+ * The old way (a push booked by an older version of the app): time's up for the task running, if
+ * its time is up. Something has to show for every push, so otherwise a plain note.
+ */
 async function timeUpNotes() {
-  const it = await runningItem().catch(() => null);
-  return [
-    {
-      title: "Time's up",
-      body: it ? it.title : 'Your timer has run out.',
-      tag: it ? 'timer-' + it.id : 'timer',
-    },
-  ];
+  const found = await runningItem().catch(() => null);
+  if (found) {
+    const { it, key } = found;
+    const [y, m, d] = key.split('-').map(Number);
+    const now = (Date.now() - new Date(y, m - 1, d).getTime()) / 60000;
+    const worked = (it.pausedAt ?? now) - it.startedAt - (it.pausedFor || 0);
+    if (worked >= it.min) return [{ title: "Time's up", body: it.title, tag: 'timer-' + it.id }];
+  }
+  return [{ title: 'Elastic', body: 'Open Elastic to see your plan.', tag: 'elastic' }];
 }
 
 /** Open the app's database (never creating it) and run `fn` on its meta store. */
@@ -229,7 +261,8 @@ function runningItem() {
       all.onerror = () => reject(all.error);
       all.onsuccess = () => {
         db.close();
-        for (const day of all.result) for (const it of day.items) if (it.status === 'running') return resolve(it);
+        for (const day of all.result)
+          for (const it of day.items) if (it.status === 'running' && !it.card) return resolve({ it, key: day.key });
         resolve(null);
       };
     };

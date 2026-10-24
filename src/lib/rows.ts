@@ -91,7 +91,8 @@ export function itemVM(r: Row, c: Ctx): ItemVM {
   const missed = missedAny && it.kind !== 'buffer';
   const pBuf = missedAny && it.kind === 'buffer';
   const w = worked(it, n);
-  const frac = Math.max(0, Math.min(1, w / it.min));
+  // A Boardo card has no length (min 0): no share of it done to show.
+  const frac = it.min > 0 ? Math.max(0, Math.min(1, w / it.min)) : 0;
   const p = Math.round(frac * 100);
   const active = isActive(it);
   // Work on a Boardo card has no length: it counts up and is never over time.

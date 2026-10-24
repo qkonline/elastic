@@ -116,7 +116,7 @@
   });
 
   // Anything covering the page keeps keyboard and screen readers out of it.
-  const covered = $derived(!!P.sheet || P.showWelcome || !!P.celebrate);
+  const covered = $derived(!P.signInFirst && (!!P.sheet || P.showWelcome || !!P.celebrate));
   $effect(() => {
     document.body.classList.toggle('locked', covered);
   });
@@ -150,117 +150,128 @@
 {:else if P.signInFirst}
   <SignIn />
 {:else if P.ready}
-  <!-- inert: while a sheet or the welcome is open, keyboard and screen readers stay inside it. -->
-  <div class="page" inert={covered} {@attach dayGestures(P)}>
-    {#if P.screen.type === 'habits'}
-      <HabitsScreen />
-    {:else if P.screen.type === 'goals'}
-      {#key P.screen.quarter}<Goals start={P.screen.quarter} />{/key}
-    {:else if P.screen.type === 'review'}
-      {#key P.screen.id}<Review id={P.screen.id} />{/key}
-    {:else if P.screen.type === 'settings'}
-      <Settings />
-    {:else}
-      <Header />
-      {#if P.view === 'day'}
-        <WeekStrip />
-        <StartDay />
-      {/if}
-      <SaveError />
-      <RunningElsewhere />
-      <ComingUp />
-      <NotifyPrompt />
-      <BoardoOffer />
-      <ReviewDue />
-      <main
-        class:settling={!gestures.dragging}
-        style:transform={gestures.pull ? `translateY(${gestures.pull * 0.6}px)` : undefined}
-      >
-        {#key shownAt}
-          <div
-            class="day"
-            class:settling={!gestures.dragging}
-            style:transform={gestures.dx ? `translateX(${gestures.dx}px)` : undefined}
-            in:dayIn
-            out:dayOut
-          >
-            {#if P.view === 'week'}
-              <WeekView />
-            {:else if P.view === 'month'}
-              <MonthView />
-            {:else if P.day.items.length === 0}
-              <Projects />
-              <EmptyState />
-            {:else}
-              <!-- Before Start my day the plan is dimmed, but stays editable. -->
-              <div class="plan" class:waiting={P.startPending}>
-                <DayTimes />
-                {#if P.settings.habitsPlace === 'separate'}
-                  <Checklist mode="habits" />
-                  <Checklist mode="checks" />
-                {:else}
-                  <Checklist mode="both" />
-                {/if}
-                <Projects />
-                {#if timed}<Timeline />{/if}
-              </div>
-            {/if}
-            {#if P.view === 'day'}<DayFooter />{/if}
-          </div>
-        {/key}
-      </main>
-    {/if}
-  </div>
-  <PullIndicator />
-  <StartFirst />
-
-  <div inert={covered}><BottomBar /></div>
-
-  {#if P.sheet && shownSheet}
-    {#key shownSheet.type === 'task' ? 'task-' + shownSheet.id : shownSheet.type}
-      <Sheet
-        variant={shownSheet.type === 'add' || shownSheet.type === 'card'
-          ? 'form'
-          : shownSheet.type === 'hours' ||
-              shownSheet.type === 'install' ||
-              shownSheet.type === 'wrapup' ||
-              shownSheet.type === 'reorder'
-            ? 'small'
-            : 'full'}
-        label={LABELS[shownSheet.type]}
-      >
-        {#if shownSheet.type === 'card'}
-          <ProjectCard id={shownSheet.id} />
-        {:else if shownSheet.type === 'task' && P.item(shownSheet.id)?.kind === 'habit'}
-          <HabitSheet id={shownSheet.id} />
-        {:else if shownSheet.type === 'task'}
-          <TaskSheet id={shownSheet.id} />
-        {:else if shownSheet.type === 'add'}
-          <AddTask at={shownSheet.at} kind={shownSheet.kind} />
-        {:else if shownSheet.type === 'hours'}
-          <DayHours />
-        {:else if shownSheet.type === 'install'}
-          <InstallGuide />
-        {:else if shownSheet.type === 'wrapup'}
-          <WrapUp />
-        {:else if shownSheet.type === 'reorder'}
-          <ReorderAsk id={shownSheet.id} anchor={shownSheet.anchor} dir={shownSheet.dir} />
-        {:else}
-          <Account />
+  <!-- Anything that fails while drawing shows a way out, rather than leaving the screen frozen. -->
+  <svelte:boundary onerror={(e) => console.error('Elastic', e)}>
+    <!-- inert: while a sheet or the welcome is open, keyboard and screen readers stay inside it. -->
+    <div class="page" inert={covered} {@attach dayGestures(P)}>
+      {#if P.screen.type === 'habits'}
+        <HabitsScreen />
+      {:else if P.screen.type === 'goals'}
+        {#key P.screen.quarter}<Goals start={P.screen.quarter} />{/key}
+      {:else if P.screen.type === 'review'}
+        {#key P.screen.id}<Review id={P.screen.id} />{/key}
+      {:else if P.screen.type === 'settings'}
+        <Settings />
+      {:else}
+        <Header />
+        {#if P.view === 'day'}
+          <WeekStrip />
+          <StartDay />
         {/if}
-      </Sheet>
-    {/key}
-  {/if}
+        <SaveError />
+        <RunningElsewhere />
+        <ComingUp />
+        <NotifyPrompt />
+        <BoardoOffer />
+        <ReviewDue />
+        <main
+          class:settling={!gestures.dragging}
+          style:transform={gestures.pull ? `translateY(${gestures.pull * 0.6}px)` : undefined}
+        >
+          {#key shownAt}
+            <div
+              class="day"
+              class:settling={!gestures.dragging}
+              style:transform={gestures.dx ? `translateX(${gestures.dx}px)` : undefined}
+              in:dayIn
+              out:dayOut
+            >
+              {#if P.view === 'week'}
+                <WeekView />
+              {:else if P.view === 'month'}
+                <MonthView />
+              {:else if P.day.items.length === 0}
+                <Projects />
+                <EmptyState />
+              {:else}
+                <!-- Before Start my day the plan is dimmed, but stays editable. -->
+                <div class="plan" class:waiting={P.startPending}>
+                  <DayTimes />
+                  {#if P.settings.habitsPlace === 'separate'}
+                    <Checklist mode="habits" />
+                    <Checklist mode="checks" />
+                  {:else}
+                    <Checklist mode="both" />
+                  {/if}
+                  <Projects />
+                  {#if timed}<Timeline />{/if}
+                </div>
+              {/if}
+              {#if P.view === 'day'}<DayFooter />{/if}
+            </div>
+          {/key}
+        </main>
+      {/if}
+    </div>
+    <PullIndicator />
+    <StartFirst />
 
-  {#if P.showWelcome}
-    <Welcome />
-  {/if}
+    <div inert={covered}><BottomBar /></div>
 
-  {#if P.celebrate}
-    {#key P.celebrate}
-      <Celebration c={P.celebrate} />
-    {/key}
-  {/if}
+    {#if P.sheet && shownSheet}
+      {#key shownSheet.type === 'task' ? 'task-' + shownSheet.id : shownSheet.type}
+        <Sheet
+          variant={shownSheet.type === 'add' || shownSheet.type === 'card'
+            ? 'form'
+            : shownSheet.type === 'hours' ||
+                shownSheet.type === 'install' ||
+                shownSheet.type === 'wrapup' ||
+                shownSheet.type === 'reorder'
+              ? 'small'
+              : 'full'}
+          label={LABELS[shownSheet.type]}
+        >
+          {#if shownSheet.type === 'card'}
+            <ProjectCard id={shownSheet.id} />
+          {:else if shownSheet.type === 'task' && P.item(shownSheet.id)?.kind === 'habit'}
+            <HabitSheet id={shownSheet.id} />
+          {:else if shownSheet.type === 'task'}
+            <TaskSheet id={shownSheet.id} />
+          {:else if shownSheet.type === 'add'}
+            <AddTask at={shownSheet.at} kind={shownSheet.kind} />
+          {:else if shownSheet.type === 'hours'}
+            <DayHours />
+          {:else if shownSheet.type === 'install'}
+            <InstallGuide />
+          {:else if shownSheet.type === 'wrapup'}
+            <WrapUp />
+          {:else if shownSheet.type === 'reorder'}
+            <ReorderAsk id={shownSheet.id} anchor={shownSheet.anchor} dir={shownSheet.dir} />
+          {:else}
+            <Account />
+          {/if}
+        </Sheet>
+      {/key}
+    {/if}
+
+    {#if P.showWelcome}
+      <Welcome />
+    {/if}
+
+    {#if P.celebrate}
+      {#key P.celebrate}
+        <Celebration c={P.celebrate} />
+      {/key}
+    {/if}
+    {#snippet failed(error)}
+      <div class="failed">
+        <h1>Something went wrong on this screen</h1>
+        <p>Your plan is saved on this device. Reload to carry on.</p>
+        <button class="btn-plain" onclick={() => location.reload()}>Reload</button>
+        <p class="detail">{error instanceof Error ? error.message : String(error)}</p>
+      </div>
+    {/snippet}
+  </svelte:boundary>
 {/if}
 
 <div class="sr-only" aria-live="polite">{P.announce}</div>

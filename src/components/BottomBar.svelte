@@ -25,7 +25,12 @@
     }
     P.openScreen({ type: t } as Screen);
   }
-  const add = () => (P.locked ? P.sayLocked() : P.openSheet({ type: 'add' }));
+  // From a screen without the plan in sight, a new task goes on Today, not a day last looked at.
+  const add = async () => {
+    if (P.screen.type !== 'today' && !P.isToday) await P.switchDay(P.today);
+    if (P.locked) P.sayLocked();
+    else P.openSheet({ type: 'add' });
+  };
 </script>
 
 {#snippet tab(t: Tab, label: string)}

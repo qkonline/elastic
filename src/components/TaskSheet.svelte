@@ -231,7 +231,7 @@
                 <button class="ctl" onclick={() => P.restore(id)}>Restore</button>
               {:else if v.s === 'done'}
                 <button class="ctl" onclick={() => P.reopen(id)}>Reopen</button>
-              {:else if v.s === 'postponed' && it.movedKey}
+              {:else if v.s === 'postponed' && it.movedKey && it.startedAt == null}
                 <button class="ctl" onclick={() => P.restore(id)}>Undo move</button>
               {/if}
             </div>

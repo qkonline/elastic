@@ -39,7 +39,7 @@
   const cols = $derived(
     keys.map((k) => {
       const day = P.days[k];
-      const n = minutesInto(k, P.clock);
+      const n = minutesInto(k, P.minute);
       return {
         k,
         d: keyDate(k),

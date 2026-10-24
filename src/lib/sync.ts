@@ -62,6 +62,9 @@ interface Remote {
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const BACKOFF = [1, 2, 5, 10, 30].map((s) => s * 1000);
 const PING_MS = 20_000;
+/** A connection that hasn't answered a ping, or opened, in this long is given up on. */
+const ANSWER_MS = 10_000;
+const OPEN_MS = 15_000;
 const BATCH = 100;
 const BATCH_BYTES = 400_000;
 
@@ -107,7 +110,9 @@ function clean(kind: RecordKind, key: string, data: unknown): unknown {
 function merge(kind: RecordKind, base: unknown, mine: unknown, theirs: unknown): unknown {
   if (mine == null) return same(theirs, base) ? null : theirs;
   if (theirs == null) return mine;
-  if (kind === 'day') return mergeDay(base as Day | null, mine as Day, theirs as Day);
+  // In the same form as the account's (normalized), or fields only one side spells out read as changes.
+  const day = (d: unknown) => (d == null ? null : (normalizeDay(d) ?? (d as Day)));
+  if (kind === 'day') return mergeDay(day(base), day(mine)!, theirs as Day);
   if (kind === 'series') return mergeSeries(base as Series | null, mine as Series, theirs as Series);
   if (kind === 'goal' || kind === 'review')
     return mergeSettings(base as object | null, mine as object, theirs as object);
@@ -135,6 +140,13 @@ export class Sync {
   private retry: ReturnType<typeof setTimeout> | null = null;
   private ping: ReturnType<typeof setInterval> | null = null;
   private chain: Promise<void> = Promise.resolve();
+  /** Sending one record at a time (see the ack). */
+  private solo = false;
+  /** When the server was last heard from, and when it was last pinged. */
+  private heard = 0;
+  private pinged = 0;
+  /** Which connection queued messages belong to: a dropped one's are left unhandled. */
+  private gen = 0;
   private visible = true;
   private lastAlerts = '';
   private lastEndpoint: string | null | undefined = undefined;
@@ -211,6 +223,7 @@ export class Sync {
   }
 
   private close(): void {
+    this.gen++;
     if (this.retry) clearTimeout(this.retry);
     if (this.ping) clearInterval(this.ping);
     this.retry = this.ping = null;
@@ -240,7 +253,12 @@ export class Sync {
     }
     this.ws = ws;
     this.hooks.status('connecting');
+    // A connection can hang while opening (a network whose DNS answer can't be reached, say).
+    setTimeout(() => this.ws === ws && ws.readyState !== 1 && this.drop(), OPEN_MS);
     ws.onopen = () => {
+      this.heard = Date.now();
+      this.pinged = 0;
+      this.solo = false;
       this.full.clear();
       this.lastEndpoint = this.hooks.endpoint();
       this.send({
@@ -251,9 +269,10 @@ export class Sync {
         visible: this.visible,
         endpoint: this.lastEndpoint,
       });
-      this.ping = setInterval(() => this.visible && this.ws?.readyState === 1 && this.ws.send('ping'), PING_MS);
+      this.ping = setInterval(() => this.visible && this.probe(), PING_MS);
     };
     ws.onmessage = (e) => {
+      this.heard = Date.now();
       if (e.data === 'pong') return;
       let m: Record<string, unknown>;
       try {
@@ -261,7 +280,8 @@ export class Sync {
       } catch {
         return;
       }
-      this.queue(() => this.onMessage(m));
+      const gen = this.gen;
+      this.queue(() => (gen === this.gen ? this.onMessage(m) : Promise.resolve()));
     };
     ws.onclose = (e) => {
       if (this.ws !== ws) return;
@@ -274,6 +294,28 @@ export class Sync {
       this.hooks.status('offline');
       this.later();
     };
+  }
+
+  /**
+   * Is the connection still there? One that stops answering (after a switch from Wi-Fi to mobile
+   * data, or the app thawing after a while) can stay open for minutes as far as the browser
+   * knows, with nothing getting through: ping it, and give up on it if the ping isn't answered.
+   */
+  private probe(): void {
+    if (this.ws?.readyState !== 1) return;
+    if (this.pinged > this.heard) {
+      if (Date.now() - this.pinged > ANSWER_MS) this.drop();
+      return;
+    }
+    this.pinged = Date.now();
+    this.ws.send('ping');
+  }
+
+  /** Give up on this connection and make a new one. */
+  private drop(): void {
+    this.close();
+    this.hooks.status('offline');
+    this.later();
   }
 
   /** Try again after a pause that grows with each failure. */
@@ -305,7 +347,12 @@ export class Sync {
 
   /** Messages are handled one at a time, in order (each one reads and writes IndexedDB). */
   private queue(fn: () => Promise<void>): void {
-    this.chain = this.chain.then(fn).catch((e) => console.error('Sync', e));
+    this.chain = this.chain.then(fn).catch((e) => {
+      // Something couldn't be read or saved (storage failing, say): start again from what was
+      // saved, rather than carrying on past the changes that didn't make it.
+      console.error('Sync', e);
+      if (this.ws) this.drop();
+    });
   }
 
   /** Wait for everything queued so far (tests). */
@@ -360,9 +407,12 @@ export class Sync {
       const full = (m.full ?? []) as { kind: RecordKind; key: string }[];
       for (const f of full) this.full.add(recId(f.kind, f.key));
       if (full.length) this.hooks.status('full');
-      // A change the account wouldn't take at all (damaged): drop it rather than send it forever.
-      if (m.error)
+      // A change the account wouldn't take at all (damaged, or too big): drop it rather than send it
+      // forever. In a put of several, which one isn't said: they go again one at a time.
+      if (m.error && sent.size > 1) this.solo = true;
+      else if (m.error)
         for (const id of sent.keys()) {
+          console.error('Sync: the account refused', id);
           const agreed = (await db.getSynced(id)) ?? { rev: 0, data: null };
           await db.putSyncedRecord(...split(id), undefined, agreed, false);
         }
@@ -430,7 +480,8 @@ export class Sync {
     const sent = new Map<string, unknown>();
     const recs: object[] = [];
     let bytes = 0;
-    for (const id of ids.slice(0, BATCH)) {
+    // After a put the account refused, one record at a time, so only the bad one is dropped.
+    for (const id of ids.slice(0, this.solo ? 1 : BATCH)) {
       const [kind, key] = split(id);
       const data = shared(kind, await db.getRecord(kind, key));
       const base = (await db.getSynced(id))?.rev ?? 0;
@@ -472,6 +523,9 @@ export class Sync {
     if (v) {
       if (this.leader) this.reconnectNow();
       else this.claim(true);
+      // Back from the background: check the connection is still there.
+      this.probe();
+      setTimeout(() => this.visible && this.probe(), ANSWER_MS + 500);
       return;
     }
     const { token, device } = this.session;
@@ -479,7 +533,9 @@ export class Sync {
       token,
       device,
       visible: false,
-      alerts: this.hooks.alerts(),
+      // Only once caught up with the account: a plan from before what other devices did since
+      // would replace the alerts they set (and they don't send theirs again unless they change).
+      ...(this.ready ? { alerts: this.hooks.alerts() } : {}),
       endpoint: this.hooks.endpoint(),
     });
     try {

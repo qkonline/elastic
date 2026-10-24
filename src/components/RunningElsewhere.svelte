@@ -4,7 +4,7 @@
   import { cd, dayDiff, keyDate, minutesInto, shortDate } from '../lib/time';
 
   // A timer left running (or paused) on another day, e.g. started last night.
-  const e = $derived(P.elsewhere);
+  const e = $derived(P.screen.type === 'today' ? P.elsewhere : P.activeAnywhere);
   const w = $derived(e ? worked(e.it, minutesInto(e.key, P.clock)) : 0);
   // Work on a Boardo card counts up; anything else counts down to its time's up.
   const left = $derived(e ? (e.it.card ? w * 60 : (e.it.min - w) * 60) : 0);
@@ -25,7 +25,13 @@
       <span class="s">{status}</span>
     </div>
     <span class="count">{left >= 0 ? cd(left) : '+' + cd(-left)}</span>
-    <button class="go" onclick={() => P.switchDay(e.key)}>Go to it</button>
+    <button
+      class="go"
+      onclick={() => {
+        if (P.screen.type !== 'today') P.openScreen({ type: 'today' });
+        void P.switchDay(e.key);
+      }}>Go to it</button
+    >
   </div>
 {/if}
 

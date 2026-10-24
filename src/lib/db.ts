@@ -50,6 +50,9 @@ function open(): Promise<IDBDatabase> {
         db.close();
         dbp = null;
       };
+      // The browser can drop the connection (WebKit does, after the app has been in the
+      // background a while): open a new one next time rather than failing every save from then on.
+      db.onclose = () => (dbp = null);
       resolve(db);
     };
     req.onerror = () => reject(req.error);
@@ -57,6 +60,20 @@ function open(): Promise<IDBDatabase> {
   });
   dbp.catch(() => (dbp = null));
   return dbp;
+}
+
+/**
+ * A transaction, on a new connection if the one we had is closing or gone (`InvalidStateError`,
+ * which `onclose` doesn't always come before).
+ */
+async function begin(names: StoreName | StoreName[], mode: IDBTransactionMode): Promise<IDBTransaction> {
+  try {
+    return (await open()).transaction(names, mode);
+  } catch (e) {
+    if (!(e instanceof DOMException && e.name === 'InvalidStateError')) throw e;
+    dbp = null;
+    return (await open()).transaction(names, mode);
+  }
 }
 
 const done = <T>(req: IDBRequest<T>) =>
@@ -76,8 +93,7 @@ type StoreName = 'days' | 'series' | 'meta' | 'synced' | 'outbox' | 'goals' | 'r
 type DataStore = 'days' | 'series' | 'meta' | 'goals' | 'reviews';
 
 async function store(name: StoreName, mode: IDBTransactionMode) {
-  const db = await open();
-  return db.transaction(name, mode).objectStore(name);
+  return (await begin(name, mode)).objectStore(name);
 }
 
 // JSON round-trip strips Svelte state proxies and anything non-cloneable before storing.
@@ -97,8 +113,7 @@ export async function getAllDays(): Promise<Day[]> {
 
 /** A write to one store, noted in the outbox when signed in. */
 async function write(name: DataStore, fn: (st: IDBObjectStore, note: (id: string) => void) => void) {
-  const db = await open();
-  const tx = db.transaction(tracking ? [name, 'outbox'] : [name], 'readwrite');
+  const tx = await begin(tracking ? [name, 'outbox'] : [name], 'readwrite');
   const noted = tracking;
   fn(tx.objectStore(name), (id) => noted && tx.objectStore('outbox').put(true, id));
   await txDone(tx);
@@ -192,9 +207,8 @@ export async function replaceAll(data: {
   goals?: Goal[];
   reviews?: Review[];
 }): Promise<void> {
-  const db = await open();
   const names: StoreName[] = ['days', 'series', 'meta', 'outbox', 'goals', 'reviews'];
-  const tx = db.transaction(names, 'readwrite');
+  const tx = await begin(names, 'readwrite');
   const meta = tx.objectStore('meta');
   const outbox = tx.objectStore('outbox');
   const lists: [DataStore & ('days' | 'series' | 'goals' | 'reviews'), RecordKind, { id?: string; key?: string }[]][] =
@@ -250,9 +264,8 @@ export async function putSyncedRecord(
   synced: { rev: number; data: unknown },
   dirty: boolean,
 ): Promise<void> {
-  const db = await open();
   const name = STORE_OF[kind];
-  const tx = db.transaction([name, 'synced', 'outbox'], 'readwrite');
+  const tx = await begin([name, 'synced', 'outbox'], 'readwrite');
   const st = tx.objectStore(name);
   if (data !== undefined) {
     if (kind === 'settings') {
@@ -277,8 +290,7 @@ export async function getOutbox(): Promise<string[]> {
 
 /** Note records as changed here (to upload everything, or to send this device's plan to an account). */
 export async function markAll(): Promise<void> {
-  const db = await open();
-  const tx = db.transaction(['days', 'series', 'goals', 'reviews', 'outbox'], 'readwrite');
+  const tx = await begin(['days', 'series', 'goals', 'reviews', 'outbox'], 'readwrite');
   const outbox = tx.objectStore('outbox');
   for (const [name, kind] of [
     ['days', 'day'],
@@ -307,8 +319,7 @@ export async function deleteMeta(key: string): Promise<void> {
 
 /** Signing out: forget what was agreed with the account and what was waiting to go. */
 export async function clearSync(): Promise<void> {
-  const db = await open();
-  const tx = db.transaction(['synced', 'outbox', 'meta'], 'readwrite');
+  const tx = await begin(['synced', 'outbox', 'meta'], 'readwrite');
   tx.objectStore('synced').clear();
   tx.objectStore('outbox').clear();
   for (const k of ['account', 'syncRev', 'held']) tx.objectStore('meta').delete(k);

@@ -70,7 +70,11 @@ function toCurrentPoint(items: Item[], id: string, missed: Set<string>): Item[] 
   const rest = items.filter((x) => x.id !== id);
   // Checks live in the checklist, so they don't count.
   const at = rest.findIndex((x) => !untimed(x.kind) && x.status === 'todo' && !missed.has(x.id));
-  rest.splice(at < 0 ? rest.length : at, 0, self);
+  // And after everything already on the record (a task restored or reopened above them can be
+  // still to do), so the list stays in the order things happened.
+  let lastDone = -1;
+  rest.forEach((x, i) => !untimed(x.kind) && x.startedAt != null && (lastDone = i));
+  rest.splice(Math.max(at < 0 ? rest.length : at, lastDone + 1), 0, self);
   return rest;
 }
 
@@ -286,6 +290,9 @@ export function markDone(day: Day, id: string, start: number, end: number): Day 
  */
 export function reopen(day: Day, id: string, n: number): Day {
   const it = find(day, id);
+  // A Boardo card: back to set aside, its time kept, to be started again from Projects (a plain
+  // copy would lose the card).
+  if (it?.card && it.status === 'done') return mapItem(day, id, () => ({ status: 'postponed' }));
   if (it && it.status === 'done' && it.startedAt != null && !it.marked && !untimed(it.kind)) {
     const missed = new Set(
       schedule(day, n)
@@ -357,7 +364,10 @@ export function letThrough(day: Day, n: number): Day {
     d = {
       ...d,
       items: d.items.map((i) =>
-        i.kind === 'buffer' && i.status === 'todo' && i.heldAt == null ? { ...i, heldAt: at.get(i.id) ?? n } : i,
+        // Where the plan has it, but not in the past (one added or moved there mid-day).
+        i.kind === 'buffer' && i.status === 'todo' && i.heldAt == null
+          ? { ...i, heldAt: Math.max(at.get(i.id) ?? n, n) }
+          : i,
       ),
     };
   }
@@ -505,6 +515,8 @@ export function moveOut(day: Day, id: string, toKey: string, n: number): { day: 
 
 /** Undo a skip or a move. The caller removes the moved copy from its day. */
 export function restore(day: Day, id: string): Day {
+  // Worked on before it was moved: putting it back as to do would wipe that time.
+  if (find(day, id)?.startedAt != null) return day;
   return mapItem(day, id, () => ({ status: 'todo', movedKey: null, movedId: null }));
 }
 

@@ -11,7 +11,8 @@ export function unlockAudio(): void {
         window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       ac = new Ctor();
     }
-    if (ac.state === 'suspended') void ac.resume();
+    // Safari leaves it 'interrupted' (not 'suspended') after the app has been in the background.
+    if (ac.state !== 'running') void ac.resume().catch(() => {});
   } catch {
     /* no audio */
   }
@@ -19,6 +20,7 @@ export function unlockAudio(): void {
 
 /** Unlock on the first tap or key press anywhere (e.g. after a reload with a timer running). */
 export function unlockOnFirstGesture(): void {
+  if (typeof addEventListener === 'undefined') return;
   const once = () => {
     unlockAudio();
     removeEventListener('pointerdown', once, true);
@@ -31,6 +33,7 @@ export function unlockOnFirstGesture(): void {
 export function chime(notes = [880, 1175]): void {
   if (!ac) return;
   try {
+    if (ac.state !== 'running') void ac.resume().catch(() => {});
     notes.forEach((f, k) => {
       const o = ac!.createOscillator(),
         g = ac!.createGain();

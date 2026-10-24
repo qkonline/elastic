@@ -273,6 +273,11 @@ export class Planner {
   /** Now, in minutes since midnight of the viewed day. */
   n = $derived(minutesInto(this.viewKey, this.clock));
   /**
+   * The clock to the minute, for what doesn't need the seconds (calendars, habit history, review
+   * numbers): reading it, rather than `clock`, recomputes once a minute instead of 4 times a second.
+   */
+  minute = $derived(Math.floor(this.clock / 60_000) * 60_000);
+  /**
    * The viewed day as the plan sees it. With a flexible start, today's plan (until the day is
    * started) runs from now for the usual day length.
    */
@@ -295,14 +300,17 @@ export class Planner {
   celebrate = $state<Celebration | null>(null);
   active = $derived(this.day.items.find(isActive) ?? null);
   /** A timer running or paused on a day other than the one on screen (e.g. left on last night). */
-  elsewhere = $derived.by(() => {
+  elsewhere = $derived.by(() => this.activeOn((k) => k !== this.viewKey));
+  /** A timer anywhere: on Habits, Goals, Review and Settings the plan isn't in sight at all. */
+  activeAnywhere = $derived.by(() => this.activeOn(() => true));
+  private activeOn(which: (key: string) => boolean): { key: string; it: Item } | null {
     for (const d of Object.values(this.days)) {
-      if (d.key === this.viewKey) continue;
+      if (!which(d.key)) continue;
       const it = d.items.find(isActive);
       if (it) return { key: d.key, it };
     }
     return null;
-  });
+  }
   /** The fixed-time task whose heads-up is due, until it starts (Today or the day after). */
   comingUp: HeadsUp | null = $derived.by(() => {
     const now = this.clock;
@@ -375,9 +383,10 @@ export class Planner {
       if (this.view === 'month') await this.loadMonth();
       if (!s && (this.stored.size || series.length)) this.setSettings({ onboarded: true });
       // Anything already over time when the page loads has had its alert.
-      for (const d of Object.values(this.days))
-        for (const it of d.items) if (isActive(it) && worked(it, minutesInto(d.key)) >= it.min) this.alerted.add(it.id);
+      this.rungAlready();
       this.remindFrom = this.updateCheckedAt = Date.now();
+      // The sign-in before the app shows, or a signed-in device would show the sign-in page first.
+      this.session = (await db.getMeta<Session>('account').catch(() => undefined)) ?? null;
       this.ready = true;
     } catch (e) {
       this.failed = e instanceof Error ? e.message : String(e);
@@ -387,9 +396,8 @@ export class Planner {
     // The app opens from the service worker's cache: ask straight away whether there's a newer
     // build, and take it now if nothing is under way (otherwise at the next quiet moment).
     void this.checkForUpdate(true);
-    const session = await db.getMeta<Session>('account').catch(() => undefined);
+    const session = this.session;
     if (session) {
-      this.session = session;
       // Signed in before devices noted whose plan they hold: it's this account's.
       if (!(await db.getMeta('owner').catch(() => null))) void db.putMeta('owner', session.user.id);
       void this.boardo.load();
@@ -419,7 +427,21 @@ export class Planner {
    * Going into the background: save, and have the push worker ring at time's up and before
    * fixed times. What each push should say is stored for the service worker.
    */
+  /** Timers already over time count as having rung (a push said so, or the moment has gone). */
+  private rungAlready(): void {
+    for (const d of Object.values(this.days))
+      for (const it of d.items) if (isActive(it) && worked(it, minutesInto(d.key)) >= it.min) this.alerted.add(it.id);
+  }
+
+  /** When the page last went out of sight. */
+  private hiddenAt = 0;
+
   private onHidden(): void {
+    this.hiddenAt = Date.now();
+    // A drag whose finger-up never came, or a reschedule panel left open, would otherwise keep
+    // the plan from following the now line and a new build from loading, for good.
+    this.drag = null;
+    this.resched = null;
     this.updateIfQuiet();
     void this.flush();
     // Signed in, the account sends the alerts, to every device of the account.
@@ -435,10 +457,14 @@ export class Planner {
 
   private onVisible(): void {
     this.sync.setVisible(true);
-    if (this.pushScheduled) {
-      if (!this.accountAlerts) cancelPush();
-      // Heads-ups that came as a notification while away don't chime again on the way back.
+    // Sound may need another tap to come back after the background (iOS).
+    unlockOnFirstGesture();
+    if (this.pushScheduled && !this.accountAlerts) cancelPush();
+    // Back after a while: what came due meanwhile came as a notification (booked here, or sent by
+    // the account), or its moment has gone. Either way it doesn't chime now, all at once.
+    if (this.pushScheduled || (this.accountAlerts && this.settings.notify) || Date.now() - this.hiddenAt > 120_000) {
       this.remindFrom = Date.now();
+      this.rungAlready();
     }
     this.pushScheduled = false;
     this.tick();
@@ -466,7 +492,13 @@ export class Planner {
     this.reloading = true;
     // Only once everything is saved: a reload would lose what isn't.
     void this.flush().then((ok) => {
-      if (ok) return reloadToUpdate().then((went) => void (went === false && (this.reloading = false)));
+      // Still here a while after reloading (iOS can drop the navigation of a page it freezes): let a
+      // later moment try again.
+      if (ok)
+        return reloadToUpdate().then((went) => {
+          if (went === false) this.reloading = false;
+          else setTimeout(() => (this.reloading = false), 20_000);
+        });
       this.reloading = false;
     });
   }
@@ -504,7 +536,11 @@ export class Planner {
 
   /** Today's habits with a reminder that aren't done yet. */
   private habitReminders(): { at: number; note: Note }[] {
-    const d = this.days[this.today];
+    // Today's, and tomorrow's for the early morning (pushes are booked a day ahead).
+    return [this.today, addDays(this.today, 1)].flatMap((k) => this.habitRemindersOn(this.days[k]));
+  }
+
+  private habitRemindersOn(d: Day | undefined): { at: number; note: Note }[] {
     if (!d || d.dayEnded != null) return [];
     const n = minutesInto(d.key, this.clock);
     return d.items
@@ -522,12 +558,10 @@ export class Planner {
 
   /** Fixed-time tasks on Today and the day after (for the small hours), with their heads-up times. */
   private headsUps(): HeadsUp[] {
+    // As planned, not as planOf() shows a flexible day not started yet: that plan runs from now,
+    // so a fixed task after others would move later every minute and its heads-up never come.
     const days = [this.today, addDays(this.today, 1)].map((k) => this.days[k]).filter(Boolean);
-    return headsUps(
-      days.map((d) => this.planOf(d)),
-      this.settings.fixedLead,
-      this.clock,
-    );
+    return headsUps(days, this.settings.fixedLead, this.clock);
   }
 
   /** A day as the plan sees it: with a flexible start, today's plan runs from now until it's started. */
@@ -734,6 +768,7 @@ export class Planner {
    */
   startCard(c: BoardoCard): void {
     if (!this.isToday) return;
+    if (this.locked) return this.sayLocked();
     if (this.waiting) return this.askToStartDay('timer');
     const going = this.day.items.find((i) => i.card?.id === c.id && isActive(i));
     if (going) {
@@ -782,6 +817,14 @@ export class Planner {
    * A save failed (storage full, or the browser refused): say so until one works, and try
    * again, less often each time, up to once a minute. Nothing reloads meanwhile.
    */
+  /** Everything is about to be replaced: a save still waiting would write the old plan back over it. */
+  private dropPending(): void {
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    this.pending.clear();
+    this.unsaved.clear();
+  }
+
   private saveFailed(e: unknown): void {
     console.error('Could not save', e);
     this.saveError = e instanceof DOMException && e.name === 'QuotaExceededError' ? 'full' : 'failed';
@@ -889,27 +932,34 @@ export class Planner {
   }
 
   private async reloadAll(): Promise<void> {
-    this.days = {};
-    this.stored.clear();
-    this.pending.clear();
-    this.unsaved.clear();
-    const [s, series, goals, reviews] = await Promise.all([
+    // Everything is read first and swapped in at once: meanwhile the plan on screen stays as it
+    // was, rather than a day rebuilt from repeating tasks that a tap could save over the real one.
+    const keys = [...new Set([this.viewKey, this.today, addDays(this.today, 1), ...this.weekKeys])];
+    const [s, series, goals, reviews, recent, got] = await Promise.all([
       db.getSettings(),
       db.getAllSeries(),
       db.getGoals(),
       db.getReviews(),
+      db.getDays(addDays(this.today, -RECENT_DAYS), addDays(this.today, -1)),
+      Promise.all(keys.map((k) => db.getDay(k))),
     ]);
+    this.dropPending();
     this.goals = goals;
     this.reviews = reviews;
     this.settings = s ? stored(s) : { ...DEFAULT_SETTINGS };
     this.series = series;
+    const days: Record<string, Day> = {};
+    this.stored.clear();
+    for (const d of [...recent, ...got.filter((d): d is Day => !!d)]) {
+      days[d.key] = d;
+      this.stored.add(d.key);
+    }
+    for (const k of keys) days[k] ??= this.blankDay(k);
+    this.days = days;
     this.sheet = null;
     this.confirm = null;
     this.resched = null;
     await this.loadPast();
-    await this.ensureDay(this.viewKey);
-    await this.ensureDay(this.today);
-    await this.loadWeek();
   }
 
   // ---------- small helpers ----------
@@ -1125,11 +1175,14 @@ export class Planner {
 
   /** A check or a Start button was tapped before the day started: say to start it first. */
   askToStartDay(what: 'check' | 'timer'): void {
+    // The Start my day button is only on Today's day view: elsewhere, say where it is.
+    const first =
+      this.screen.type === 'today' && this.view === 'day' ? 'Start your day first' : 'Start your day on Today first';
     const text = !this.isToday
       ? "This day hasn't started yet. Tick it off once it has."
       : what === 'check'
-        ? 'Start your day first, then tick it off.'
-        : 'Start your day first, then start the timer.';
+        ? `${first}, then tick it off.`
+        : `${first}, then start the timer.`;
     this.nudge = { text, at: Date.now() };
     this.say(text);
   }
@@ -1293,7 +1346,13 @@ export class Planner {
   /** Only one timer at a time across all days: finish one left running on another day. */
   private finishElsewhere(): void {
     const e = this.elsewhere;
-    if (e) this.put(A.finish(this.days[e.key], e.it.id, minutesInto(e.key, this.clock)));
+    if (!e) return;
+    const m = minutesInto(e.key, this.clock);
+    // A Boardo card is only ever set aside, never marked done, by starting something else (only
+    // Done marks my part done in Boardo).
+    this.put(
+      e.it.card ? A.patchItem(this.days[e.key], e.it.id, A.setAside(e.it, m)) : A.finish(this.days[e.key], e.it.id, m),
+    );
   }
 
   pause(id: string): void {
@@ -1792,7 +1851,10 @@ export class Planner {
         /* storage blocked */
       }
     }
-    void db.putSettings(this.settings).then(() => this.post({ t: 'settings' }));
+    void db
+      .putSettings(this.settings)
+      .then(() => this.post({ t: 'settings' }))
+      .catch((e) => this.saveFailed(e));
   }
 
   async exportData(): Promise<void> {
@@ -1829,6 +1891,7 @@ export class Planner {
       this.importMsg = { err: false, t: 'Imported. Your plan has been replaced with the backup.' };
       return;
     }
+    this.dropPending();
     await db.replaceAll({
       days: res.days,
       series: res.series,
@@ -1848,6 +1911,7 @@ export class Planner {
 
   async eraseAll(): Promise<void> {
     this.confirm = null;
+    this.dropPending();
     await db.replaceAll({ days: [], series: [], settings: null });
     try {
       localStorage.removeItem(THEME_KEY);
@@ -2059,8 +2123,9 @@ export class Planner {
     cancelPush(); // the account sends this device's notifications from now on
     if (!r.fresh && (await this.hasOwnPlan())) {
       const info = await api.accountInfo(r.token).catch(() => null);
-      // Asked first; the sign-in is only kept once it's answered.
-      if (info?.records) {
+      // Asked first; the sign-in is only kept once it's answered. Asked too when there was no
+      // telling (no answer): merging this plan into one the account has can't be undone.
+      if (!info || info.records) {
         this.joinAsk = true;
         return;
       }
@@ -2083,6 +2148,7 @@ export class Planner {
   private async wipeDevice(): Promise<void> {
     const shared = new Set<string>([...SHARED_SETTINGS, 'onboarded']);
     const kept = Object.fromEntries(Object.entries(this.settings).filter(([k]) => !shared.has(k)));
+    this.dropPending();
     await db.replaceAll({ days: [], series: [], goals: [], reviews: [], settings: { ...DEFAULT_SETTINGS, ...kept } });
     await db.deleteMeta('shown').catch(() => {});
     await this.boardo.wipe();
@@ -2166,6 +2232,7 @@ export class Planner {
     this.joinAsk = false;
     if (keep === 'account') {
       // This device's own days and repeating tasks go; its settings stay until the account's arrive.
+      this.dropPending();
       await db.replaceAll({ days: [], series: [], settings: this.settings });
       await this.reloadAll();
       this.post({ t: 'all' });
@@ -2180,7 +2247,7 @@ export class Planner {
     const s = this.session;
     if (!s || !this.joinAsk) return;
     await this.forgetSession();
-    await api.signOutRemote(s.token);
+    await api.signOutRemote(s.token, s.device);
   }
 
   /** Another tab signed in or out, or set the account up. */
@@ -2194,6 +2261,9 @@ export class Planner {
     }
     if (session?.token === this.session?.token) return;
     this.sync.stop();
+    // Signed out, or in as someone else, in another tab: what was open here is theirs no longer.
+    this.sheet = null;
+    this.confirm = null;
     this.session = session;
     if (session) await this.sync.start(session);
   }
@@ -2289,8 +2359,11 @@ export class Planner {
     this.confirm = null;
     if (!s) return;
     await this.flush();
+    // Changes still on their way to the account get a few seconds to arrive first.
+    for (let i = 0; i < 25 && this.syncStatus === 'live' && !(await this.sync.drained()); i++)
+      await new Promise((r) => setTimeout(r, 200));
     await this.forgetSession('Signed out. This device keeps its copy of your plan.');
-    await api.signOutRemote(s.token);
+    await api.signOutRemote(s.token, s.device);
   }
 
   /** Delete the account and everything it holds. Each device keeps the copy it has. */

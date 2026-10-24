@@ -176,7 +176,7 @@ describe('Planner', () => {
         dayStart: 540,
         wrap: 1020,
         dayStarted: 540,
-        items: [itemFromSeries(email), A.newItem({ title: 'Started', min: 30 })],
+        items: [itemFromSeries(email, '2026-09-27'), A.newItem({ title: 'Started', min: 30 })],
       },
     ]);
     await p.switchDay('2026-09-29');
