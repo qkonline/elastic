@@ -1,5 +1,6 @@
 <script lang="ts">
   import { planner } from '../lib/planner.svelte';
+  import { intoView } from '../lib/ui.svelte';
   import DisarmBar from './DisarmBar.svelte';
 
   interface Opt {
@@ -13,7 +14,7 @@
   const focusFirst = (el: HTMLElement) => el.focus({ preventScroll: true });
 </script>
 
-<div class="confirm" class:large role="group" aria-label={q}>
+<div class="confirm" class:large role="group" aria-label={q} {@attach intoView}>
   <div class="q">
     {q}
     {#if d}<span>{d}</span>{/if}

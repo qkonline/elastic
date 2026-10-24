@@ -2,6 +2,7 @@
   import { planner as P } from '../lib/planner.svelte';
   import type { ItemVM } from '../lib/rows';
   import { addDays, fT } from '../lib/time';
+  import { intoView } from '../lib/ui.svelte';
 
   let { v }: { v: ItemVM } = $props();
   const c24 = $derived(P.settings.clock24);
@@ -9,7 +10,7 @@
 </script>
 
 {#if P.resched}
-  <div class="panel" role="group" aria-label="Reschedule {v.it.title}">
+  <div class="panel" role="group" aria-label="Reschedule {v.it.title}" {@attach intoView}>
     <div class="head">
       <span class="h">Reschedule</span>
       <span class="was">Planned {fT(v.start, c24)} – {fT(v.end, c24)}</span>
