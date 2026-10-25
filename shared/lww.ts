@@ -5,9 +5,10 @@
 // of paths, each with its value and the moment it was last set (a hybrid logical clock). Two
 // copies of a record merge path by path: the later setting wins, whichever copy it's in and in
 // whatever order they meet, so devices and the account end up the same without ever asking
-// which version a change was made from. A day's tasks are paths of their own (the task, and its
-// fields in the groups that only make sense together, see GROUPS), so a task ticked on one device
-// and another moved on a second both stay.
+// which version a change was made from. A task's timer ranks its settings a little differently
+// (a finish stands against a late one, see timerRank), but still in one order. A day's tasks
+// are paths of their own (the task, and its fields in the groups that only make sense together,
+// see GROUPS), so a task ticked on one device and another moved on a second both stay.
 //
 // Each device and the account keep a record's replica: every path ever set, deletions included
 // (a task deleted is its path set to null, so an older copy can't bring it back), and the
@@ -73,6 +74,8 @@ const GROUPS: Record<string, string[]> = {
     'movedKey',
     'movedId',
     'card',
+    'run',
+    'fix',
   ],
   // What kind of task it is and how long.
   k: ['kind', 'fixedAt', 'min', 'heldAt'],
@@ -80,6 +83,9 @@ const GROUPS: Record<string, string[]> = {
   r: ['repeat', 'seriesId'],
 };
 const GROUPED = new Set(Object.values(GROUPS).flat());
+
+/** A task's timer and what it led to, as one value (its `t` path). */
+export const timerOf = (it: object) => JSON.stringify(pick(it as Record<string, unknown>, GROUPS.t));
 
 const json = (v: unknown) => JSON.stringify(v ?? null);
 const same = (a: unknown, b: unknown) => json(a) === json(b);
@@ -165,12 +171,46 @@ export function diff(kind: Kind, prev: unknown, next: unknown): Values {
 /** Paths with one clock: changes made at one moment. */
 export const stamp = (v: Values, c: Clock): Paths => Object.fromEntries(Object.entries(v).map(([p, x]) => [p, [x, c]]));
 
+const TIMER = /^i\.[^.]+\.t$/;
+
+/**
+ * Where a setting of a task's timer group stands against another, as [moment, tier, then].
+ * Mostly it's its clock, as for any path. A timer run, though, carries the clock it started at
+ * (`run`): its pauses and resumes rank by clock, a finish (done, or set aside part-way) beats them
+ * all, and of two finishes the first stands, so a device that never heard the timer stopped
+ * can't stop it again later (25 Oct 2026: Done tapped on a phone 40 minutes out of date logged
+ * 41 minutes for a task finished in one). A change made to a finished run by a device that saw
+ * it finished (`fix`: correcting its times, reopening it) beats them, the later one winning.
+ * Anything else (back to do, a new run) ranks by its clock, against the clock the run started.
+ * It's a single order, so any copies merge to the same in any order.
+ */
+function timerRank([v, c]: [unknown, Clock]): [Clock, number, Clock, boolean] {
+  const t = (v ?? {}) as { status?: string; run?: unknown; fix?: unknown; startedAt?: unknown; endedAt?: unknown };
+  if (typeof t.run !== 'string') return [c, 0, c, false];
+  if (t.status === 'running' || t.status === 'paused') return [t.run, 1, c, false];
+  const ended = (t.status === 'done' || t.status === 'postponed') && t.startedAt != null && t.endedAt != null;
+  if (!ended) return [c, 0, c, false];
+  return t.fix ? [t.run, 3, c, false] : [t.run, 2, c, true];
+}
+
+/** Whether `b` wins over `a` for path `p`. */
+function wins(p: string, a: [unknown, Clock], b: [unknown, Clock]): boolean {
+  if (TIMER.test(p)) {
+    const [am, at, ac, firstA] = timerRank(a);
+    const [bm, bt, bc] = timerRank(b);
+    if (bm !== am) return bm > am;
+    if (bt !== at) return bt > at;
+    if (bc !== ac) return firstA ? bc < ac : bc > ac;
+  } else if (b[1] !== a[1]) return b[1] > a[1];
+  return json(b[0]) > json(a[0]);
+}
+
 /** Two copies of a record as one: each path the later of the two (ties broken by value, so every copy agrees). */
 export function merge(a: Paths, b: Paths): Paths {
   const out: Paths = { ...a };
   for (const [p, mine] of Object.entries(b)) {
     const cur = out[p];
-    if (!cur || mine[1] > cur[1] || (mine[1] === cur[1] && json(mine[0]) > json(cur[0]))) out[p] = mine;
+    if (!cur || wins(p, cur, mine)) out[p] = mine;
   }
   return out;
 }

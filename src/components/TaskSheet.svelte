@@ -133,7 +133,15 @@
                     (v.pausedTot >= 0.5 ? ` · paused ${dL(v.pausedTot)}` : '')}
               </span>
             </div>
-            <span class="badge">{v.s === 'paused' ? '‖ Paused' : v.isOver ? 'Over time' : 'Running'}</span>
+            <span class="badge"
+              >{P.catchingUp
+                ? 'Catching up…'
+                : v.s === 'paused'
+                  ? '‖ Paused'
+                  : v.isOver
+                    ? 'Over time'
+                    : 'Running'}</span
+            >
           </div>
           <div class="bar"><div style:width="{v.isOver ? 100 : v.p}%" style:background={barBg}></div></div>
           {#if P.locked}

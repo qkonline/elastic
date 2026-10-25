@@ -89,6 +89,12 @@ export interface Item {
    * while it runs. Such an item has `min: 0`, so it counts up.
    */
   card?: { id: string; board: string; session?: string | null };
+  /**
+   * For syncing (shared/lww.ts timerRank): the clock the timer's run started at, and, once it's
+   * finished, whether it was changed by a device that knew (its times corrected, reopened).
+   */
+  run?: string;
+  fix?: boolean;
 }
 
 export interface Day {

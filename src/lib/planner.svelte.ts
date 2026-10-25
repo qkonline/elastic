@@ -7,7 +7,17 @@ import { arrival, MOVED_TO, moveUrl, reachable } from './move';
 import { API, ApiError, cancelled, complete, passkeysAvailable, type Session, type SignedIn } from './account';
 import { chime, notifyHidden, requestNotifications, unlockAudio, unlockOnFirstGesture, vibrate } from './alert';
 import { download, normalizeDay, parseBackup } from './backup';
-import { diff, fromPaths, Hlc, type Kind as RecordKind, merge, type Paths, stamp, toPaths } from '../../shared/lww';
+import {
+  diff,
+  fromPaths,
+  Hlc,
+  type Kind as RecordKind,
+  merge,
+  type Paths,
+  stamp,
+  timerOf,
+  toPaths,
+} from '../../shared/lww';
 import { Boardo, type BoardoCard, type BoardoOp, cardsFor } from './boardo.svelte';
 import * as db from './db';
 import { hasNotifications, needsInstallForNotifications } from './platform';
@@ -27,7 +37,7 @@ import {
   withoutSeries,
 } from './repeat';
 import { sampleItems } from './sample';
-import { dayStats, type DayStats, isActive, schedule, worked } from './schedule';
+import { dayStats, type DayStats, isActive, isPartial, schedule, worked } from './schedule';
 import {
   addDays,
   atMinutes,
@@ -103,6 +113,9 @@ export interface Drag {
 export const CONFIRM_MS = 10_000;
 /** How long the "start your day first" message stays up. */
 export const NUDGE_MS = 6000;
+/** How long a timer tap waits for this device to catch up with the account before going ahead. */
+export const CATCH_UP_MS = 5000;
+const CATCHING_UP = 'Catching up with your other devices…';
 const SAVE_DELAY = 250;
 const SERIES_DELAY = 500;
 /** Ask for a newer build on coming back to the app (at most this often), and while it stays open. */
@@ -268,8 +281,22 @@ export class Planner {
       ? 'This day has ended. Reopen it at the bottom of the day to make changes.'
       : 'This day has ended, so it stays as it was.',
   );
-  /** Shown after tapping a check or a Start button before the day has started (Start my day answers it). */
-  nudge = $state<{ text: string; at: number } | null>(null);
+  /**
+   * Shown after tapping a check or a Start button before the day has started (Start my day
+   * answers it). `quiet`: a message only, without calling out the Start my day button.
+   */
+  nudge = $state<{ text: string; at: number; quiet?: boolean } | null>(null);
+  /**
+   * Signed in, and not caught up with the account since opening or coming back after a while:
+   * the plan on screen may be out of date, so timer taps wait (whenCurrent()). On 25 Oct 2026 a
+   * phone opened 40 minutes out of date showed a task finished on the laptop as still running,
+   * and Done tapped on it logged 41 minutes for it.
+   */
+  catchingUp = $state(false);
+  private held: { title: string; sig: () => string; was: string; run: () => void } | null = null;
+  private catchUpTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Records from the account being loaded into the store (fromAccount). */
+  private landing: Promise<void> = Promise.resolve();
   /** Now, in minutes since midnight of the viewed day. */
   n = $derived(minutesInto(this.viewKey, this.clock));
   /**
@@ -350,10 +377,13 @@ export class Planner {
     changed: (ids) => this.fromAccount(ids),
     status: (st) => {
       this.syncStatus = st;
+      // Can't catch up (offline, or the account isn't set up): what's here is all there is.
+      if (st === 'offline' || st === 'paused' || st === 'off') this.setCatchingUp(false);
       // Connected to the account: Boardo's cards come through it.
       if (st === 'live') void this.boardo.online();
     },
     boardo: () => this.boardo.nudge(),
+    current: (v) => this.setCatchingUp(!v),
     signedOut: () => void this.forgetSession('You were signed out on this device. Your plan is still here.'),
     alerts: () => pushPlan(this.alerts(), Date.now()),
     endpoint: () => (this.settings.notify ? pushEndpoint() : null),
@@ -738,7 +768,7 @@ export class Planner {
   dayAt = (key: string): Day | undefined => this.days[key] ?? this.past[key];
 
   private put(day: Day): void {
-    day = this.cardOps(this.days[day.key], day);
+    day = this.runs(this.days[day.key], this.cardOps(this.days[day.key], day));
     // What was done, as changes: against the day as it was, stamped with now. Changes come from
     // here, never from storage, so nothing the app does to storage by itself is ever sent. A day
     // built from repeating tasks and never saved goes whole, but as built it counts as older
@@ -753,6 +783,32 @@ export class Planner {
     this.pending.add(day.key);
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => void this.flush(), SAVE_DELAY);
+  }
+
+  /**
+   * Timer runs, marked for the merge (shared/lww.ts timerRank): a timer started here gets the
+   * clock it starts at, and a change to a run that had already finished (its times corrected,
+   * reopened) says it was made knowing that, so a finish from a device that hadn't heard the
+   * timer stop doesn't beat it, nor it the first finish.
+   */
+  private runs(prev: Day | undefined, next: Day): Day {
+    const before = new Map((prev?.items ?? []).map((i) => [i.id, i]));
+    const ended = (i: Item) => i.status === 'done' || isPartial(i);
+    let items = next.items;
+    next.items.forEach((it, idx) => {
+      const was = before.get(it.id);
+      let cur = it;
+      if (isActive(it)) {
+        if (!was || !isActive(was)) cur = { ...it, run: this.hlc.now(), fix: undefined };
+      } else if (ended(it) && it.endedAt != null) {
+        if (it.run && !it.fix && was && ended(was) && timerOf(was) !== timerOf(it)) cur = { ...it, fix: true };
+      } else if (it.run || it.fix) cur = { ...it, run: undefined, fix: undefined };
+      if (cur !== it) {
+        if (items === next.items) items = [...next.items];
+        items[idx] = Object.fromEntries(Object.entries(cur).filter(([, v]) => v !== undefined)) as unknown as Item;
+      }
+    });
+    return items === next.items ? next : { ...next, items };
   }
 
   /**
@@ -811,6 +867,12 @@ export class Planner {
     if (!this.isToday) return;
     if (this.locked) return this.sayLocked();
     if (this.waiting) return this.askToStartDay('timer');
+    const work = () =>
+      this.day.items
+        .filter((i) => i.card?.id === c.id)
+        .map(timerOf)
+        .join();
+    if (this.whenCurrent(c.title, work, () => this.startCard(c))) return;
     const going = this.day.items.find((i) => i.card?.id === c.id && isActive(i));
     if (going) {
       if (going.status === 'paused') this.resume(going.id);
@@ -826,7 +888,7 @@ export class Planner {
   /** Stop work on a card without finishing it: Postpone, for a card. */
   setAside(id: string): void {
     const it = this.item(id);
-    if (!it?.card) return;
+    if (!it?.card || this.whenTaskCurrent(id, () => this.setAside(id))) return;
     this.confirm = null;
     this.update((d) => A.patchItem(d, id, A.setAside(it, this.n)), `${it.title} set aside`);
   }
@@ -962,12 +1024,61 @@ export class Planner {
     if (ids.some((id) => id.startsWith('review:'))) msgs.push({ t: 'reviews' });
     if (keys.length) msgs.push({ t: 'days', keys });
     if (keys.some((k) => !(k in this.days) && k < this.today)) void this.loadPast();
-    void (async () => {
+    this.landing = this.landing.then(async () => {
       for (const m of msgs) {
         this.post(m);
         await this.onMessage(m);
       }
-    })();
+    });
+  }
+
+  private setCatchingUp(on: boolean): void {
+    if (this.catchUpTimer) clearTimeout(this.catchUpTimer);
+    this.catchUpTimer = null;
+    if (on) {
+      this.catchingUp = true;
+      // Not for long: an account slow to answer shouldn't keep the timer from working.
+      this.catchUpTimer = setTimeout(() => this.setCatchingUp(false), CATCH_UP_MS);
+      return;
+    }
+    if (!this.catchingUp) return;
+    this.catchingUp = false;
+    void this.landing.then(() => this.runHeld());
+  }
+
+  /**
+   * A timer tap while catching up waits until caught up, then goes ahead if what it was tapped
+   * on is as it was; otherwise it says so (a timer stopped on another device, say). True: held.
+   */
+  private whenCurrent(title: string, sig: () => string, run: () => void): boolean {
+    if (!this.catchingUp) return false;
+    this.held = { title, sig, was: sig(), run };
+    this.nudge = { text: CATCHING_UP, at: Date.now(), quiet: true };
+    this.say(CATCHING_UP);
+    return true;
+  }
+
+  /** whenCurrent() for a task: it waits on that task's timer. */
+  private whenTaskCurrent(id: string, run: () => void): boolean {
+    const sig = () => {
+      const it = this.item(id);
+      return it ? timerOf(it) : '';
+    };
+    return this.whenCurrent(this.item(id)?.title ?? 'That task', sig, run);
+  }
+
+  /** whenCurrent() for the day as a whole: it waits on whether it has started, and its timers. */
+  private dayTimers = () => JSON.stringify([this.day.dayStarted, this.day.dayEnded, this.day.items.map(timerOf)]);
+
+  private runHeld(): void {
+    const h = this.held;
+    this.held = null;
+    if (this.nudge?.text === CATCHING_UP) this.nudge = null;
+    if (!h) return;
+    if (h.sig() === h.was) return h.run();
+    const text = `${h.title} was changed on another device. Have a look, then try again.`;
+    this.nudge = { text, at: Date.now(), quiet: true };
+    this.say(text);
   }
 
   /**
@@ -1257,6 +1368,7 @@ export class Planner {
 
   startDay(): void {
     unlockAudio();
+    if (this.whenCurrent('Today', this.dayTimers, () => this.startDay())) return;
     this.nudge = null;
     const n = this.n;
     const timed = (i: Item) => i.status === 'todo' && i.kind !== 'buffer' && !untimed(i.kind);
@@ -1276,6 +1388,7 @@ export class Planner {
 
   /** "End my day", optionally moving what's left (one-off tasks and checks) to the next day. */
   async endDay(moveRest: boolean): Promise<void> {
+    if (this.whenCurrent('Today', this.dayTimers, () => void this.endDay(moveRest))) return;
     const key = this.viewKey,
       n = this.n;
     let d = A.endDay(this.day, n);
@@ -1359,6 +1472,7 @@ export class Planner {
     const it = this.item(id);
     if (!it || it.kind === 'buffer' || untimed(it.kind)) return;
     unlockAudio();
+    if (this.whenTaskCurrent(id, () => this.startItem(id))) return;
     this.alerted.delete(id);
     this.confirm = null;
     this.nudge = null;
@@ -1412,7 +1526,7 @@ export class Planner {
 
   pause(id: string): void {
     const it = this.item(id);
-    if (!it) return;
+    if (!it || this.whenTaskCurrent(id, () => this.pause(id))) return;
     const left = Math.max(0, (it.min - worked(it, this.n)) * 60);
     this.update(
       (d) => A.pause(d, id, this.n),
@@ -1424,11 +1538,13 @@ export class Planner {
 
   resume(id: string): void {
     unlockAudio();
+    if (this.whenTaskCurrent(id, () => this.resume(id))) return;
     this.update((d) => A.resume(d, id, this.n), `${this.item(id)?.title} resumed`);
   }
 
   finish(id: string): void {
     this.confirm = null;
+    if (this.whenTaskCurrent(id, () => this.finish(id))) return;
     this.update((d) => A.finish(d, id, this.n), `${this.item(id)?.title} done`);
   }
 
@@ -1437,6 +1553,7 @@ export class Planner {
    * late, so ask: when time was up, or just now (see finishAt).
    */
   done(id: string): void {
+    if (this.whenTaskCurrent(id, () => this.done(id))) return;
     const it = this.item(id);
     if (it && !it.card && isActive(it) && worked(it, this.n) - it.min >= ASK_FINISH_OVER) this.arm('finish', id);
     else this.finish(id);
@@ -1451,6 +1568,7 @@ export class Planner {
   /** Done, logged as finished at `at` (no later than now). */
   finishAt(id: string, at: number): void {
     this.confirm = null;
+    if (this.whenTaskCurrent(id, () => this.finishAt(id, at))) return;
     const end = Math.min(at, this.n);
     this.update((d) => A.finish(d, id, end), `${this.item(id)?.title} done at ${fT(end, this.settings.clock24)}`);
   }
@@ -1508,6 +1626,7 @@ export class Planner {
     const it = this.item(id);
     if (!it) return;
     this.confirm = null;
+    if (isActive(it) && this.whenTaskCurrent(id, () => void this.postpone(id, where))) return;
     if (where === 'tomorrow') return this.moveToDay(id, addDays(this.today, 1), `${it.title} moved to tomorrow`);
     // A timer left running on an earlier day: "later today" means today, not that day.
     if (this.viewKey !== this.today && isActive(it))

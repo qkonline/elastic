@@ -109,6 +109,9 @@ export function normalizeItem(raw: unknown): Item {
     ...(typeof r.habitId === 'string' && r.habitId ? { habitId: r.habitId } : {}),
     ...(typeof r.goalId === 'string' && r.goalId ? { goalId: r.goalId } : {}),
     ...(cardLink(r.card) ? { card: cardLink(r.card)! } : {}),
+    ...(timed && typeof r.run === 'string' && r.run.length <= 64
+      ? { run: r.run, ...(r.fix === true ? { fix: true } : {}) }
+      : {}),
   });
 }
 
@@ -128,13 +131,26 @@ export function normalizeDay(raw: unknown): Day | null {
   // Each task once (two with one id would break the lists on screen).
   const ids = new Set<string>();
   const items = all.filter((it) => !ids.has(it.id) && !!ids.add(it.id));
-  // At most one timer per day: any extra running/paused items are set aside, as starting
-  // another task does (never marked done: nobody said they were).
-  let seen = false;
-  for (const [i, it] of items.entries()) {
-    if (it.status !== 'running' && it.status !== 'paused') continue;
-    if (seen) items[i] = { ...it, status: 'postponed', endedAt: it.pausedAt ?? it.startedAt! + it.min, pausedAt: null };
-    seen = true;
+  // At most one timer per day (two devices can each start one before hearing of the other): the
+  // one started last keeps going, and the others are set aside from that moment, as starting a
+  // task does (never marked done: nobody said they were).
+  const active = items.filter((i) => i.status === 'running' || i.status === 'paused');
+  if (active.length > 1) {
+    const later = (a: Item, b: Item) =>
+      a.run && b.run && a.run !== b.run
+        ? a.run > b.run
+        : a.startedAt! !== b.startedAt!
+          ? a.startedAt! > b.startedAt!
+          : a.id > b.id;
+    const last = active.reduce((a, b) => (later(b, a) ? b : a));
+    for (const [i, it] of items.entries())
+      if (active.includes(it) && it !== last)
+        items[i] = {
+          ...it,
+          status: 'postponed',
+          endedAt: it.status === 'paused' ? it.pausedAt : Math.max(it.startedAt! + it.pausedFor, last.startedAt!),
+          pausedAt: null,
+        };
   }
   return {
     key: r.key,

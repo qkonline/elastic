@@ -15,7 +15,7 @@
   // view if it was scrolled away, jumps and shakes, and keeps a ring and a glow while the
   // "start your day first" message is up. With reduced motion, just the ring and the glow.
   let btn = $state<HTMLButtonElement>();
-  const called = $derived(!!P.nudge);
+  const called = $derived(!!P.nudge && !P.nudge.quiet);
   const JUMP: Keyframe[] = [
     { transform: 'none', easing: 'cubic-bezier(.2,.7,.3,1)' },
     { transform: 'translateY(-14px) scale(1.04)', offset: 0.16, easing: 'cubic-bezier(.5,0,.8,.4)' },
@@ -30,7 +30,7 @@
     { transform: 'none' },
   ];
   $effect(() => {
-    if (!P.nudge?.at || !btn) return;
+    if (!P.nudge?.at || P.nudge.quiet || !btn) return;
     untrack(() => callOut(btn!));
   });
   function callOut(el: HTMLElement) {

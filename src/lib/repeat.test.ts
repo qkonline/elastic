@@ -162,7 +162,9 @@ describe('backup parsing', () => {
     expect(r.settings).toMatchObject({ defStart: 540, themePref: 'match', clock24: true, fixedLead: 5 });
     expect(r.series).toHaveLength(1);
     expect(r.series[0].subtasks).toEqual([]);
-    expect(r.days[0].items.map((i) => i.status)).toEqual(['todo', 'running', 'postponed']);
+    // One timer a day: the one started last keeps going, the other is set aside from then.
+    expect(r.days[0].items.map((i) => i.status)).toEqual(['todo', 'postponed', 'paused']);
+    expect(r.days[0].items[1].endedAt).toBe(610);
   });
 
   it('renumbers duplicate step ids on import', () => {

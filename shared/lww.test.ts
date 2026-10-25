@@ -149,3 +149,68 @@ describe('latest write wins, path by path', () => {
     expect(h.now(5000) > other).toBe(true);
   });
 });
+
+describe("a task's timer", () => {
+  const T = 'i.a.t';
+  // Clocks as the Hlc makes them: fixed-width base-36 milliseconds, a counter, a device.
+  const clock = (ms: number, dev = 'x') => `${ms.toString(36).padStart(9, '0')}000${dev}`;
+  const R = clock(1000); // the run started
+  const running = { status: 'running', startedAt: 600, endedAt: null, run: R };
+  const paused = { ...running, status: 'paused', pausedAt: 630 };
+  const done = (end: number, o = {}) => ({ ...running, status: 'done', endedAt: end, ...o });
+  const at = (v: object, ms: number, dev = 'x'): Paths => ({ [T]: [v, clock(ms, dev)] });
+  const winner = (...ps: Paths[]) => ps.reduce((a, b) => merge(a, b), {})[T][0];
+
+  it('keeps the first finish against a later one from a device that never heard of it', () => {
+    const first = at(done(601), 2000, 'laptop');
+    const late = at(done(640), 9000, 'phone');
+    expect(winner(at(running, 1000), first, late)).toEqual(done(601));
+    expect(winner(late, first)).toEqual(done(601));
+  });
+
+  it('lets a finish beat a pause that comes after it', () => {
+    expect(winner(at(done(601), 2000), at(paused, 3000))).toEqual(done(601));
+    expect(winner(at(paused, 3000), at(done(601), 2000))).toEqual(done(601));
+  });
+
+  it('lets a correction beat the finish, and the later correction stand', () => {
+    const fixed = done(620, { fix: true });
+    expect(winner(at(done(601), 2000), at(fixed, 3000), at(done(640), 4000))).toEqual(fixed);
+    expect(winner(at(fixed, 3000), at(done(625, { fix: true }), 5000))).toEqual(done(625, { fix: true }));
+  });
+
+  it('lets a task go back to do, and a new run start, after a finish', () => {
+    const undone = { status: 'todo', startedAt: null, endedAt: null };
+    expect(winner(at(done(601), 2000), at(undone, 3000), at(done(640), 9000))).toEqual(undone);
+    const again = { ...running, startedAt: 700, run: clock(4000) };
+    expect(winner(at(done(601), 2000), at(again, 4000))).toEqual(again);
+  });
+
+  it('ranks like any other path without a run (made before runs were stamped)', () => {
+    const old = { status: 'done', startedAt: 600, endedAt: 601 };
+    expect(winner(at(old, 2000), at({ ...old, endedAt: 640 }, 9000))).toEqual({ ...old, endedAt: 640 });
+  });
+
+  it('ends the same whatever order the settings meet in', () => {
+    const all = [
+      at(running, 1000),
+      at(paused, 1500),
+      at(done(601), 2000, 'laptop'),
+      at(done(640), 9000, 'phone'),
+      at(done(620, { fix: true }), 3000),
+      at({ status: 'todo', startedAt: null, endedAt: null }, 2500),
+      at({ ...running, startedAt: 700, run: clock(4000) }, 4000),
+      at(done(705, { run: clock(4000) }), 4500),
+    ];
+    const orders = (xs: Paths[]): Paths[][] =>
+      xs.length <= 1
+        ? [xs]
+        : xs.flatMap((x, i) => orders([...xs.slice(0, i), ...xs.slice(i + 1)]).map((o) => [x, ...o]));
+    const seen = new Set(orders(all).map((o) => JSON.stringify(winner(...o))));
+    expect(seen.size).toBe(1);
+    // Merged in pairs, in any grouping, too.
+    expect(JSON.stringify(merge(merge(all[0], all[3]), merge(all[2], all[5])))).toBe(
+      JSON.stringify(merge(all[5], merge(all[3], merge(all[2], all[0])))),
+    );
+  });
+});

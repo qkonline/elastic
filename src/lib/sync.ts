@@ -41,6 +41,8 @@ export interface SyncHooks {
   see(c: Clock): void;
   /** The account's Boardo cards changed (or its link did): fetch them again. */
   boardo?(): void;
+  /** Caught up with the account since opening or coming back (true), or not yet (false). */
+  current?(caughtUp: boolean): void;
 }
 
 interface Remote {
@@ -56,6 +58,8 @@ const PING_MS = 20_000;
 const ANSWER_MS = 10_000;
 const OPEN_MS = 15_000;
 const BATCH = 100;
+/** Out of sight this long, the plan here may be out of date: catch up again before trusting it. */
+const AWAY_MS = 30_000;
 const BATCH_BYTES = 400_000;
 
 export class Sync {
@@ -87,6 +91,7 @@ export class Sync {
   /** Which connection queued messages belong to: a dropped one's are left unhandled. */
   private gen = 0;
   private visible = true;
+  private hiddenAt = 0;
   private lastAlerts = '';
   private lastEndpoint: string | null | undefined = undefined;
   private online = () => this.reconnectNow();
@@ -111,6 +116,7 @@ export class Sync {
       await db.deleteMeta('unsent');
     }
     this.visible = typeof document === 'undefined' || !document.hidden;
+    this.setCurrent(false);
     if (typeof addEventListener === 'function') addEventListener('online', this.online);
     this.hooks.status('connecting');
     this.claim(this.visible);
@@ -329,6 +335,7 @@ export class Sync {
           this.lastAlerts = '';
           this.alertsChanged();
         }
+        this.setCurrent(true);
         for (const r of this.caughtUp.splice(0)) r();
       }
       return this.sendOutbox();
@@ -352,6 +359,11 @@ export class Sync {
       }
       return this.sendOutbox();
     }
+  }
+
+  /** Caught up with the account since the app opened or came back after a while, or not yet. */
+  private setCurrent(v: boolean): void {
+    this.hooks.current?.(v);
   }
 
   /** Connected, with nothing of this device's waiting to reach the account (records it has no room for aside). */
@@ -443,6 +455,14 @@ export class Sync {
     if (!this.session) return;
     this.send({ t: 'state', visible: v });
     if (v) {
+      // Back after a while: what's here may be out of date, and the connection may be one that
+      // looks open with nothing getting through (iOS freezes a page in the background). Make a
+      // new one and catch up, rather than wait for a ping to go unanswered.
+      if (this.hiddenAt && Date.now() - this.hiddenAt >= AWAY_MS) {
+        this.setCurrent(false);
+        if (this.leader) this.close();
+      }
+      this.hiddenAt = 0;
       if (this.leader) this.reconnectNow();
       else this.claim(true);
       // Back from the background: check the connection is still there.
@@ -450,6 +470,7 @@ export class Sync {
       setTimeout(() => this.visible && this.probe(), ANSWER_MS + 500);
       return;
     }
+    this.hiddenAt = Date.now();
     const { token, device } = this.session;
     const body = JSON.stringify({
       token,

@@ -58,6 +58,8 @@ let server: FakeAccount;
 
 class FakeSocket {
   readyState = 0;
+  /** A page frozen in the background (iOS): the connection looks open, but nothing gets through. */
+  frozen = false;
   onopen: (() => void) | null = null;
   onmessage: ((e: { data: string }) => void) | null = null;
   onclose: ((e: { code: number }) => void) | null = null;
@@ -69,12 +71,13 @@ class FakeSocket {
     });
   }
   send(raw: string): void {
+    if (this.frozen) return;
     const go = () => server.handle(this, raw);
     if (server.held) server.held.push(go);
     else setTimeout(go);
   }
   deliver(raw: string): void {
-    setTimeout(() => this.readyState === 1 && this.onmessage?.({ data: raw }));
+    setTimeout(() => this.readyState === 1 && !this.frozen && this.onmessage?.({ data: raw }));
   }
   close(): void {
     this.readyState = 3;
@@ -119,6 +122,15 @@ async function settle(): Promise<void> {
     }
   }
 }
+
+/** Move the clock on, and let each device see it. */
+function at(h: number, m: number): void {
+  vi.setSystemTime(new Date(2026, 9, 17, h, m));
+  for (const d of devices) d.p.tick();
+}
+
+/** A device's sync, for what the app does as it goes out of sight and comes back. */
+const syncOf = (p: Planner) => (p as unknown as { sync: { hiddenAt: number; setVisible(v: boolean): void } }).sync;
 
 const add = (p: Planner, title: string) => p.addTask({ title, min: 30, kind: 'task', hue: 'cyan', fixedAt: null });
 const titles = (p: Planner) => p.day.items.map((i) => i.title);
@@ -577,6 +589,98 @@ describe('sync', () => {
     expect(titles(p)).toEqual(['Made before the update']);
     expect(server.data('day', TODAY).items.map((i: { title: string }) => i.title)).toEqual(['Made before the update']);
     expect(await db.getMeta('unsent')).toBeUndefined();
+  });
+
+  // 25 Oct 2026: a task started and finished on the laptop, then another started; the phone,
+  // frozen in the background since the first started, showed it still running 40 minutes on,
+  // and Done tapped there logged 41 minutes for a task finished in one.
+  async function laptopAndFrozenPhone() {
+    const a = await device({ fresh: true });
+    for (const title of ['Bell Payment', 'Write Card'])
+      a.p.addTask({ title, min: 60, kind: 'task', hue: 'cyan', fixedAt: null });
+    await settle();
+    const before = new Set(server.sockets);
+    const b = await device();
+    const [bell, card] = a.p.day.items.map((i) => i.id);
+    a.p.startDay(); // starts Bell Payment at 10:00
+    await settle();
+    expect(b.p.item(bell)?.status).toBe('running');
+    // The phone goes into the background and is frozen there.
+    const phone = [...server.sockets].filter((w) => !before.has(w));
+    syncOf(b.p).hiddenAt = Date.now();
+    for (const ws of phone) ws.frozen = true;
+    at(10, 1);
+    a.p.done(bell);
+    a.p.startItem(card);
+    await settle();
+    expect(b.p.item(bell)?.status).toBe('running');
+    at(10, 40);
+    return { a, b, bell, card, phone };
+  }
+
+  it("holds a timer tap on a device back from the background until it's caught up", async () => {
+    const { a, b, bell, card } = await laptopAndFrozenPhone();
+    syncOf(b.p).setVisible(true);
+    expect(b.p.catchingUp).toBe(true);
+    b.p.done(bell); // what the phone shows: Bell Payment, running for 40 minutes
+    expect(b.p.nudge?.text).toMatch(/Catching up/);
+    await settle();
+    expect(b.p.catchingUp).toBe(false);
+    // Caught up, Bell Payment turns out to be done already: the tap doesn't go ahead.
+    expect(b.p.nudge?.text).toBe('Bell Payment was changed on another device. Have a look, then try again.');
+    for (const d of [a, b]) {
+      expect(d.p.item(bell)).toMatchObject({ status: 'done', endedAt: 601 });
+      expect(d.p.item(card)?.status).toBe('running');
+    }
+  });
+
+  it('goes ahead with a held tap once caught up, if nothing changed meanwhile', async () => {
+    const a = await device({ fresh: true });
+    a.p.addTask({ title: 'Write', min: 60, kind: 'task', hue: 'cyan', fixedAt: null });
+    a.p.startDay();
+    await settle();
+    const id = a.p.day.items[0].id;
+    syncOf(a.p).hiddenAt = Date.now() - 60_000;
+    at(10, 20);
+    syncOf(a.p).setVisible(true);
+    a.p.pause(id);
+    expect(a.p.item(id)?.status).toBe('running');
+    await settle();
+    expect(a.p.item(id)?.status).toBe('paused');
+  });
+
+  it("keeps a task's first finish when a device that never heard of it finishes it later", async () => {
+    const { a, b, bell, card, phone } = await laptopAndFrozenPhone();
+    // Offline on the phone, so nothing waits: Done goes ahead there on what it last heard.
+    b.p.finish(bell);
+    expect(b.p.item(bell)?.endedAt).toBe(640);
+    for (const ws of phone) {
+      ws.close();
+      ws.onclose?.({ code: 1006 });
+    }
+    await new Promise((r) => setTimeout(r, 1100)); // the phone's first retry
+    await settle();
+    for (const d of [a, b]) {
+      expect(d.p.item(bell)).toMatchObject({ status: 'done', endedAt: 601 });
+      expect(d.p.item(card)?.status).toBe('running');
+    }
+    expect(server.data('day', TODAY).items[0]).toMatchObject({ status: 'done', endedAt: 601 });
+  });
+
+  it('lets a correction to a finished task stand', async () => {
+    const a = await device({ fresh: true });
+    a.p.addTask({ title: 'Write', min: 60, kind: 'task', hue: 'cyan', fixedAt: null });
+    a.p.startDay();
+    await settle();
+    const b = await device();
+    const id = a.p.day.items[0].id;
+    at(10, 30);
+    a.p.finish(id);
+    await settle();
+    at(10, 35);
+    b.p.retime(id, { end: 620 }); // "I finished at 10:20"
+    await settle();
+    for (const d of [a, b]) expect(d.p.item(id)).toMatchObject({ status: 'done', endedAt: 620 });
   });
 
   it('sends changes made while offline once it reconnects', async () => {
