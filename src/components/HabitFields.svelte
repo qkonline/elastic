@@ -51,13 +51,13 @@
     habit,
     repeat,
     onchange,
-    typeLocked = false,
+    kindNote = '',
   }: {
     habit: Habit;
     repeat: string;
     onchange: (habit: Habit, repeat: string) => void;
-    /** In a habit's sheet the kind stays as it was made (its history means that kind). */
-    typeLocked?: boolean;
+    /** Said under the kind (a habit's sheet: what changing it does). */
+    kindNote?: string;
   } = $props();
 
   type Often = 'daily' | 'days' | 'week' | 'month';
@@ -95,17 +95,16 @@
 </script>
 
 <div class="hf">
-  {#if !typeLocked}
-    <div class="group">
-      <span class="label">Kind of habit</span>
-      <div class="row">
-        {#each HABIT_TYPES as [t, l] (t)}
-          <button class="chip" aria-pressed={habit.type === t} onclick={() => pickType(t)}>{l}</button>
-        {/each}
-      </div>
-      <p class="hint">{hint}</p>
+  <div class="group">
+    <span class="label">Kind of habit</span>
+    <div class="row">
+      {#each HABIT_TYPES as [t, l] (t)}
+        <button class="chip" aria-pressed={habit.type === t} onclick={() => pickType(t)}>{l}</button>
+      {/each}
     </div>
-  {/if}
+    <p class="hint">{hint}</p>
+    {#if kindNote}<p class="hint">{kindNote}</p>{/if}
+  </div>
 
   {#if habit.type === 'amount' || habit.type === 'time'}
     <div class="group" transition:slide={unfold()}>

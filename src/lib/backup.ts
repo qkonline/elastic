@@ -58,6 +58,7 @@ function normalizeHabit(raw: unknown): Habit | undefined {
     per,
     times: Math.min(per === 'week' ? 7 : 31, Math.max(1, Math.round(num(r.times, 3)!))),
     remindAt: remindAt == null ? null : Math.max(0, Math.min(2879, Math.round(remindAt))),
+    ...(typeof r.since === 'string' && KEY.test(r.since) ? { since: r.since } : {}),
   };
 }
 

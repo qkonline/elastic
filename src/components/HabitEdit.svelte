@@ -6,8 +6,9 @@
   import HabitFields from './HabitFields.svelte';
   import SwitchRow from './SwitchRow.svelte';
 
-  // A habit's Edit form: its name, colour, how much and how often, reminder, goal and notes.
-  // Nothing changes until Update habit; Cancel goes back to the habit as it was.
+  // A habit's Edit form: its name, colour, kind, how much and how often, reminder, goal and notes.
+  // Nothing changes until Update habit; Cancel goes back to the habit as it was. A new kind
+  // starts the habit's record afresh from this day (`since`, habits.ts) and this day's progress.
   let { item, ondone }: { item: Item & { habit: Habit }; ondone: () => void } = $props();
   const it = untrack(() => item);
   const id = it.id;
@@ -37,12 +38,16 @@
       if (JSON.stringify(next[k]) !== JSON.stringify(was[k])) Object.assign(out, { [k]: next[k] });
     return out;
   });
+  const kindChanged = $derived(habit.type !== it.habit.type);
   const ok = $derived(!!title.trim());
   const changed = $derived(Object.keys(patch).length > 0);
 
   function save() {
     if (!ok || !changed) return;
-    P.edit(id, $state.snapshot(patch) as Partial<Item>);
+    const next = $state.snapshot(patch) as Partial<Item>;
+    if (kindChanged)
+      Object.assign(next, { habit: { ...next.habit!, since: P.viewKey }, status: 'todo', progress: undefined });
+    P.edit(id, next);
     P.say(`Updated ${title.trim()}`);
     ondone();
   }
@@ -65,7 +70,7 @@
   <HabitFields
     {habit}
     {repeat}
-    typeLocked
+    kindNote={kindChanged ? 'Its streak starts again from this day. Earlier days keep what they were.' : ''}
     onchange={(h, r) => {
       habit = h;
       repeat = r;

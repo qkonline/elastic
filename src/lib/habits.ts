@@ -74,6 +74,12 @@ export function periodEnd(key: string, per: Habit['per']): string {
 /** The series' item on a day, if the day has one. */
 const itemOn = (day: Day | undefined, sid: string) => day?.items.find((i) => i.seriesId === sid);
 
+/**
+ * Where a habit's record starts: the day it began, or the day its kind last changed (days of
+ * another kind, like 8 glasses against yes or no, can't count towards it).
+ */
+const startOf = (s: Series) => (s.habit?.since && s.habit.since > s.from ? s.habit.since : s.from);
+
 /** Minutes into `key` at `now` (ms): past days count as over. */
 const nOf = (key: string, today: string, n: number) => (key === today ? n : key < today ? 1e6 : 0);
 
@@ -82,6 +88,7 @@ export function periodCount(dayAt: DayAt, s: Series, key: string, today: string,
   const per = s.habit?.per ?? 'day';
   let count = 0;
   for (let k = periodStart(key, per), end = periodEnd(key, per); k <= end && k <= upTo; k = addDays(k, 1)) {
+    if (k < startOf(s)) continue;
     const d = dayAt(k);
     const it = itemOn(d, s.id);
     if (d && it && habitMet(d, it, nOf(k, today, n))) count++;
@@ -102,7 +109,7 @@ const LOOKBACK = 400;
 export function streak(dayAt: DayAt, s: Series, today: string, n: number): number {
   const h = s.habit;
   if (!h) return 0;
-  const stop = s.from > addDays(today, -LOOKBACK) ? s.from : addDays(today, -LOOKBACK);
+  const stop = startOf(s) > addDays(today, -LOOKBACK) ? startOf(s) : addDays(today, -LOOKBACK);
   if (h.type === 'quit') {
     let count = 0;
     for (let k = today; k >= stop; k = addDays(k, -1)) {
@@ -140,7 +147,7 @@ export function history(dayAt: DayAt, s: Series, from: string, to: string, today
   const h = s.habit;
   const out: HistoryMark[] = [];
   for (let k = from; k <= to; k = addDays(k, 1)) {
-    if (!h || k < s.from || (s.until && k > s.until) || k > today) {
+    if (!h || k < startOf(s) || (s.until && k > s.until) || k > today) {
       out.push('none');
       continue;
     }
@@ -163,7 +170,7 @@ export function history(dayAt: DayAt, s: Series, from: string, to: string, today
 export function completion(dayAt: DayAt, s: Series, today: string, n: number, days = 30): number | null {
   const h = s.habit;
   if (!h) return null;
-  const from = s.from > addDays(today, -(days - 1)) ? s.from : addDays(today, -(days - 1));
+  const from = startOf(s) > addDays(today, -(days - 1)) ? startOf(s) : addDays(today, -(days - 1));
   if (h.per !== 'day') {
     let due = 0,
       met = 0;

@@ -92,6 +92,20 @@ describe('streaks', () => {
     expect(streak(done, s, TODAY, 600)).toBe(3);
   });
 
+  it('starts again from the day its kind changed', () => {
+    const before = series({ type: 'amount', target: 8 });
+    const at = days(before, {
+      '2026-10-11': { progress: 8 },
+      '2026-10-12': { progress: 8 },
+      '2026-10-13': { progress: 8 },
+    });
+    // Made a yes-or-no habit on the 14th, done that day and today.
+    const after = series({ type: 'check', since: '2026-10-14' });
+    const both = (k: string) => (k >= '2026-10-14' ? dayWith(k, [itemFor(after, DONE)]) : at(k));
+    expect(streak(both, after, TODAY, 600)).toBe(2);
+    expect(history(both, after, '2026-10-12', TODAY, TODAY, 600)).toEqual(['none', 'none', 'met', 'met']);
+  });
+
   it('breaks on a missed day, but not on a skipped one or a day it is not due', () => {
     const s = series({ type: 'check' });
     expect(streak(days(s, { '2026-10-12': DONE, '2026-10-14': DONE }), s, TODAY, 600)).toBe(1);

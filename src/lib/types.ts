@@ -34,6 +34,8 @@ export interface Habit {
   times: number;
   /** Minutes into the day to remind at, if it isn't done by then. */
   remindAt: number | null;
+  /** The day its kind last changed: its streak, history and share kept count from then. */
+  since?: string;
 }
 
 export interface Subtask {
