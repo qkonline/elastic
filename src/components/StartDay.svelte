@@ -12,8 +12,8 @@
   const fold = () => ({ duration: reducedMotion.current ? 0 : 280, easing: cubicOut });
 
   // Tapping a check or a Start button too early (P.nudge) calls this button out: it comes into
-  // view if it was scrolled away, jumps and shakes, and keeps a ring and a glow while the
-  // "start your day first" message is up. With reduced motion, just the ring and the glow.
+  // view if it was scrolled away, jumps and shakes, and keeps a glow while the
+  // "start your day first" message is up. With reduced motion, just a still glow.
   let btn = $state<HTMLButtonElement>();
   const called = $derived(!!P.nudge && !P.nudge.quiet);
   const JUMP: Keyframe[] = [
@@ -121,13 +121,7 @@
     letter-spacing: 0.05em;
     text-transform: uppercase;
   }
-  /* Called out: a ring in the ink colour, set off by a gap, and the stripe's colours glowing behind. */
-  .start-day.called {
-    box-shadow:
-      0 4px 0 #000,
-      0 0 0 3px var(--bg),
-      0 0 0 5.5px var(--text);
-  }
+  /* Called out: the stripe's colours glowing behind. */
   .start-day::before {
     content: '';
     position: absolute;
