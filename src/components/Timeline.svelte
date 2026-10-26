@@ -53,11 +53,15 @@
         <span class="gtext"><span>{r.gap}</span> unaccounted for</span>
       </li>
     {:else if r.type === 'pause'}
-      <!-- The time the task above stood paused, drawn like idle time. -->
-      <li class="gap" style:transform={moved(r.key)}>
+      <!-- The task above, paused part-way: its bar goes on through the pause (drawn like idle
+           time) to a short piece of its own colour where it finished. -->
+      <li class="gap pause" style:transform={moved(r.key)}>
         <span></span>
         <span class="gline"><span></span></span>
         <span class="gtext"><span>{r.pause}</span> paused</span>
+        <span></span>
+        <span class="pbar" style:--bar={r.bar} style:opacity={r.op}><span></span></span>
+        <span class="ptext">{r.then}</span>
       </li>
     {:else}
       <li class="now" aria-label="Now" style:transform={moved(r.key)}><NowLine /></li>
@@ -124,6 +128,30 @@
   }
   .gtext span {
     color: var(--orT);
+  }
+  /* A pause inside a finished task: the hatched stretch, then the task's bar again where it
+     finished. */
+  .pause {
+    grid-template-rows: 30px auto;
+  }
+  .pbar {
+    position: relative;
+    z-index: 2;
+    align-self: stretch;
+    display: flex;
+    justify-content: center;
+    min-height: 26px;
+  }
+  .pbar span {
+    width: 8px;
+    border-radius: var(--r-bar);
+    background: var(--bar);
+  }
+  .ptext {
+    align-self: start;
+    padding: 2px 0 0 10px;
+    font: 400 13px/1.2 var(--font);
+    color: var(--muted);
   }
   /* Rows glide out of the way while a task is dragged (the lifted row follows the finger). */
   .sorting > :global(li:not(.lifted)) {

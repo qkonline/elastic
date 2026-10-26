@@ -47,7 +47,7 @@ describe('a long pause', () => {
     expect(vm.sub).toBe('worked 1h');
   });
 
-  it('shows as a stretch of its own under the task, like idle time, once the timer goes again', () => {
+  it('shows inside the finished task, like idle time, before where it finished', () => {
     // An hour's task started at 2 pm, paused at 2:10 and resumed at 7, then done at 7:50.
     const day = (): Day => ({
       key: '2026-09-27',
@@ -59,13 +59,13 @@ describe('a long pause', () => {
     const at = (d: Day, n: number) =>
       timelineRows({ day: d, rows: schedule(d, n).rows, n, isToday: true, showTimes: true, clock24: false })
         .filter((r) => r.type !== 'now')
-        .map((r) => (r.type === 'item' ? r.id : r.type === 'pause' ? `paused ${r.pause}` : r.type));
+        .map((r) => (r.type === 'item' ? r.id : r.type === 'pause' ? `paused ${r.pause}, ${r.then}` : r.type));
 
     const paused = A.pause(A.startDay(day(), 840), 'a', 850);
     expect(at(paused, 1000)).toEqual(['a', 'b']); // while paused, its card counts the pause
     const again = A.resume(paused, 'a', 1140);
-    expect(at(again, 1150)).toEqual(['a', 'paused 4h 50m', 'b']);
-    expect(at(A.finish(again, 'a', 1190), 1190)).toEqual(['a', 'paused 4h 50m', 'b']);
+    expect(at(again, 1150)).toEqual(['a', 'b']); // nor while it's running again
+    expect(at(A.finish(again, 'a', 1190), 1190)).toEqual(['a', 'paused 4h 50m, resumed, then done at 7:50 pm', 'b']);
     // A task never paused has none.
     expect(at(A.finish(A.startDay(day(), 840), 'a', 900), 900)).toEqual(['a', 'b']);
   });

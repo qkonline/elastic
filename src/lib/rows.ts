@@ -62,11 +62,20 @@ export interface ItemVM {
   nowIn: number | null;
 }
 
-export type TimelineRow =
-  | ItemVM
-  | { type: 'gap'; key: string; gap: string }
-  | { type: 'pause'; key: string; pause: string }
-  | { type: 'now'; key: string };
+/**
+ * A finished task's pause, drawn inside it: the hatched stretch, then a short piece of the task's
+ * own bar with its finish time, so the bar reads work, pause, work.
+ */
+export interface PauseRow {
+  type: 'pause';
+  key: string;
+  pause: string;
+  bar: string;
+  op: number;
+  then: string;
+}
+
+export type TimelineRow = ItemVM | { type: 'gap'; key: string; gap: string } | PauseRow | { type: 'now'; key: string };
 
 export interface Ctx {
   day: Day;
@@ -120,7 +129,7 @@ export function itemVM(r: Row, c: Ctx): ItemVM {
   let sub: string | null = null,
     subTone = 'var(--muted)';
   if (s === 'done' && Math.abs(w - it.min) >= 1) sub = 'took ' + dL(w);
-  // A finished task's pause shows as its own stretch under it (`pausedFor`), so this says the work.
+  // A finished task's pause is drawn inside it (`pauseRow`), so this says the work.
   if (s === 'done' && it.pausedFor >= 1) sub = `worked ${dL(w)}`;
   if (s === 'done' && it.marked) sub = 'marked done';
   if (pBuf) sub = 'passed';
@@ -200,13 +209,21 @@ export function itemVM(r: Row, c: Ctx): ItemVM {
 }
 
 /**
- * How long a task's timer stood paused, for a stretch of its own under the task (like idle time):
- * once it's done, set aside part-way, or running again. Only the total is kept, not when each
- * pause was, so it goes under the task rather than inside it. While it's paused, its card counts.
+ * A finished task's pause (done, or set aside part-way), drawn inside it like idle time. Only the
+ * total is kept, not when each pause was, so it goes between the task's start and its finish.
+ * While the timer is still going, its card says how long it's been paused.
  */
-function pausedFor(it: Item): number {
-  if (it.status === 'paused' || it.pausedFor < 1) return 0;
-  return it.status === 'done' || it.status === 'running' || isPartial(it) ? it.pausedFor : 0;
+function pauseRow(v: ItemVM, it: Item, c: Ctx): PauseRow | null {
+  if (it.pausedFor < 1 || it.endedAt == null || !(it.status === 'done' || isPartial(it))) return null;
+  const then = it.status === 'done' ? 'resumed, then done' : 'resumed, then set aside';
+  return {
+    type: 'pause',
+    key: 'p' + v.id,
+    pause: dL(it.pausedFor),
+    bar: v.capBg,
+    op: v.op,
+    then: c.showTimes ? `${then} at ${fT(it.endedAt, c.clock24)}` : then,
+  };
 }
 
 /** The ordered list for the Spine timeline: items, idle gaps, pauses and the now line. */
@@ -217,8 +234,8 @@ export function timelineRows(c: Ctx): TimelineRow[] {
     const v = itemVM(r, c);
     if (r.gap) out.push({ type: 'gap', key: 'g' + v.id, gap: dL(r.gap) });
     out.push(v);
-    const paused = pausedFor(r.it);
-    if (paused) out.push({ type: 'pause', key: 'p' + v.id, pause: dL(paused) });
+    const pause = pauseRow(v, r.it, c);
+    if (pause) out.push(pause);
   }
 
   if (c.isToday && c.rows.length) {
