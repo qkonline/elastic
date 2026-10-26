@@ -6,6 +6,7 @@ import {
   habitMet,
   habitValue,
   history,
+  oneOf,
   periodCount,
   periodEnd,
   periodStart,
@@ -43,6 +44,15 @@ function days(s: Series, done: Record<string, Partial<Item>>): (k: string) => Da
   return (k) => map.get(k);
 }
 const DONE = { status: 'done' as const };
+
+describe('the +1 key', () => {
+  it('names one of the unit', () => {
+    expect(
+      ['glasses', 'pages', 'berries', 'boxes', 'km', 'times', 'time', '', 'pushups', 'cups of tea'].map(oneOf),
+    ).toEqual(['glass', 'page', 'berry', 'box', 'km', '', '', '', 'pushup', 'cup of tea']);
+    expect(oneOf('chapters of a novel')).toBe(''); // too long for the key
+  });
+});
 
 describe('habit progress', () => {
   it('adds to an amount and is met at the target', () => {

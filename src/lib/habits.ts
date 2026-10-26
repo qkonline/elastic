@@ -54,6 +54,21 @@ export function progressText(day: Day, it: Item, n: number): string {
   return h.type === 'time' ? `${v} of ${h.target} min` : `${v} of ${h.target}${h.unit ? ' ' + h.unit : ''}`;
 }
 
+/**
+ * One of a unit, for the "+1 glass" key: "glasses" → "glass", "pages" → "page", "berries" →
+ * "berry". None for "times" (just "+1"), or for a unit too long for the key.
+ */
+export function oneOf(unit: string): string {
+  const u = unit.trim();
+  if (!u || u.length > 12 || /^times?$/i.test(u)) return '';
+  // "cups of tea" → "cup of tea": the first word is the one counted.
+  const [w, rest] = [u.split(' ')[0], u.slice(u.split(' ')[0].length)];
+  if (/(ss|x|ch|sh)es$/i.test(w)) return w.slice(0, -2) + rest;
+  if (/[^aeiou]ies$/i.test(w)) return w.slice(0, -3) + 'y' + rest;
+  if (/[^s]s$/i.test(w)) return w.slice(0, -1) + rest;
+  return u;
+}
+
 // ---------- periods (for habits due a number of times a week or month) ----------
 
 export function periodStart(key: string, per: Habit['per']): string {

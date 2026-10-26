@@ -93,11 +93,25 @@
         style:--ink={inkOn(it.hue)}
         onclick={() => tick(it, waiting)}>{it.status === 'done' ? '✓' : ''}</button
       >
-      <button class="title" onclick={() => tapped(P, it.id)}>{it.title}</button>
-      {#if moved && it.movedKey}
-        <span class="meta">Moved to {shortDate(keyDate(it.movedKey))}</span>
-      {:else if it.repeat !== 'Once' && !row}
-        <span class="meta">↻ {it.repeat}</span>
+      <span class="text">
+        <button class="title" onclick={() => tapped(P, it.id)}>{it.title}</button>
+        {#if moved && it.movedKey}
+          <span class="meta">Moved to {shortDate(keyDate(it.movedKey))}</span>
+        {:else if it.repeat !== 'Once' && !row}
+          <span class="meta">↻ {it.repeat}</span>
+        {/if}
+      </span>
+      {#if !row && !moved}
+        <!-- The box's tick, in words, on the right like a timed task's Start. -->
+        <button
+          class="row-key"
+          class:on={it.status === 'done'}
+          aria-label="{it.status === 'done' ? 'Untick' : 'Tick off'} {it.title}"
+          aria-disabled={off}
+          style:--c={hueColor(it.hue)}
+          style:--ink={inkOn(it.hue)}
+          onclick={() => tick(it, waiting)}>{it.status === 'done' ? '✓ Done' : 'Tick off'}</button
+        >
       {/if}
     {/if}
   </li>
@@ -171,9 +185,20 @@
   .done .box {
     background: var(--c);
   }
+  .text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 0;
+  }
+  .chips .text {
+    flex: none;
+    padding: 0;
+  }
   .title {
     all: unset;
-    flex: 1;
     min-width: 0;
     font: 400 15px/1.3 var(--font);
     color: var(--text);
@@ -252,6 +277,10 @@
     flex: none;
     white-space: nowrap;
     font-size: 14px;
+  }
+  /* Chips are small: the box or ring is the control there. */
+  .chips :global(.row-key) {
+    display: none;
   }
   .chips :global(.text) {
     padding: 4px 0;

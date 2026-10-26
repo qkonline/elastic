@@ -234,23 +234,34 @@
     color: var(--text);
     font-weight: 600;
   }
+  /* The ring, the name and the week, then what's below the name and the row's key (the ring's
+     tap in words) on the far right, under the week. */
   .row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     grid-template-areas:
-      'habit week'
-      'sub sub';
+      'ring text week'
+      '. sub key';
     column-gap: 12px;
     align-items: center;
     padding: 8px 14px 10px;
     border-top: 1px solid var(--border);
   }
   .habit {
-    grid-area: habit;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: 12px;
+    display: contents;
+  }
+  .habit :global(.ctl-ring),
+  .notdue {
+    grid-area: ring;
+  }
+  .habit :global(.text),
+  .text {
+    grid-area: text;
+  }
+  .habit :global(.row-key) {
+    grid-area: key;
+    justify-self: end;
+    margin-top: 4px;
   }
   .notdue {
     width: 28px;
@@ -312,7 +323,6 @@
     display: flex;
     flex-wrap: wrap;
     column-gap: 12px;
-    padding-left: 40px;
     font: 400 12px/1.4 var(--font);
     color: var(--muted);
   }

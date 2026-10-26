@@ -397,6 +397,47 @@ a {
   background: var(--sunk);
 }
 
+/* The key on the far right of a check or habit row ("Tick off", "+1 glass", "Add time", "I
+   slipped"), like a timed task's Start: the same thing the box or ring on the left does, in
+   words. Once it's done (`.on`) it fills with the entry's colour (`--c`, ink `--ink`). */
+.row-key {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-ctl);
+  background: var(--raised);
+  color: var(--text);
+  font: 400 14px/1 var(--font);
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  user-select: none;
+  transition:
+    background 200ms,
+    border-color 200ms,
+    color 200ms;
+}
+.row-key.on {
+  background: var(--c);
+  border-color: var(--c);
+  color: var(--ink);
+}
+/* A slip on a habit to break: said in red, not filled. */
+.row-key.slip.on {
+  background: color-mix(in oklab, var(--redT) 10%, transparent);
+  border-color: color-mix(in oklab, var(--redT) 45%, transparent);
+  color: var(--redT);
+}
+.row-key[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* "Add a habit", "Add a goal": a compact, centred key in the ink colour (like Add task: black
    in light mode, white in dark), pressing down onto its edge. */
 .btn-add {

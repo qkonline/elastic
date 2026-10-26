@@ -1,14 +1,15 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import { tapped } from '../lib/drag';
-  import { habitMet, habitValue, periodCount, progressText, streak } from '../lib/habits';
+  import { habitMet, habitValue, oneOf, periodCount, progressText, streak } from '../lib/habits';
   import { planner as P } from '../lib/planner.svelte';
-  import { hueColor, type Habit, type Item } from '../lib/types';
+  import { hueColor, inkOn, type Habit, type Item } from '../lib/types';
   import HabitRing from './HabitRing.svelte';
 
   // One habit in the Checklist or the Habits section. The ring is the control: a tap ticks a
   // yes/no habit, adds one to an amount, opens the minutes for a time habit, or marks a slip on
-  // a habit to break. Pressing and holding an amount opens the number to type it in.
+  // a habit to break. Pressing and holding an amount opens the number to type it in. The key on
+  // the right does the same, in words ("Tick off", "+1 glass", "Add time", "I slipped").
   let { it }: { it: Item & { habit: Habit } } = $props();
 
   const HOLD_MS = 450;
@@ -86,6 +87,21 @@
     P.tapHabit(it.id);
   }
 
+  const keyText = $derived(
+    h.type === 'check'
+      ? met
+        ? '✓ Done'
+        : 'Tick off'
+      : h.type === 'quit'
+        ? slipped
+          ? 'Slipped'
+          : 'I slipped'
+        : h.type === 'amount'
+          ? `+1${oneOf(h.unit) ? ' ' + oneOf(h.unit) : ''}`
+          : 'Add time',
+  );
+  const keyOn = $derived(h.type === 'quit' ? slipped : met);
+
   const label = $derived(
     h.type === 'check'
       ? it.title
@@ -157,6 +173,24 @@
     </span>
   {/if}
 </div>
+{#if !editing}
+  <button
+    class="row-key"
+    class:on={keyOn}
+    class:slip={h.type === 'quit'}
+    aria-label={label}
+    aria-disabled={off}
+    style:--c={hueColor(it.hue)}
+    style:--ink={inkOn(it.hue)}
+    onpointerdown={down}
+    onpointerup={cancelHold}
+    onpointerleave={cancelHold}
+    onpointercancel={cancelHold}
+    ontouchend={(e) => held && e.preventDefault()}
+    oncontextmenu={(e) => e.preventDefault()}
+    onclick={tap}>{keyText}</button
+  >
+{/if}
 
 <style>
   .ctl-ring {
