@@ -22,7 +22,7 @@
     z-index: 6;
     left: 16px;
     right: 16px;
-    bottom: calc(var(--bar-h) + 40px + env(safe-area-inset-bottom));
+    bottom: calc(var(--bar-h) + 40px + env(safe-area-inset-bottom) - var(--stuck, 0px));
     width: fit-content;
     max-width: 460px;
     margin: 0 auto;

@@ -70,7 +70,8 @@
     position: fixed;
     left: 0;
     right: 0;
-    bottom: 0;
+    /* Below the bottom of a page stuck short of the screen (see viewport.ts). */
+    bottom: calc(0px - var(--stuck, 0px));
     z-index: 5;
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
