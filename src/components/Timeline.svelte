@@ -52,6 +52,13 @@
         <span class="gline"><span></span></span>
         <span class="gtext"><span>{r.gap}</span> unaccounted for</span>
       </li>
+    {:else if r.type === 'pause'}
+      <!-- The time the task above stood paused, drawn like idle time. -->
+      <li class="gap" style:transform={moved(r.key)}>
+        <span></span>
+        <span class="gline"><span></span></span>
+        <span class="gtext"><span>{r.pause}</span> paused</span>
+      </li>
     {:else}
       <li class="now" aria-label="Now" style:transform={moved(r.key)}><NowLine /></li>
     {/if}

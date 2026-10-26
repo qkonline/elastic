@@ -62,7 +62,11 @@ export interface ItemVM {
   nowIn: number | null;
 }
 
-export type TimelineRow = ItemVM | { type: 'gap'; key: string; gap: string } | { type: 'now'; key: string };
+export type TimelineRow =
+  | ItemVM
+  | { type: 'gap'; key: string; gap: string }
+  | { type: 'pause'; key: string; pause: string }
+  | { type: 'now'; key: string };
 
 export interface Ctx {
   day: Day;
@@ -116,8 +120,8 @@ export function itemVM(r: Row, c: Ctx): ItemVM {
   let sub: string | null = null,
     subTone = 'var(--muted)';
   if (s === 'done' && Math.abs(w - it.min) >= 1) sub = 'took ' + dL(w);
-  // A finished task keeps its pause on show: it explains the jump to whatever came next.
-  if (s === 'done' && it.pausedFor >= 1) sub = `worked ${dL(w)} · paused ${dL(it.pausedFor)}`;
+  // A finished task's pause shows as its own stretch under it (`pausedFor`), so this says the work.
+  if (s === 'done' && it.pausedFor >= 1) sub = `worked ${dL(w)}`;
   if (s === 'done' && it.marked) sub = 'marked done';
   if (pBuf) sub = 'passed';
   if (s === 'postponed') {
@@ -195,7 +199,17 @@ export function itemVM(r: Row, c: Ctx): ItemVM {
   };
 }
 
-/** The ordered list for the Spine timeline: items, idle gaps and the now line. */
+/**
+ * How long a task's timer stood paused, for a stretch of its own under the task (like idle time):
+ * once it's done, set aside part-way, or running again. Only the total is kept, not when each
+ * pause was, so it goes under the task rather than inside it. While it's paused, its card counts.
+ */
+function pausedFor(it: Item): number {
+  if (it.status === 'paused' || it.pausedFor < 1) return 0;
+  return it.status === 'done' || it.status === 'running' || isPartial(it) ? it.pausedFor : 0;
+}
+
+/** The ordered list for the Spine timeline: items, idle gaps, pauses and the now line. */
 export function timelineRows(c: Ctx): TimelineRow[] {
   const out: TimelineRow[] = [];
   for (const r of c.rows) {
@@ -203,6 +217,8 @@ export function timelineRows(c: Ctx): TimelineRow[] {
     const v = itemVM(r, c);
     if (r.gap) out.push({ type: 'gap', key: 'g' + v.id, gap: dL(r.gap) });
     out.push(v);
+    const paused = pausedFor(r.it);
+    if (paused) out.push({ type: 'pause', key: 'p' + v.id, pause: dL(paused) });
   }
 
   if (c.isToday && c.rows.length) {

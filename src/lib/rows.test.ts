@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as A from './actions';
-import { dragShifts, itemVM, type TimelineRow } from './rows';
+import { dragShifts, itemVM, timelineRows, type TimelineRow } from './rows';
 import { schedule } from './schedule';
 import type { Day } from './types';
 
@@ -44,6 +44,29 @@ describe('a long pause', () => {
     d = A.finish(A.resume(A.pause(A.startDay(d, 840), 'a', 850), 'a', 1140), 'a', 1190);
     const row = schedule(d, 1190).rows[0];
     const vm = itemVM(row, { day: d, rows: [row], n: 1190, isToday: true, showTimes: true, clock24: false });
-    expect(vm.sub).toBe('worked 1h · paused 4h 50m');
+    expect(vm.sub).toBe('worked 1h');
+  });
+
+  it('shows as a stretch of its own under the task, like idle time, once the timer goes again', () => {
+    // An hour's task started at 2 pm, paused at 2:10 and resumed at 7, then done at 7:50.
+    const day = (): Day => ({
+      key: '2026-09-27',
+      dayStart: 840,
+      wrap: 1320,
+      dayStarted: null,
+      items: [A.newItem({ title: 'Deep work', min: 60, id: 'a' }), A.newItem({ title: 'Email', min: 30, id: 'b' })],
+    });
+    const at = (d: Day, n: number) =>
+      timelineRows({ day: d, rows: schedule(d, n).rows, n, isToday: true, showTimes: true, clock24: false })
+        .filter((r) => r.type !== 'now')
+        .map((r) => (r.type === 'item' ? r.id : r.type === 'pause' ? `paused ${r.pause}` : r.type));
+
+    const paused = A.pause(A.startDay(day(), 840), 'a', 850);
+    expect(at(paused, 1000)).toEqual(['a', 'b']); // while paused, its card counts the pause
+    const again = A.resume(paused, 'a', 1140);
+    expect(at(again, 1150)).toEqual(['a', 'paused 4h 50m', 'b']);
+    expect(at(A.finish(again, 'a', 1190), 1190)).toEqual(['a', 'paused 4h 50m', 'b']);
+    // A task never paused has none.
+    expect(at(A.finish(A.startDay(day(), 840), 'a', 900), 900)).toEqual(['a', 'b']);
   });
 });
