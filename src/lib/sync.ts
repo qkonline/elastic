@@ -60,6 +60,8 @@ const OPEN_MS = 15_000;
 const BATCH = 100;
 /** Out of sight this long, the plan here may be out of date: catch up again before trusting it. */
 const AWAY_MS = 30_000;
+/** How long after losing the tab lock before asking for it again. */
+const CLAIM_AGAIN_MS = 1000;
 const BATCH_BYTES = 400_000;
 
 export class Sync {
@@ -70,6 +72,7 @@ export class Sync {
   /** This tab's queued request for the lock, and a count that tells a stale request apart. */
   private waiting: AbortController | null = null;
   private claims = 0;
+  private reclaim: ReturnType<typeof setTimeout> | null = null;
   /** The first catch-up after connecting has arrived; sending can start. */
   private ready = false;
   private inflight: { id: number; sent: Record<string, Paths> } | null = null;
@@ -134,6 +137,8 @@ export class Sync {
       this.connect();
       return;
     }
+    if (this.reclaim) clearTimeout(this.reclaim);
+    this.reclaim = null;
     this.waiting?.abort();
     const waiting = steal ? null : new AbortController();
     this.waiting = waiting;
@@ -153,7 +158,14 @@ export class Sync {
         this.leader = false;
         this.release = null;
         this.close();
-        this.claim();
+        // Not at once: a page on its way out (a reload) loses its lock and has every new request
+        // refused straight away, and on iPhone its code keeps running, so asking again at once
+        // looped for ever and froze the app at every reload (25 Oct 2026). A page that's gone
+        // never runs the timer.
+        this.reclaim = setTimeout(() => {
+          this.reclaim = null;
+          if (this.session && n === this.claims) this.claim();
+        }, CLAIM_AGAIN_MS);
       });
   }
 
@@ -161,6 +173,8 @@ export class Sync {
     this.session = null;
     this.leader = false;
     this.claims++;
+    if (this.reclaim) clearTimeout(this.reclaim);
+    this.reclaim = null;
     this.waiting?.abort();
     this.waiting = null;
     this.release?.();
