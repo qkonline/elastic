@@ -189,6 +189,8 @@ export class Boardo {
     private say: (m: string) => void,
     /** The account's session token, while signed in. */
     private session: () => string | null,
+    /** Fresh cards, asked for at `askedAt` (ms): the store brings today's work on them in line. */
+    private onCards: (askedAt: number) => void = () => {},
   ) {}
 
   /** Signed in: show what's kept here (it works offline) until the account says more. */
@@ -404,6 +406,7 @@ export class Boardo {
   async refresh(): Promise<void> {
     if (!this.session()) return;
     await this.flush();
+    const askedAt = Date.now();
     try {
       const res = await this.post<{ linked: Who | null; boards?: number; cards?: BoardoCard[] }>('/boardo/cards');
       if (!res.linked) {
@@ -421,9 +424,15 @@ export class Boardo {
       this.error = null;
       this.match = null;
       await this.save();
+      this.onCards(askedAt);
     } catch (e) {
       if (this.connected) this.error = e instanceof Error ? e.message : null;
     }
+  }
+
+  /** A mark for this card is still waiting to reach Boardo. */
+  waiting(cardId: string): boolean {
+    return this.ops.some((o) => o.cardId === cardId);
   }
 
   /** Queue marks for Boardo and send them when there's a connection. */

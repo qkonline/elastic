@@ -1,7 +1,8 @@
 <script lang="ts">
   import { cardsFor } from '../lib/boardo.svelte';
   import { planner as P } from '../lib/planner.svelte';
-  import { isActive } from '../lib/schedule';
+  import { isActive, worked } from '../lib/schedule';
+  import { dL } from '../lib/time';
   import { hueColor, isHue } from '../lib/types';
   import Collapsible from './Collapsible.svelte';
 
@@ -14,6 +15,12 @@
   const done = $derived(rows.filter((r) => r.ticked).length);
   // The card item running or paused on the day on screen, by card id.
   const going = $derived(new Map(P.day.items.filter((i) => i.card && isActive(i)).map((i) => [i.card!.id, i])));
+  // Time worked on each card that day, over every time it was started (its rows in the timeline).
+  const spent = $derived.by(() => {
+    const m = new Map<string, number>();
+    for (const i of P.day.items) if (i.card) m.set(i.card.id, (m.get(i.card.id) ?? 0) + worked(i, P.n));
+    return m;
+  });
   const colour = (h: string) => (h === 'rose' ? '#f43f5e' : isHue(h) ? hueColor(h) : '#22d3ee');
   let list: HTMLUListElement | null = $state(null);
   // The last fetch failed: these are the cards as they were then, which may be out of date.
@@ -54,6 +61,7 @@
               <span class="proj" style:color={colour(r.card.board.hue)}>{r.card.board.name}</span>
               {#if r.card.status.label}<span class="st">{r.card.status.label}</span>{/if}
               {#if r.deadline}<span class:late={r.overdue}>{r.deadline}</span>{/if}
+              {#if (spent.get(r.card.id) ?? 0) >= 1}<span>Worked {dL(spent.get(r.card.id)!)}</span>{/if}
               <!-- A Completed card's status already says so; "your part" only means something while
                    others still have theirs to do (a card for one person is Completed with it). -->
               {#if r.ticked && !r.card.completed}<span>Your part is done</span>

@@ -170,6 +170,41 @@ describe('what Elastic tells Boardo', () => {
     expect(p.nudge).not.toBeNull();
   });
 
+  it('a card reopened in Boardo goes back to set aside here, its time kept, without telling Boardo', async () => {
+    const p = await boot();
+    const follow = (at: number) => (p as unknown as { followBoardo(at: number): void }).followBoardo(at);
+    p.startCard(card());
+    vi.setSystemTime(new Date(2026, 9, 22, 10, 45));
+    p.clock = Date.now();
+    const id = p.day.items.find((i) => i.card)!.id;
+    p.done(id);
+    sent = [];
+    // Boardo still has my part done: it stays done.
+    p.boardo.cards = [card({ myDone: Date.now(), status: prog })];
+    vi.setSystemTime(new Date(2026, 9, 22, 11, 0));
+    p.clock = Date.now();
+    follow(Date.now());
+    expect(p.item(id)!.status).toBe('done');
+    // Set back to In progress there: set aside here, with the 45 minutes worked.
+    p.boardo.cards = [card({ status: prog })];
+    follow(Date.now());
+    expect(p.item(id)).toMatchObject({ status: 'postponed', startedAt: 600, endedAt: 645 });
+    expect(sent).toEqual([]);
+  });
+
+  it('a Done not yet heard of in Boardo stands', async () => {
+    const p = await boot();
+    const follow = (at: number) => (p as unknown as { followBoardo(at: number): void }).followBoardo(at);
+    p.startCard(card());
+    vi.setSystemTime(new Date(2026, 9, 22, 10, 45));
+    p.clock = Date.now();
+    const id = p.day.items.find((i) => i.card)!.id;
+    p.done(id);
+    p.boardo.cards = [card({ status: prog })];
+    follow(Date.now() - 1000);
+    expect(p.item(id)!.status).toBe('done');
+  });
+
   it('counts up with no time is up alert', async () => {
     const p = await boot();
     p.startCard(card());

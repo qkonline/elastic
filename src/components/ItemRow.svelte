@@ -171,10 +171,10 @@
     {#if v.aCheck}
       <button
         class="check hit"
-        aria-label="Reopen {it.title}"
+        aria-label="{it.card ? 'Open' : 'Reopen'} {it.title}"
         style:--c={hueColor(it.hue)}
         style:--ink={inkOn(it.hue)}
-        onclick={() => P.reopen(id)}>✓</button
+        onclick={() => (it.card ? open() : P.reopen(id))}>✓</button
       >
     {/if}
     {#if v.aRestore}

@@ -118,6 +118,8 @@ export const CATCH_UP_MS = 5000;
 const CATCHING_UP = 'Catching up with your other devices…';
 const SAVE_DELAY = 250;
 const SERIES_DELAY = 500;
+/** A card finished here this long ago has surely reached Boardo, from any device. */
+const BOARDO_HEARD_MS = 2 * 60_000;
 /** Ask for a newer build on coming back to the app (at most this often), and while it stays open. */
 const UPDATE_ON_RETURN_MS = 60 * 60_000;
 const UPDATE_EVERY_MS = 24 * 3600_000;
@@ -264,6 +266,7 @@ export class Planner {
     db,
     (m) => this.say(m),
     () => this.session?.token ?? null,
+    (askedAt) => this.followBoardo(askedAt),
   );
   /** Project cards from Boardo on the day on screen still to work on: they need the day started too. */
   private projectsToStart = $derived(
@@ -844,7 +847,8 @@ export class Planner {
       }
       if (it.status === 'done' && was?.status !== 'done')
         ops.push({ ...base, type: 'done', sessionId: 'done', at: at(it.endedAt) });
-      if (was?.status === 'done' && it.status !== 'done')
+      // Not when Boardo is where it was reopened (followBoardo): it already knows.
+      if (was?.status === 'done' && it.status !== 'done' && !this.openInBoardo(it.card.id))
         ops.push({ ...base, type: 'undone', sessionId: 'done', at: now });
       if (cur !== it) {
         if (items === next.items) items = [...next.items];
@@ -857,6 +861,32 @@ export class Planner {
         ops.push({ board: gone.card.board, cardId: gone.card.id, type: 'stop', sessionId: gone.card.session, at: now });
     if (ops.length) void this.boardo.send(ops);
     return items === next.items ? next : { ...next, items };
+  }
+
+  /** Boardo has this card, and it isn't done: not my part, and not the whole card. */
+  private openInBoardo(cardId: string): boolean {
+    const c = this.boardo.cards.find((x) => x.id === cardId);
+    return !!c && c.myDone == null && !c.completed;
+  }
+
+  /**
+   * Boardo is where a card is done or not. One finished here and reopened there (my part
+   * undone, or set back to In progress) goes back to set aside on Today, its time kept, so it
+   * doesn't stay done in the timeline while Projects offers it again. Only a finish Boardo has
+   * surely heard of by the time these cards were asked for (`askedAt`): a Done tapped meanwhile,
+   * or on another device that hasn't sent it yet, stands.
+   */
+  private followBoardo(askedAt: number): void {
+    const day = this.days[this.today];
+    if (!day || day.dayEnded != null) return;
+    let next = day;
+    for (const it of day.items) {
+      if (!it.card || it.status !== 'done' || !this.openInBoardo(it.card.id) || this.boardo.waiting(it.card.id))
+        continue;
+      if (it.endedAt == null || atMinutes(day.key, it.endedAt) > askedAt - BOARDO_HEARD_MS) continue;
+      next = A.reopen(next, it.id, this.n);
+    }
+    if (next !== day) this.put(next);
   }
 
   /**

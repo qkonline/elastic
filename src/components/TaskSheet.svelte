@@ -73,10 +73,10 @@
   const segs = $derived(isCheck ? [] : stripSegs(P.sch.rows, P.planDay.dayStarted != null));
   const showTimes = $derived(P.settings.showTimes !== 'never');
   const clock = (m: number) => fT(m, P.settings.clock24) + (m >= 1440 ? ' +1' : '');
-  // Work on a Boardo card: which project it's from.
-  const projectName = $derived(
-    it?.card ? (P.boardo.cards.find((c) => c.id === it.card!.id)?.board.name ?? null) : null,
-  );
+  // Work on a Boardo card: only its time is kept here. What the card is, and whether it's done,
+  // is Boardo's, so its sheet has no Edit, subtasks, Reopen or delete, just a way there.
+  const card = $derived(it?.card ? P.boardo.cards.find((c) => c.id === it.card!.id) : undefined);
+  const projectName = $derived(card?.board.name ?? null);
   const kindName = $derived(
     !it
       ? ''
@@ -171,7 +171,7 @@
               >
             </div>
           {/if}
-          {#if !P.locked}<div class="retime"><RetimeTask {id} /></div>{/if}
+          {#if !P.locked && !it.card}<div class="retime"><RetimeTask {id} /></div>{/if}
         </div>
       {:else}
         <!-- Where it sits in the day, how it stands, and what can be done with it now. -->
@@ -181,9 +181,9 @@
               <span class="big">No timer</span>
             {:else if showTimes}
               <span class="big">{clock(v.start)} <span class="to">to</span> {clock(v.end)}</span>
-              <span class="len">{dL(it.min)}</span>
+              <span class="len">{it.card ? `worked ${dL(v.w)}` : dL(it.min)}</span>
             {:else}
-              <span class="big">{dL(it.min)}</span>
+              <span class="big">{dL(it.card ? v.w : it.min)}</span>
             {/if}
           </div>
           {#if segs.length}
@@ -242,7 +242,7 @@
                 {/if}
               {:else if v.s === 'skipped'}
                 <button class="ctl" onclick={() => P.restore(id)}>Restore</button>
-              {:else if v.s === 'done'}
+              {:else if v.s === 'done' && !it.card}
                 <button class="ctl" onclick={() => P.reopen(id)}>Reopen</button>
               {:else if v.s === 'postponed' && it.movedKey && it.startedAt == null}
                 <button class="ctl" onclick={() => P.restore(id)}>Undo move</button>
@@ -255,7 +255,7 @@
       {#if logged}
         <div class="card when">
           <span class="label">When</span>
-          {#if P.locked}
+          {#if P.locked || it.card}
             <span class="val"
               >{clock(it.startedAt!)}{it.endedAt != null ? ` to ${clock(it.endedAt)}` : ''}, worked {dL(v.w)}</span
             >
@@ -265,7 +265,7 @@
         </div>
       {/if}
 
-      {#if it.subtasks.length || !P.locked}
+      {#if !it.card && (it.subtasks.length || !P.locked)}
         <div class="card">
           <span class="label"
             >{it.subtasks.length
@@ -335,7 +335,20 @@
       {/if}
 
       <dl class="card facts">
-        {#if it.kind !== 'buffer'}
+        {#if it.card}
+          {#if card}
+            <div>
+              <dt>Project</dt>
+              <dd>{card.board.name}</dd>
+            </div>
+            {#if card.status.label}
+              <div>
+                <dt>In Boardo</dt>
+                <dd>{card.status.label}</dd>
+              </div>
+            {/if}
+          {/if}
+        {:else if it.kind !== 'buffer'}
           <div>
             <dt>Colour</dt>
             <dd><i class="sw" style:background={hueColor(it.hue)}></i>{hueName(it.hue)}</dd>
@@ -347,10 +360,12 @@
             <dd>{v.fixedAt}</dd>
           </div>
         {/if}
-        <div>
-          <dt>Repeats</dt>
-          <dd>{it.repeat === 'Once' ? 'No, just this once' : it.repeat}</dd>
-        </div>
+        {#if !it.card}
+          <div>
+            <dt>Repeats</dt>
+            <dd>{it.repeat === 'Once' ? 'No, just this once' : it.repeat}</dd>
+          </div>
+        {/if}
         {#if goal}
           <div>
             <dt>Goal</dt>
@@ -381,6 +396,13 @@
     <div class="foot">
       {#if P.locked}
         <p class="ended">{P.lockedText}</p>
+      {:else if it.card}
+        <!-- Changing a card, or reopening it, happens in Boardo; only its time is kept here. -->
+        {#if card}
+          <a class="edit" href={card.url} target="_blank" rel="noopener">Open in Boardo</a>
+        {:else}
+          <p class="ended">This card isn't assigned to you in Boardo any more.</p>
+        {/if}
       {:else if delArmed}
         <div class="confirm" class:choice={repeatsLater} role="group" aria-label="Confirm delete">
           {#if repeatsLater}
@@ -804,6 +826,7 @@
     justify-content: center;
     gap: 8px;
     font: 500 15px/1 var(--font);
+    text-decoration: none;
     cursor: pointer;
     box-shadow: 0 3px 0 color-mix(in oklab, var(--text) 60%, #000);
     transition:
