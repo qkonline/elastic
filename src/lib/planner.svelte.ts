@@ -1352,9 +1352,9 @@ export class Planner {
     const first =
       this.screen.type === 'today' && this.view === 'day' ? 'Start your day first' : 'Start your day on Today first';
     const text = !this.isToday
-      ? "This day hasn't started yet. Tick it off once it has."
+      ? "This day hasn't started yet. Mark it done once it has."
       : what === 'check'
-        ? `${first}, then tick it off.`
+        ? `${first}, then mark it done.`
         : `${first}, then start the timer.`;
     this.nudge = { text, at: Date.now() };
     this.say(text);
@@ -1588,6 +1588,15 @@ export class Planner {
   markDone(id: string, start: number, end: number): void {
     this.resched = null;
     this.update((d) => A.markDone(d, id, start, end), `${this.item(id)?.title} marked done`);
+  }
+
+  /** Done without its timer: a task still to come, logged as just finished (A.markDoneNow). */
+  markDoneNow(id: string): void {
+    if (this.waiting) return this.askToStartDay('check');
+    if (this.whenTaskCurrent(id, () => this.markDoneNow(id))) return;
+    this.resched = null;
+    this.confirm = null;
+    this.update((d) => A.markDoneNow(d, id, this.n), `${this.item(id)?.title} marked done`);
   }
 
   reopen(id: string): void {

@@ -284,6 +284,28 @@ export function markDone(day: Day, id: string, start: number, end: number): Day 
 }
 
 /**
+ * "Mark done" on a task still to come, done without its timer: logged as just finished, its
+ * planned length back from now (but not before the day started or the last task on the record
+ * finished), and moved to the current point so the list stays in the order things happened.
+ */
+export function markDoneNow(day: Day, id: string, n: number): Day {
+  const it = find(day, id);
+  if (!it || it.status !== 'todo' || it.kind === 'buffer' || untimed(it.kind) || it.card) return day;
+  const missed = new Set(
+    schedule({ ...day, dayStarted: day.dayStarted ?? n }, n)
+      .rows.filter((r) => r.it.id !== id && isMissed(r, n))
+      .map((r) => r.it.id),
+  );
+  const after = Math.max(
+    day.dayStarted ?? n,
+    ...day.items.filter((i) => i.id !== id && onRecord(i) && i.endedAt != null).map((i) => i.endedAt!),
+  );
+  const start = Math.min(n, Math.max(n - it.min, after));
+  const done = markDone({ ...day, items: toCurrentPoint(day.items, id, missed) }, id, start, n);
+  return { ...done, dayStarted: day.dayStarted ?? n };
+}
+
+/**
  * Reopen a done item. Time actually worked stays on the record: the task becomes partly done (like
  * Postpone part-way, "worked 1h · rest later today") and a "continued" copy goes at the current
  * point, planned from now. A task only marked done, or a check, simply goes back to the plan.

@@ -106,11 +106,11 @@
         <button
           class="row-key"
           class:on={it.status === 'done'}
-          aria-label="{it.status === 'done' ? 'Untick' : 'Tick off'} {it.title}"
+          aria-label="{it.status === 'done' ? 'Untick' : 'Mark done'} {it.title}"
           aria-disabled={off}
           style:--c={hueColor(it.hue)}
           style:--ink={inkOn(it.hue)}
-          onclick={() => tick(it, waiting)}>{it.status === 'done' ? '✓ Done' : 'Tick off'}</button
+          onclick={() => tick(it, waiting)}>{it.status === 'done' ? '✓ Done' : 'Mark done'}</button
         >
       {/if}
     {/if}

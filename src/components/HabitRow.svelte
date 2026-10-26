@@ -9,7 +9,7 @@
   // One habit in the Checklist or the Habits section. The ring is the control: a tap ticks a
   // yes/no habit, adds one to an amount, opens the minutes for a time habit, or marks a slip on
   // a habit to break. Pressing and holding an amount opens the number to type it in. The key on
-  // the right does the same, in words ("Tick off", "+1 glass", "Add time", "I slipped").
+  // the right does the same, in words ("Mark done", "+1 glass", "Add time", "I slipped").
   let { it }: { it: Item & { habit: Habit } } = $props();
 
   const HOLD_MS = 450;
@@ -91,7 +91,7 @@
     h.type === 'check'
       ? met
         ? '✓ Done'
-        : 'Tick off'
+        : 'Mark done'
       : h.type === 'quit'
         ? slipped
           ? 'Slipped'

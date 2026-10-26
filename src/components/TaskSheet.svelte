@@ -214,10 +214,10 @@
           {:else if !P.locked}
             <div class="acts">
               {#if isCheck && v.s === 'todo' && P.waiting}
-                <button class="ctl" disabled>Tick off once your day starts</button>
+                <button class="ctl" disabled>Mark done once your day starts</button>
               {:else if isCheck}
                 <button class="ctl" class:done={v.s !== 'done'} onclick={() => P.toggleCheck(id)}
-                  ><span class="g">✓</span>{v.s === 'done' ? 'Untick' : 'Tick off'}</button
+                  ><span class="g">✓</span>{v.s === 'done' ? 'Untick' : 'Mark done'}</button
                 >
               {:else if v.s === 'todo'}
                 {#if v.missed}
@@ -230,6 +230,11 @@
                       ><path d="M3 1.6v8.8L10.4 6z" /></svg
                     >Start</button
                   >
+                  {#if !it.card}
+                    <!-- Done without the timer: logged as just finished. -->
+                    <button class="ctl mark" onclick={() => P.markDoneNow(id)}><span class="g">✓</span>Mark done</button
+                    >
+                  {/if}
                 {/if}
                 <button class="ctl" onclick={() => P.skip(id)}>{P.isToday ? 'Skip today' : 'Skip this day'}</button>
                 {#if P.isToday}

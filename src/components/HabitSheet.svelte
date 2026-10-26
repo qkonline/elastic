@@ -97,7 +97,7 @@
           {#if h.type === 'time' && fromTasks >= 1}
             <span class="sub">{dL(Math.floor(fromTasks))} from timed tasks, {it.progress ?? 0} min added by hand</span>
           {:else if waits && it.status !== 'skipped'}
-            <span class="sub">You can tick it off once your day starts.</span>
+            <span class="sub">You can mark it done once your day starts.</span>
           {/if}
           <div class="ctls">
             {#if it.status === 'skipped'}

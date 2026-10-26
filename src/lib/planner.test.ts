@@ -310,8 +310,8 @@ describe('Planner', () => {
   it('asks to start the day first, until it goes by itself', async () => {
     const p = await boot();
     p.askToStartDay('check');
-    expect(p.nudge?.text).toBe('Start your day first, then tick it off.');
-    expect(p.announce).toBe('Start your day first, then tick it off.');
+    expect(p.nudge?.text).toBe('Start your day first, then mark it done.');
+    expect(p.announce).toBe('Start your day first, then mark it done.');
     p.askToStartDay('timer');
     expect(p.nudge?.text).toBe('Start your day first, then start the timer.');
     vi.setSystemTime(new Date(2026, 8, 25, 10, 0, 7));
@@ -323,7 +323,7 @@ describe('Planner', () => {
 
     await p.switchDay(TOMORROW);
     p.askToStartDay('check');
-    expect(p.nudge?.text).toBe("This day hasn't started yet. Tick it off once it has.");
+    expect(p.nudge?.text).toBe("This day hasn't started yet. Mark it done once it has.");
   });
 
   it('lets checks on earlier days be ticked off, started or not', async () => {

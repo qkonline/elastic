@@ -316,6 +316,30 @@ describe('checks and the end of the day', () => {
   });
 });
 
+describe('mark done without the timer', () => {
+  it('logs a task still to come as just finished, at the current point', () => {
+    // a done 9:00 to 9:30; at 11:00 c (45m) was done without its timer, ahead of b.
+    let d = A.finish(A.startDay(day([t('a', 30), t('b', 30), t('c', 45)]), 540), 'a', 570);
+    d = A.markDoneNow(d, 'c', 660);
+    expect(d.items.map((i) => i.id)).toEqual(['a', 'c', 'b']);
+    const c = A.find(d, 'c')!;
+    expect([c.status, c.startedAt, c.endedAt, c.marked]).toEqual(['done', 615, 660, true]);
+    // Reopened, it simply goes back to the plan.
+    expect(A.find(A.reopen(d, 'c', 670), 'c')!.status).toBe('todo');
+  });
+
+  it('never starts it before the last task on the record finished', () => {
+    const d = A.finish(A.startDay(day([t('a', 30), t('b', 60)]), 540), 'a', 600);
+    const b = A.find(A.markDoneNow(d, 'b', 630), 'b')!;
+    expect([b.startedAt, b.endedAt]).toEqual([600, 630]);
+  });
+
+  it('leaves buffers, checks and work already under way alone', () => {
+    const d = A.startDay(day([t('a', 30), t('buf', 15, { kind: 'buffer' }), t('chk', 0, { kind: 'check' })]), 540);
+    for (const id of ['a', 'buf', 'chk']) expect(A.markDoneNow(d, id, 560)).toBe(d);
+  });
+});
+
 describe('correcting recorded times', () => {
   // "a" ran 9:00–9:30, "b" 9:40–10:20, "c" has been running since 10:30; now is 10:45.
   const d0 = day(

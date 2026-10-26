@@ -397,7 +397,7 @@ a {
   background: var(--sunk);
 }
 
-/* The key on the far right of a check or habit row ("Tick off", "+1 glass", "Add time", "I
+/* The key on the far right of a check or habit row ("Mark done", "+1 glass", "Add time", "I
    slipped"), like a timed task's Start: the same thing the box or ring on the left does, in
    words. Once it's done (`.on`) it fills with the entry's colour (`--c`, ink `--ink`). */
 .row-key {

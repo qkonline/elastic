@@ -145,6 +145,9 @@
         {#if showSkip}
           <!-- Beside Start, in line with it, laid over the task rather than taking room, so the row doesn't grow on hover. -->
           <span class="hover-acts">
+            {#if dayStarted && it.kind !== 'buffer' && !it.card}
+              <button class="hover-btn mark" onclick={() => P.markDoneNow(id)}>Mark done</button>
+            {/if}
             <button class="hover-btn skip" onclick={() => P.skip(id)}>Skip</button>
             <button class="hover-btn pp" onclick={() => P.arm('postpone', id)}>Postpone</button>
           </span>
@@ -413,6 +416,10 @@
   .hover-btn.skip {
     color: var(--text);
     border: 1px solid var(--border);
+  }
+  .hover-btn.mark {
+    color: var(--grT);
+    border: 1px solid color-mix(in oklab, #22c55e 45%, transparent);
   }
   .hover-btn.pp {
     color: var(--orT);
