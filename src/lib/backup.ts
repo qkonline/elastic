@@ -3,6 +3,7 @@
 // day ({ items, dayStart, wrap }) and import into the day being viewed.
 
 import { newItem, uid } from './actions';
+import { isIcon } from './icons';
 import { dkey } from './time';
 import type { Day, Goal, Habit, Hue, Item, Kind, Review, ReviewNumbers, Series, Settings, Status } from './types';
 import { DEFAULT_SETTINGS, FIXED_LEADS, isHue, untimed } from './types';
@@ -108,6 +109,7 @@ export function normalizeItem(raw: unknown): Item {
     ...(kind === 'habit' ? { habit, progress: Math.max(0, num(r.progress, 0)!) } : {}),
     ...(typeof r.habitId === 'string' && r.habitId ? { habitId: r.habitId } : {}),
     ...(typeof r.goalId === 'string' && r.goalId ? { goalId: r.goalId } : {}),
+    ...(isIcon(r.icon) ? { icon: r.icon } : {}),
     ...(cardLink(r.card) ? { card: cardLink(r.card)! } : {}),
     ...(timed && typeof r.run === 'string' && r.run.length <= 64
       ? { run: r.run, ...(r.fix === true ? { fix: true } : {}) }
@@ -186,6 +188,7 @@ export function normalizeSeries(raw: unknown, index: number): Series | null {
     ...(kind === 'habit' ? { habit } : {}),
     ...(typeof r.habitId === 'string' && r.habitId ? { habitId: r.habitId } : {}),
     ...(typeof r.goalId === 'string' && r.goalId ? { goalId: r.goalId } : {}),
+    ...(isIcon(r.icon) ? { icon: r.icon } : {}),
   };
 }
 

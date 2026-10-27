@@ -43,6 +43,7 @@ export function freshCopy(it: Item, extra: Partial<Item> = {}): Item {
     ...(it.habit ? { habit: it.habit } : {}),
     ...(it.habitId ? { habitId: it.habitId } : {}),
     ...(it.goalId ? { goalId: it.goalId } : {}),
+    ...(it.icon ? { icon: it.icon } : {}),
     ...extra,
   });
 }
@@ -464,6 +465,7 @@ function restOf(it: Item, w: number): Item {
     subtasks: it.subtasks,
     goalId: it.goalId ?? null,
     habitId: it.habitId ?? null,
+    icon: it.icon ?? null,
     continued: true,
   });
 }

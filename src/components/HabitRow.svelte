@@ -1,16 +1,20 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import { tapped } from '../lib/drag';
+  import { iconOf } from '../lib/icons';
   import { habitMet, habitValue, oneOf, periodCount, progressText, streak } from '../lib/habits';
   import { planner as P } from '../lib/planner.svelte';
   import { hueColor, inkOn, type Habit, type Item } from '../lib/types';
   import HabitRing from './HabitRing.svelte';
+  import TaskIcon from './TaskIcon.svelte';
 
   // One habit in the Checklist or the Habits section. The ring is the control: a tap ticks a
   // yes/no habit, adds one to an amount, opens the minutes for a time habit, or marks a slip on
   // a habit to break. Pressing and holding an amount opens the number to type it in. The key on
   // the right does the same, in words ("Mark done", "+1 glass", "Add time", "I slipped").
-  let { it }: { it: Item & { habit: Habit } } = $props();
+  // `wide` (the Checklist as a list): the habit's icon on the left and a bigger ring on the right,
+  // with the count inside it, in place of the small ring and the key.
+  let { it, wide = false }: { it: Item & { habit: Habit }; wide?: boolean } = $props();
 
   const HOLD_MS = 450;
   const h = $derived(it.habit);
@@ -101,6 +105,14 @@
           : 'Add time',
   );
   const keyOn = $derived(h.type === 'quit' ? slipped : met);
+  // Inside the wide ring: how far it's got, until it's met (the ring then shows a tick).
+  const inRing = $derived(
+    met || h.type === 'check' || h.type === 'quit'
+      ? ''
+      : h.type === 'amount'
+        ? `${Math.floor(value)}/${h.target}`
+        : `${Math.floor(value)}m`,
+  );
 
   const label = $derived(
     h.type === 'check'
@@ -113,22 +125,7 @@
   );
 </script>
 
-<button
-  class="ctl-ring hit"
-  role={h.type === 'check' ? 'checkbox' : undefined}
-  aria-checked={h.type === 'check' ? met : undefined}
-  aria-pressed={h.type === 'quit' ? slipped : undefined}
-  aria-label={label}
-  aria-disabled={off}
-  class:off
-  onpointerdown={down}
-  onpointerup={cancelHold}
-  onpointerleave={cancelHold}
-  onpointercancel={cancelHold}
-  ontouchend={(e) => held && e.preventDefault()}
-  oncontextmenu={(e) => e.preventDefault()}
-  onclick={tap}
->
+{#snippet ring(size: number)}
   <HabitRing
     hue={it.hue}
     {value}
@@ -136,10 +133,36 @@
     segments={h.type === 'amount' && h.target <= 12}
     met={h.type === 'quit' ? !slipped : met}
     {slipped}
+    {size}
   />
-</button>
+{/snippet}
+
+{#if wide}
+  <TaskIcon name={iconOf(it)} hue={it.hue} faded={met && h.type !== 'quit'} />
+{:else}
+  <button
+    class="ctl-ring hit"
+    role={h.type === 'check' ? 'checkbox' : undefined}
+    aria-checked={h.type === 'check' ? met : undefined}
+    aria-pressed={h.type === 'quit' ? slipped : undefined}
+    aria-label={label}
+    aria-disabled={off}
+    class:off
+    onpointerdown={down}
+    onpointerup={cancelHold}
+    onpointerleave={cancelHold}
+    onpointercancel={cancelHold}
+    ontouchend={(e) => held && e.preventDefault()}
+    oncontextmenu={(e) => e.preventDefault()}
+    onclick={tap}
+  >
+    {@render ring(28)}
+  </button>
+{/if}
 <div class="text">
-  <button class="title" class:done={met && h.type !== 'quit'} onclick={() => tapped(P, it.id)}>{it.title}</button>
+  <button class="title" class:done={met && h.type !== 'quit'} class:struck={wide} onclick={() => tapped(P, it.id)}
+    >{it.title}</button
+  >
   {#if editing}
     <form class="entry" onsubmit={(e) => (e.preventDefault(), save())}>
       <input
@@ -173,7 +196,27 @@
     </span>
   {/if}
 </div>
-{#if !editing}
+{#if wide && !editing}
+  <button
+    class="big-ring"
+    class:off
+    role={h.type === 'check' ? 'checkbox' : undefined}
+    aria-checked={h.type === 'check' ? met : undefined}
+    aria-pressed={h.type === 'quit' ? slipped : undefined}
+    aria-label={label}
+    aria-disabled={off}
+    onpointerdown={down}
+    onpointerup={cancelHold}
+    onpointerleave={cancelHold}
+    onpointercancel={cancelHold}
+    ontouchend={(e) => held && e.preventDefault()}
+    oncontextmenu={(e) => e.preventDefault()}
+    onclick={tap}
+  >
+    {@render ring(40)}
+    {#if inRing}<span class="in-ring" aria-hidden="true">{inRing}</span>{/if}
+  </button>
+{:else if !editing}
   <button
     class="row-key"
     class:on={keyOn}
@@ -209,6 +252,38 @@
     -webkit-touch-callout: none;
     user-select: none;
   }
+  /* The wide ring on the right, with its count inside: 48 px to tap. */
+  .big-ring {
+    position: relative;
+    flex: none;
+    width: 48px;
+    height: 48px;
+    margin-right: -4px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    border-radius: 50%;
+    touch-action: manipulation;
+    -webkit-touch-callout: none;
+    user-select: none;
+  }
+  .big-ring.off {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .big-ring:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 1px;
+  }
+  .in-ring {
+    position: absolute;
+    font: 600 11px/1 var(--font);
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
   .ctl-ring.off {
     opacity: 0.4;
     cursor: not-allowed;
@@ -234,6 +309,10 @@
   }
   .title.done {
     color: var(--muted);
+  }
+  .title.done.struck {
+    text-decoration: line-through;
+    text-decoration-color: var(--faint);
   }
   .title:focus-visible {
     outline: 2px solid var(--text);

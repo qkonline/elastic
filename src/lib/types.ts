@@ -84,6 +84,8 @@ export interface Item {
   habitId?: string | null;
   /** A task or habit that counts towards this goal. */
   goalId?: string | null;
+  /** The icon chosen for it in Edit (icons.ts); none = picked from the title. */
+  icon?: string | null;
   /**
    * Work on a Boardo card (see boardo.ts): the card and its board, and the timer session open
    * while it runs. Such an item has `min: 0`, so it counts up.
@@ -160,6 +162,7 @@ export interface Series {
   habit?: Habit;
   habitId?: string | null;
   goalId?: string | null;
+  icon?: string | null;
 }
 
 /**

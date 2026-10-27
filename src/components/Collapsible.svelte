@@ -13,6 +13,7 @@
     tally = '',
     count,
     children,
+    strip,
     list = $bindable(null),
     kind = '',
   }: {
@@ -24,6 +25,8 @@
     count: number;
     /** The entries, as <li>s. `folded`: entries past the third are out of view. */
     children: Snippet<[boolean]>;
+    /** Shown under the title bar, above the entries. */
+    strip?: Snippet;
     list?: HTMLUListElement | null;
     /** An extra class for the section (what's in it). */
     kind?: string;
@@ -56,6 +59,7 @@
 
 <section class="sec {kind}" aria-label={label}>
   <SectionHead {icon} title={label} {tally} inset />
+  {#if strip}{@render strip()}{/if}
   <div
     class="clip"
     class:shut

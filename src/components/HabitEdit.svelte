@@ -4,6 +4,7 @@
   import type { Habit, Item } from '../lib/types';
   import Fields from './Fields.svelte';
   import HabitFields from './HabitFields.svelte';
+  import IconPicker from './IconPicker.svelte';
   import SwitchRow from './SwitchRow.svelte';
 
   // A habit's Edit form: its name, colour, kind, how much and how often, reminder, goal and notes.
@@ -18,19 +19,21 @@
   let habit = $state<Habit>({ ...it.habit });
   let repeat = $state(it.repeat);
   let goalId = $state(it.goalId ?? null);
+  let icon = $state(it.icon ?? null);
   let note = $state(it.note);
   const quarterGoals = $derived(
     P.goals.filter((g) => g.quarter === P.quarterOf(P.viewKey) && g.title.trim()).sort((a, b) => a.order - b.order),
   );
 
   const patch = $derived.by(() => {
-    const next = { title: title.trim(), hue, habit, repeat, goalId, note };
+    const next = { title: title.trim(), hue, habit, repeat, goalId, icon, note };
     const was = {
       title: it.title,
       hue: it.hue,
       habit: it.habit,
       repeat: it.repeat,
       goalId: it.goalId ?? null,
+      icon: it.icon ?? null,
       note: it.note,
     };
     const out: Partial<Item> = {};
@@ -67,6 +70,7 @@
     aria-label="Habit name"
   />
   <Fields field="colour" {hue} onHue={(h) => (hue = h)} ringBg="var(--bg)" />
+  <IconPicker {title} {icon} {hue} onpick={(n) => (icon = n)} />
   <HabitFields
     {habit}
     {repeat}

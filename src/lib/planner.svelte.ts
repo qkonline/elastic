@@ -74,7 +74,7 @@ export type Screen =
 /** What the task sheet's Edit form saves. */
 export type TaskForm = Pick<
   Item,
-  'title' | 'kind' | 'min' | 'hue' | 'fixedAt' | 'repeat' | 'note' | 'subtasks' | 'goalId' | 'habitId'
+  'title' | 'kind' | 'min' | 'hue' | 'fixedAt' | 'repeat' | 'note' | 'subtasks' | 'goalId' | 'habitId' | 'icon'
 >;
 /** What opens over the page. */
 export type Sheet =
@@ -172,6 +172,7 @@ const SERIES_FIELDS: (keyof Item)[] = [
   'habit',
   'habitId',
   'goalId',
+  'icon',
 ];
 /** How far back stored days are kept at hand for habit streaks and history. */
 const PAST_DAYS = 400;
@@ -1770,7 +1771,7 @@ export class Planner {
     const title = form.title.trim() || 'Untitled';
     const f = { ...form, title };
     const patch: Partial<Item> = {};
-    const keys = ['title', 'kind', 'min', 'hue', 'fixedAt', 'note', 'subtasks', 'goalId', 'habitId'] as const;
+    const keys = ['title', 'kind', 'min', 'hue', 'fixedAt', 'note', 'subtasks', 'goalId', 'habitId', 'icon'] as const;
     for (const k of keys)
       if (JSON.stringify(f[k] ?? null) !== JSON.stringify(it[k] ?? null)) Object.assign(patch, { [k]: f[k] });
     if ('kind' in patch && f.kind === 'check') Object.assign(patch, { status: it.status === 'done' ? 'done' : 'todo' });

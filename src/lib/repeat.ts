@@ -34,6 +34,7 @@ export function seriesFromItem(it: Item, from: string, id = it.seriesId ?? uid()
     ...(it.habit ? { habit: it.habit } : {}),
     ...(it.habitId ? { habitId: it.habitId } : {}),
     ...(it.goalId ? { goalId: it.goalId } : {}),
+    ...(it.icon ? { icon: it.icon } : {}),
   };
 }
 
@@ -58,6 +59,7 @@ export function itemFromSeries(s: Series, key: string): Item {
     ...(s.habit ? { habit: s.habit } : {}),
     ...(s.habitId ? { habitId: s.habitId } : {}),
     ...(s.goalId ? { goalId: s.goalId } : {}),
+    ...(s.icon ? { icon: s.icon } : {}),
   });
 }
 
@@ -177,6 +179,7 @@ export function syncSeriesInto(day: Day, next: Series | null, prev: Series | nul
       habit: next!.habit,
       habitId: next!.habitId ?? null,
       goalId: next!.goalId ?? null,
+      icon: next!.icon ?? null,
     };
   }
   // A fixed time that changed goes where the new time falls.

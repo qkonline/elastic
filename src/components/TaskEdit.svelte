@@ -10,6 +10,7 @@
   import type { Item, Kind } from '../lib/types';
   import { reducedMotion } from '../lib/ui.svelte';
   import Fields from './Fields.svelte';
+  import IconPicker from './IconPicker.svelte';
   import KindChips from './KindChips.svelte';
   import SwitchRow from './SwitchRow.svelte';
 
@@ -31,6 +32,7 @@
   let repeat = $state(it.repeat !== 'Once' ? it.repeat : 'Every day');
   let goalId = $state(it.goalId ?? null);
   let habitId = $state(it.habitId ?? null);
+  let icon = $state(it.icon ?? null);
   let steps = $state(it.subtasks.map((x) => ({ ...x })));
   let newStep = $state('');
   let note = $state(it.note);
@@ -93,6 +95,8 @@
       subtasks: [...steps, ...pending].filter((x) => x.t.trim()),
       goalId: k === 'buffer' ? null : goalId,
       habitId: k === 'check' || k === 'buffer' ? null : habitId,
+      // Only checks show an icon (in the Checklist); a task keeps the one it had.
+      icon: k === 'check' ? icon : (it.icon ?? null),
     };
   });
   const ok = $derived(!!form.title);
@@ -110,6 +114,7 @@
       subtasks: it.subtasks,
       goalId: it.goalId ?? null,
       habitId: it.habitId ?? null,
+      icon: it.icon ?? null,
     };
     return (
       JSON.stringify({ ...f, subtasks: f.subtasks.map((x) => x.t) }) !==
@@ -146,6 +151,12 @@
   {#if kind !== 'buffer'}
     <div transition:slide={unfold()}>
       <Fields field="colour" {hue} onHue={(h) => (hue = h)} ringBg="var(--bg)" />
+    </div>
+  {/if}
+
+  {#if !timed}
+    <div transition:slide={unfold()}>
+      <IconPicker {title} {icon} {hue} onpick={(n) => (icon = n)} />
     </div>
   {/if}
 

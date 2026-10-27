@@ -57,7 +57,7 @@ npm run build      # production build in dist/
 npm run preview    # serve the build at http://localhost:4173/
 ```
 
-Built with Svelte 5, TypeScript and Vite. The only things shipped besides the app's own code are the Instrument Sans and Space Grotesk fonts and [SimpleWebAuthn](https://simplewebauthn.dev)'s browser helpers for passkeys.
+Built with Svelte 5, TypeScript and Vite. The only things shipped besides the app's own code are the Instrument Sans and Space Grotesk fonts, [SimpleWebAuthn](https://simplewebauthn.dev)'s browser helpers for passkeys, and about 90 icons from [Lucide](https://lucide.dev) (ISC licence, kept in `src/lib/icons.ts`) for checks and habits.
 
 ### Layout
 
