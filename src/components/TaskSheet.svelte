@@ -74,7 +74,8 @@
   const showTimes = $derived(P.settings.showTimes !== 'never');
   const clock = (m: number) => fT(m, P.settings.clock24) + (m >= 1440 ? ' +1' : '');
   // Work on a Boardo card: only its time is kept here. What the card is, and whether it's done,
-  // is Boardo's, so its sheet has no Edit, subtasks, Reopen or delete, just a way there.
+  // is Boardo's, so its sheet has no Edit, subtasks or Reopen, just a way there. Deleting only
+  // takes the row out of Elastic.
   const card = $derived(it?.card ? P.boardo.cards.find((c) => c.id === it.card!.id) : undefined);
   const projectName = $derived(card?.board.name ?? null);
   const kindName = $derived(
@@ -396,13 +397,6 @@
     <div class="foot">
       {#if P.locked}
         <p class="ended">{P.lockedText}</p>
-      {:else if it.card}
-        <!-- Changing a card, or reopening it, happens in Boardo; only its time is kept here. -->
-        {#if card}
-          <a class="edit" href={card.url} target="_blank" rel="noopener">Open in Boardo</a>
-        {:else}
-          <p class="ended">This card isn't assigned to you in Boardo any more.</p>
-        {/if}
       {:else if delArmed}
         <div class="confirm" class:choice={repeatsLater} role="group" aria-label="Confirm delete">
           {#if repeatsLater}
@@ -412,8 +406,10 @@
             >
             <button class="btn-yes" onclick={() => P.removeWithLater(id)}>Later days too</button>
           {:else}
-            <span class="q">Delete this task?</span>
-            <button class="btn-yes" onclick={() => P.remove(id)} {@attach (el) => el.focus()}>Delete</button>
+            <span class="q">{it.card ? 'Remove this from Elastic? Boardo keeps its time.' : 'Delete this task?'}</span>
+            <button class="btn-yes" onclick={() => P.remove(id)} {@attach (el) => el.focus()}
+              >{it.card ? 'Remove' : 'Delete'}</button
+            >
           {/if}
           <button class="btn-no" onclick={() => P.disarm()}>Cancel</button>
           <DisarmBar />
@@ -427,14 +423,23 @@
             /></svg
           >
         </button>
-        <button class="edit" onclick={() => (editing = true)}>
-          <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"
-            ><path
-              d="M12.6 4.2l3.2 3.2M3.5 16.5l.8-3.9 9.4-9.4a1.6 1.6 0 0 1 2.3 0l.8.8a1.6 1.6 0 0 1 0 2.3l-9.4 9.4z"
-            /></svg
-          >
-          Edit task
-        </button>
+        {#if it.card}
+          <!-- Changing a card, or reopening it, happens in Boardo; only its time is kept here. -->
+          {#if card}
+            <a class="edit" href={card.url} target="_blank" rel="noopener">Open in Boardo</a>
+          {:else}
+            <p class="ended">This card isn't assigned to you in Boardo any more.</p>
+          {/if}
+        {:else}
+          <button class="edit" onclick={() => (editing = true)}>
+            <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"
+              ><path
+                d="M12.6 4.2l3.2 3.2M3.5 16.5l.8-3.9 9.4-9.4a1.6 1.6 0 0 1 2.3 0l.8.8a1.6 1.6 0 0 1 0 2.3l-9.4 9.4z"
+              /></svg
+            >
+            Edit task
+          </button>
+        {/if}
       {/if}
     </div>
   {/if}
