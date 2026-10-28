@@ -98,7 +98,7 @@ export interface CardRow {
  * Which cards show on a day, and how (R8.12 to R8.18):
  * - only cards with a date (the server sends only mine, and none archived);
  * - on every day their range covers (one date: that day);
- * - after their end, only while In progress, as Overdue, every day up to today;
+ * - after their end, as Overdue, every day up to today, until my part is done or the card is Completed;
  * - once my part is done or the card is Completed, ticked for the rest of that day, then gone.
  * Deadlines read from the day being looked at.
  */
@@ -118,8 +118,8 @@ export function cardsFor(dayKey: string, cards: BoardoCard[], today: string, clo
       // Shown on its days up to the one it was finished, and on that day.
       if (!((inRange && (!doneDay || dayKey <= doneDay)) || dayKey === doneDay)) continue;
     } else if (!inRange) {
-      const lateInProgress = dayKey > to && dayKey <= today && card.status.role === 'in_progress';
-      if (!lateInProgress) continue;
+      const late = dayKey > to && dayKey <= today;
+      if (!late) continue;
     }
     const overdue = !finished && dayKey > to;
     rows.push({ card, deadline: finished ? null : deadlineLabel(e, dayKey, clock24), overdue, ticked: finished });

@@ -7,7 +7,7 @@
   import Collapsible from './Collapsible.svelte';
 
   // Project cards from Boardo for the day on screen (R8.6 to R8.11): the ones assigned to me
-  // whose dates cover it, an In progress card that's overdue, and ones finished today (ticked).
+  // whose dates cover it, ones overdue and not done yet, and ones finished today (ticked).
   // They're never dragged into the plan: Start puts a timer for one at the current point.
   // Only shown when connected and in at least one board.
   const B = P.boardo;

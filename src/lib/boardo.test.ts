@@ -39,14 +39,23 @@ describe('which cards show on a day', () => {
   it('never shows a card without dates', () => {
     expect(shown('2026-10-21', card({ start: null, end: null }))).toHaveLength(0);
   });
-  it('keeps an overdue card that is In progress, up to today, as Overdue', () => {
-    const c = card({ status: prog });
-    expect(shown('2026-10-24', c)[0]).toMatchObject({ overdue: true, deadline: 'Overdue' });
-    expect(shown('2026-10-25', c)).toHaveLength(1);
-    expect(shown('2026-10-26', c)).toHaveLength(0);
+  it('keeps an overdue card, whatever its status, up to today, as Overdue', () => {
+    for (const status of [
+      prog,
+      { label: 'Not started', role: null },
+      { label: 'Blocked', role: null },
+      { label: null, role: null },
+    ]) {
+      const c = card({ status });
+      expect(shown('2026-10-24', c)[0]).toMatchObject({ overdue: true, deadline: 'Overdue' });
+      expect(shown('2026-10-25', c)).toHaveLength(1);
+      expect(shown('2026-10-26', c)).toHaveLength(0);
+    }
   });
-  it('drops an overdue card that is not In progress after its days', () => {
-    expect(shown('2026-10-23', card({ status: { label: 'Blocked', role: null } }))).toHaveLength(0);
+  it('drops an overdue card once my part is done', () => {
+    const c = card({ myDone: new Date(2026, 9, 24, 9).getTime() });
+    expect(shown('2026-10-24', c)[0]).toMatchObject({ ticked: true });
+    expect(shown('2026-10-25', c)).toHaveLength(0);
   });
   it('shows a card ticked on the day my part was done, then not after', () => {
     const doneAt = new Date(2026, 9, 21, 15).getTime();
