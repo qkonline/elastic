@@ -12,7 +12,7 @@
   import { hasNotifications, needsInstallForNotifications } from '../lib/platform';
   import { pushConfigured } from '../lib/push';
   import { dL, fT, hhmm, hm, keyDate, shortDate } from '../lib/time';
-  import { FIXED_LEADS, type ShowTimes, type ThemePref } from '../lib/types';
+  import { FIXED_LEADS, type Settings, type ShowTimes, type ThemePref } from '../lib/types';
   import AccountYou from './AccountYou.svelte';
   import DayShape, { describe, type Shape } from './DayShape.svelte';
   import DisarmBar from './DisarmBar.svelte';
@@ -20,8 +20,18 @@
 
   let fileEl: HTMLInputElement | null = $state(null);
   const S = $derived(P.settings);
-  // Your day and Weekly review are kept as drafts until their Save; the switches and other
-  // choices apply as they're tapped.
+  // Nothing here applies as it's tapped: every choice is a draft until Save changes, in one save
+  // bar whichever tab it's in. Display and Alerts choices are `prefs` (shown in place of the saved
+  // ones), notifications `notifyDraft` (turning them on asks the browser, from the Save tap).
+  type Pref = 'themePref' | 'clock24' | 'showTimes' | 'checklistLayout' | 'habitsPlace' | 'alertOn' | 'fixedLead';
+  const DISPLAY: Pref[] = ['themePref', 'clock24', 'showTimes', 'checklistLayout', 'habitsPlace'];
+  let prefs = $state<Partial<Pick<Settings, Pref>>>({});
+  const V = $derived({ ...S, ...prefs });
+  const pick = <K extends Pref>(k: K, v: Settings[K]) => {
+    const { [k]: _, ...rest } = prefs;
+    prefs = v === S[k] ? rest : { ...rest, [k]: v };
+  };
+  const changed = $derived((Object.keys(prefs) as Pref[]).filter((k) => prefs[k] !== S[k]));
   const saved = $derived<Shape>({ start: S.defStart, length: S.dayLength, flex: S.flexStart });
   let shapeDraft = $state<Shape | null>(null);
   let shapeKey = $state(0);
@@ -48,14 +58,17 @@
     void P.clock;
     return hasNotifications() ? Notification.permission : null;
   });
-  const notifyOn = $derived(S.notify && permission === 'granted');
+  const notifySaved = $derived(S.notify && permission === 'granted');
+  let notifyDraft = $state<boolean | null>(null);
+  const notifyOn = $derived(notifyDraft ?? notifySaved);
+  const notifyChanged = $derived(notifyDraft != null && notifyDraft !== notifySaved);
   const notifyText = $derived.by(() => {
     if (needsInstallForNotifications())
       return 'On iPhone and iPad, notifications work once Elastic is on your Home Screen.';
     if (!permission) return "This browser can't show notifications; the chime and vibration still work.";
     if (permission === 'denied')
       return "Notifications are blocked for this site. Allow them in your browser's site settings to turn them on here.";
-    const what = S.fixedLead ? "when time's up and before fixed times" : "when time's up";
+    const what = V.fixedLead ? "when time's up and before fixed times" : "when time's up";
     if (notifyOn)
       return pushConfigured()
         ? `You'll get one ${what}, even with Elastic closed or your phone locked.`
@@ -64,8 +77,7 @@
   });
 
   function toggleNotify() {
-    if (notifyOn) P.disableNotifications();
-    else void P.enableNotifications();
+    notifyDraft = !notifyOn === notifySaved ? null : !notifyOn;
   }
   const count = $derived(P.day.items.length);
   const syncText = $derived(
@@ -97,8 +109,7 @@
 
   // Settings in tabs, as Boardo's board settings (a side menu on a computer, pills on a phone):
   // Account (you, sync, install), Display, Your day (and the weekly review), Alerts, Projects
-  // (Boardo), and Your data. Choices apply as they're tapped; Your day and Weekly review are
-  // drafts, kept in one save bar whichever tab they're in.
+  // (Boardo), and Your data.
   const tabs = $derived([
     ...((P.session && !P.needsSetup) || accountsAvailable() || P.session || install.method
       ? [{ id: 'account', label: 'Account' }]
@@ -113,12 +124,26 @@
   let picked = $state<Tab | null>(last);
   const tab = $derived(tabs.find((t) => t.id === picked)?.id ?? tabs[0].id);
 
-  const unsaved = $derived([...(shapeChanged ? ['Your day'] : []), ...(reviewChanged ? ['Weekly review'] : [])]);
+  const unsaved = $derived([
+    ...(changed.some((k) => DISPLAY.includes(k)) ? ['Display'] : []),
+    ...(shapeChanged ? ['Your day'] : []),
+    ...(reviewChanged ? ['Weekly review'] : []),
+    ...(notifyChanged || changed.some((k) => !DISPLAY.includes(k)) ? ['Alerts'] : []),
+  ]);
   function saveAll() {
+    if (changed.length) P.setSettings(Object.fromEntries(changed.map((k) => [k, prefs[k]])));
+    prefs = {};
     if (shapeChanged) saveShape();
     if (reviewChanged) saveReview();
+    if (notifyChanged) {
+      if (notifyDraft) void P.enableNotifications();
+      else P.disableNotifications();
+    }
+    notifyDraft = null;
   }
   function discardAll() {
+    prefs = {};
+    notifyDraft = null;
     cancelShape();
     reviewDraft = null;
   }
@@ -196,7 +221,7 @@
               <span class="ol">Theme</span>
               <div class="segs">
                 {#each THEMES as [k, l] (k)}
-                  <button aria-pressed={S.themePref === k} onclick={() => P.setSettings({ themePref: k })}>{l}</button>
+                  <button aria-pressed={V.themePref === k} onclick={() => pick('themePref', k)}>{l}</button>
                 {/each}
               </div>
             </div>
@@ -204,7 +229,7 @@
               <span class="ol">Clock</span>
               <div class="segs">
                 {#each CLOCKS as [k, l] (l)}
-                  <button aria-pressed={S.clock24 === k} onclick={() => P.setSettings({ clock24: k })}>{l}</button>
+                  <button aria-pressed={V.clock24 === k} onclick={() => pick('clock24', k)}>{l}</button>
                 {/each}
               </div>
             </div>
@@ -212,33 +237,29 @@
               <span class="ol">Show times on the timeline</span>
               <div class="segs">
                 {#each TIMES as [k, l] (k)}
-                  <button aria-pressed={S.showTimes === k} onclick={() => P.setSettings({ showTimes: k })}>{l}</button>
+                  <button aria-pressed={V.showTimes === k} onclick={() => pick('showTimes', k)}>{l}</button>
                 {/each}
               </div>
             </div>
             <div class="setting">
               <span class="ol">Checklist</span>
               <div class="segs">
-                <button
-                  aria-pressed={S.checklistLayout === 'list'}
-                  onclick={() => P.setSettings({ checklistLayout: 'list' })}>A list</button
+                <button aria-pressed={V.checklistLayout === 'list'} onclick={() => pick('checklistLayout', 'list')}
+                  >A list</button
                 >
-                <button
-                  aria-pressed={S.checklistLayout === 'row'}
-                  onclick={() => P.setSettings({ checklistLayout: 'row' })}>A row that scrolls</button
+                <button aria-pressed={V.checklistLayout === 'row'} onclick={() => pick('checklistLayout', 'row')}
+                  >A row that scrolls</button
                 >
               </div>
             </div>
             <div class="setting">
               <span class="ol">Habits</span>
               <div class="segs">
-                <button
-                  aria-pressed={S.habitsPlace === 'checklist'}
-                  onclick={() => P.setSettings({ habitsPlace: 'checklist' })}>In the Checklist</button
+                <button aria-pressed={V.habitsPlace === 'checklist'} onclick={() => pick('habitsPlace', 'checklist')}
+                  >In the Checklist</button
                 >
-                <button
-                  aria-pressed={S.habitsPlace === 'separate'}
-                  onclick={() => P.setSettings({ habitsPlace: 'separate' })}>Their own section</button
+                <button aria-pressed={V.habitsPlace === 'separate'} onclick={() => pick('habitsPlace', 'separate')}
+                  >Their own section</button
                 >
               </div>
             </div>
@@ -290,11 +311,11 @@
             <button
               class="switch hit"
               style:--hit-x="0px"
-              class:on={S.alertOn}
+              class:on={V.alertOn}
               role="switch"
-              aria-checked={S.alertOn}
+              aria-checked={V.alertOn}
               aria-label="Sound"
-              onclick={() => P.setSettings({ alertOn: !S.alertOn })}><span></span></button
+              onclick={() => pick('alertOn', !V.alertOn)}><span></span></button
             >
           </div>
           <div class="alert">
@@ -320,7 +341,7 @@
             <span class="ol">Heads-up before a fixed time</span>
             <div class="row">
               {#each FIXED_LEADS as m (m)}
-                <button class="chip" aria-pressed={S.fixedLead === m} onclick={() => P.setSettings({ fixedLead: m })}
+                <button class="chip" aria-pressed={V.fixedLead === m} onclick={() => pick('fixedLead', m)}
                   >{m ? `${m} min` : 'None'}</button
                 >
               {/each}
@@ -417,7 +438,7 @@
   </div>
 
   {#if unsaved.length}
-    <!-- One bar for the drafts (Your day, Weekly review), whichever tab they're in. -->
+    <!-- One bar for every draft, whichever tab it's in. -->
     <div class="savebar" role="region" aria-label="Changes not saved">
       <span class="unsaved">Not saved yet: {unsaved.join(', ')}</span>
       <button type="button" class="no" onclick={discardAll}>Discard</button>
