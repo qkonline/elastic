@@ -80,8 +80,10 @@ function toCurrentPoint(items: Item[], id: string, missed: Set<string>): Item[] 
 }
 
 /**
- * Starting an item finishes whatever else is running or paused as done, and moves the item to
- * the current point in the plan (see toCurrentPoint). Buffers never start.
+ * Starting an item pauses whatever else is running or paused, never marking it done: the time
+ * put in stays logged and the rest of it comes straight after the item started, badged
+ * "continued", to pick up again later. The item moves to the current point in the plan (see
+ * toCurrentPoint). Buffers never start.
  */
 export function startItem(day: Day, id: string, n: number): Day {
   const target = find(day, id);
@@ -98,14 +100,14 @@ export function startItem(day: Day, id: string, n: number): Day {
       return { ...i, status: 'running', startedAt: n, endedAt: null, pausedAt: null, pausedFor: 0, marked: false };
     // Work on a Boardo card is never finished by starting something else: it's set aside.
     if (i.card && isActive(i)) return setAside(i, n);
-    if (i.status === 'running') return { ...i, status: 'done', endedAt: n };
-    if (i.status === 'paused') {
-      const w = i.pausedAt! - i.startedAt! - i.pausedFor;
-      if (w >= i.min) return { ...i, status: 'done', pausedFor: pausedSoFar(i, n), pausedAt: null, endedAt: n };
-      // Paused part-way, so not finished: the time put in stays logged (up to the pause) and
-      // the rest comes straight after the task being started.
-      rest = restOf(i, w);
-      return { ...i, status: 'postponed', endedAt: i.pausedAt, pausedAt: null, laterCopy: true };
+    if (isActive(i)) {
+      // Not finished, only paused for the other one: the time put in stays logged (up to now, or
+      // to the pause) and the rest comes straight after the task being started. One that had used
+      // up its time gets as long as a reopened task.
+      const end = i.status === 'paused' ? i.pausedAt! : n;
+      const w = end - i.startedAt! - i.pausedFor;
+      rest = restOf(i, w, w >= i.min ? REOPEN_MIN : remainder(i, w));
+      return { ...i, status: 'postponed', endedAt: end, pausedAt: null, laterCopy: true };
     }
     return i;
   });
@@ -166,8 +168,9 @@ export function endDay(day: Day, n: number): Day {
 }
 
 /**
- * A Boardo card's work stopped without finishing it (another task started, the day ended): it
- * keeps the time worked, as partly done, and the card stays in Projects.
+ * Work stopped without finishing it, as partly done with the time worked kept: a Boardo card's
+ * (another task started, the day ended; the card stays in Projects), or a timer left running on
+ * another day when one starts here.
  */
 export function setAside(i: Item, n: number): Item {
   const paused = i.status === 'paused';
@@ -455,10 +458,10 @@ export const REOPEN_MIN = 15;
 const remainder = (it: Item, w: number) => Math.max(5, Math.round(it.min - w));
 
 /** The rest of a task set aside part-way through, as a new task badged "continued". */
-function restOf(it: Item, w: number): Item {
+function restOf(it: Item, w: number, min = remainder(it, w)): Item {
   return newItem({
     title: it.title,
-    min: remainder(it, w),
+    min,
     hue: it.hue,
     kind: it.kind === 'fixed' ? 'task' : it.kind,
     note: it.note,

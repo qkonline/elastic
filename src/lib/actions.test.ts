@@ -15,13 +15,15 @@ const day = (items: Item[], o: Partial<Day> = {}): Day => ({
 const st = (d: Day) => d.items.map((i) => `${i.id}:${i.status}`);
 
 describe('timer actions', () => {
-  it('starting an item finishes the running one as done and stamps the day', () => {
+  it('starting an item pauses the running one, never marking it done, and stamps the day', () => {
     let d = day([t('a', 30), t('b', 30)]);
     d = A.startItem(d, 'a', 545);
     expect(d.dayStarted).toBe(545);
     d = A.startItem(d, 'b', 560);
-    expect(st(d)).toEqual(['a:done', 'b:running']);
-    expect(d.items[0].endedAt).toBe(560);
+    // "a" ran 15 of its 30 minutes: they stay logged, and the other 15 come straight after "b".
+    expect(st(d)).toEqual(['a:postponed', 'b:running', `${d.items[2].id}:todo`]);
+    expect(d.items[0]).toMatchObject({ startedAt: 545, endedAt: 560, laterCopy: true });
+    expect(d.items[2]).toMatchObject({ title: 'a', min: 15, continued: true });
   });
 
   it('starting while another is paused sets the paused one aside, not done', () => {
@@ -41,11 +43,16 @@ describe('timer actions', () => {
     expect(rows[1].gap).toBe(10); // the pause shows as idle time before "b"
   });
 
-  it('a paused task that already used its time is finished instead', () => {
+  it('a task that already used its time is paused too, with as long as a reopened task left', () => {
     let d = day([t('a', 30, { status: 'paused', startedAt: 540, pausedAt: 575 }), t('b', 30)], { dayStarted: 540 });
     d = A.startItem(d, 'b', 580);
-    expect(d.items[0]).toMatchObject({ status: 'done', pausedFor: 5, pausedAt: null, endedAt: 580 });
-    expect(d.items).toHaveLength(2);
+    expect(d.items[0]).toMatchObject({ status: 'postponed', pausedAt: null, endedAt: 575 });
+    expect(d.items[2]).toMatchObject({ title: 'a', min: A.REOPEN_MIN, status: 'todo', continued: true });
+    // Running past its time, the same.
+    d = A.startItem(day([t('a', 30), t('b', 30)], { dayStarted: 540 }), 'a', 540);
+    d = A.startItem(d, 'b', 590);
+    expect(st(d).slice(0, 2)).toEqual(['a:postponed', 'b:running']);
+    expect(d.items[2]).toMatchObject({ min: A.REOPEN_MIN, continued: true });
   });
 
   it('never starts a buffer', () => {

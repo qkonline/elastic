@@ -270,7 +270,7 @@ describe('Planner', () => {
     add(q, 'Morning');
     q.startItem(byTitle(q, 'Morning').id);
     await q.flush();
-    expect((await db.getDay(TODAY))?.items[0].status).toBe('done');
+    expect((await db.getDay(TODAY))?.items[0].status).toBe('postponed');
     expect(q.elsewhere).toBeNull();
   });
 

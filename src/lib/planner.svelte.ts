@@ -1543,16 +1543,16 @@ export class Planner {
     if (next !== d) this.put(next);
   }
 
-  /** Only one timer at a time across all days: finish one left running on another day. */
+  /**
+   * Only one timer at a time across all days: one left running on another day is set aside with
+   * its time kept, never marked done by starting something else (nor a Boardo card's part, which
+   * only Done marks in Boardo).
+   */
   private finishElsewhere(): void {
     const e = this.elsewhere;
     if (!e) return;
     const m = minutesInto(e.key, this.clock);
-    // A Boardo card is only ever set aside, never marked done, by starting something else (only
-    // Done marks my part done in Boardo).
-    this.put(
-      e.it.card ? A.patchItem(this.days[e.key], e.it.id, A.setAside(e.it, m)) : A.finish(this.days[e.key], e.it.id, m),
-    );
+    this.put(A.patchItem(this.days[e.key], e.it.id, A.setAside(e.it, m)));
   }
 
   pause(id: string): void {
