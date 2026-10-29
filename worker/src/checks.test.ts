@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { alertGroups, cleanEmail, cleanName, deviceLabel, MAX_RECORD, patches } from './checks';
+import {
+  alertGroups,
+  cleanEmail,
+  cleanName,
+  deviceLabel,
+  isPushEndpoint,
+  MAX_RECORD,
+  network,
+  patches,
+  sameText,
+  timerName,
+} from './checks';
 
 describe('cleanEmail', () => {
   it('tidies an address and refuses what is not one', () => {
@@ -77,5 +88,64 @@ describe('changes', () => {
     expect(patches([{ kind: 'day', key: 'x', paths: { _: [true, ''] } }])).toBeNull();
     expect(patches([{ kind: 'day', key: 'x', paths: [1] }])).toBeNull();
     expect(patches([{ kind: 'day', key: 'x', paths: { 'f.s': ['x'.repeat(MAX_RECORD), c] } }])).toBeNull();
+  });
+});
+
+describe('network', () => {
+  it('keeps an IPv4 address as it is', () => {
+    expect(network('203.0.113.7')).toBe('203.0.113.7');
+    expect(network(' 203.0.113.7 ')).toBe('203.0.113.7');
+  });
+
+  it('counts an IPv6 address as its /64, however it is written', () => {
+    const net = '2001:db8:aa:1::/64';
+    expect(network('2001:db8:aa:1::1')).toBe(net);
+    expect(network('2001:0db8:00aa:0001:ffff:ffff:ffff:ffff')).toBe(net);
+    expect(network('2001:DB8:AA:1:0:0:0:9')).toBe(net);
+    expect(network('2001:db8:aa:1::5%en0')).toBe(net);
+    expect(network('2001:db8:aa:2::1')).not.toBe(net);
+    expect(network('2001:db8::1')).toBe('2001:db8:0:0::/64');
+    expect(network('::1')).toBe('0:0:0:0::/64');
+    expect(network('2001:db8:aa:1::1.2.3.4')).toBe(net);
+  });
+
+  it('reads an IPv4 address inside IPv6 as IPv4', () => {
+    expect(network('::ffff:198.51.100.2')).toBe('198.51.100.2');
+  });
+
+  it('copes with nothing, or nonsense', () => {
+    expect(network(null)).toBe('unknown');
+    expect(network('')).toBe('unknown');
+    expect(network('1::2::3')).toBe('1::2::3');
+    expect(network('zz:1::')).toBe('zz:1::');
+  });
+});
+
+describe('sameText', () => {
+  it('compares like ===', () => {
+    expect(sameText('abc', 'abc')).toBe(true);
+    expect(sameText('abc', 'abd')).toBe(false);
+    expect(sameText('abc', 'ab')).toBe(false);
+    expect(sameText('', '')).toBe(true);
+    expect(sameText('', 'a')).toBe(false);
+    expect(sameText('a', '')).toBe(false);
+    expect(sameText('é', 'e')).toBe(false);
+  });
+});
+
+describe('push addresses', () => {
+  it('refuses addresses no push service gives out', () => {
+    expect(isPushEndpoint('https://fcm.googleapis.com/fcm/send/abc:def')).toBe(true);
+    expect(isPushEndpoint('https://user:pw@fcm.googleapis.com/fcm/send/abc')).toBe(false);
+    expect(isPushEndpoint('https://fcm.googleapis.com:8443/fcm/send/abc')).toBe(false);
+    expect(isPushEndpoint('https://fcm.googleapis.com/fcm/send/abc#x')).toBe(false);
+  });
+
+  it('names one Timer per address, however it is written', () => {
+    expect(timerName('https://FCM.googleapis.com:443/fcm/send/abc')).toBe(
+      timerName('https://fcm.googleapis.com/fcm/send/abc'),
+    );
+    const real = 'https://wns2-par02p.notify.windows.com/w/?token=BQYAAAB%2b';
+    expect(timerName(real)).toBe(real);
   });
 });

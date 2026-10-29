@@ -57,5 +57,7 @@ export default defineConfig(({ mode }) => ({
   plugins: [svelte(), serviceWorker(loadEnv(mode, here('.'), 'VITE_').VITE_PUSH_URL ?? '')],
   test: {
     include: ['src/**/*.test.ts', 'worker/src/**/*.test.ts', 'shared/**/*.test.ts'],
+    // The worker's tests run in Node, where Cloudflare's own module is stood in for.
+    alias: { 'cloudflare:workers': here('./worker/test/cloudflare-workers.ts') },
   },
 }));

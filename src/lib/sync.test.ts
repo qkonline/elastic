@@ -726,3 +726,87 @@ describe('sync', () => {
     expect(asked).toBe(2);
   });
 });
+
+describe('moving to the new address', () => {
+  type Mover = {
+    arrive(c: { code: string | null; settings: object }): Promise<void>;
+    leaveNothing(s: object): Promise<void>;
+  };
+  /** Answers the worker's routes as the tests need, noting each call. */
+  function worker(signedIn: object) {
+    const calls: { path: string; body: Record<string, unknown>; auth: string | null }[] = [];
+    vi.stubGlobal('fetch', async (url: string, init: { body: string; headers: Record<string, string> }) => {
+      const path = String(url).replace(/^.*?(\/(auth|account)\/.*)$/, '$1');
+      calls.push({ path, body: JSON.parse(init.body), auth: init.headers.authorization ?? null });
+      if (path === '/auth/handoff') return new Response(JSON.stringify(signedIn), { status: 200 });
+      if (path === '/account') return new Response(JSON.stringify({ records: 0 }), { status: 200 });
+      return new Response(null, { status: 204 });
+    });
+    return calls;
+  }
+  async function newDevice() {
+    vi.resetModules();
+    globalThis.indexedDB = new IDBFactory();
+    const db = await import('./db');
+    const { Planner } = await import('./planner.svelte');
+    const p = new Planner();
+    await p.init();
+    devices.push({ p, db });
+    return p;
+  }
+
+  it('asks "Continue as …?" before keeping a sign-in handed over, and can say no', async () => {
+    const p = await newDevice();
+    const calls = worker({ token: 'new', user: { id: 'x', email: 'someone@example.com', name: 'S' }, fresh: false });
+    await (p as unknown as Mover).arrive({ code: 'c', settings: {} });
+    expect(p.session).toBeNull();
+    expect(p.handoffAsk?.user.email).toBe('someone@example.com');
+    await p.answerHandoff(false);
+    expect(p.handoffAsk).toBeNull();
+    expect(p.session).toBeNull();
+    expect(calls.at(-1)).toMatchObject({ path: '/auth/signout', auth: 'Bearer new' });
+  });
+
+  it('signs in once the person says it is them', async () => {
+    const p = await newDevice();
+    worker({ token: 'new', user: { id: 'u', email: 'me@example.com', name: 'Me' }, fresh: false });
+    await (p as unknown as Mover).arrive({ code: 'c', settings: {} });
+    await p.answerHandoff(true);
+    await settle();
+    expect(p.session?.token).toBe('new');
+    expect(p.settings.onboarded).toBe(true);
+  });
+
+  it('refuses a handoff for another account on a device already signed in', async () => {
+    const a = await device();
+    const calls = worker({ token: 'theirs', user: { id: 'x', email: 'x@example.com', name: 'X' }, fresh: false });
+    await (a.p as unknown as Mover).arrive({ code: 'c', settings: {} });
+    expect(a.p.session?.user.id).toBe('u');
+    expect(a.p.handoffAsk).toBeNull();
+    expect(a.p.accountMsg).toMatchObject({ err: true });
+    expect(calls.at(-1)).toMatchObject({ path: '/auth/signout', auth: 'Bearer theirs' });
+  });
+
+  it('leaves nothing at the old address once everything has reached the account', async () => {
+    const a = await device({ fresh: true });
+    add(a.p, 'Moved');
+    await settle();
+    const calls = worker({});
+    await (a.p as unknown as Mover).leaveNothing(a.p.session!);
+    expect(calls.at(-1)).toMatchObject({ path: '/auth/signout', auth: 'Bearer t', body: { device: 'd0' } });
+    expect(await (globalThis.indexedDB as IDBFactory).databases()).toEqual([]);
+    expect(server.data('day', TODAY).items.map((i: { title: string }) => i.title)).toEqual(['Moved']);
+  });
+
+  it('keeps everything while some of it has yet to reach the account', async () => {
+    const a = await device({ fresh: true });
+    server.held = [];
+    add(a.p, 'Not there yet');
+    await a.p.flush();
+    const calls = worker({});
+    await (a.p as unknown as Mover).leaveNothing(a.p.session!);
+    expect(calls).toEqual([]);
+    expect(await a.db.getMeta('account')).toMatchObject({ token: 't' });
+    server.held = null;
+  });
+});

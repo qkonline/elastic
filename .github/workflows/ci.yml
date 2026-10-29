@@ -1,0 +1,27 @@
+# Type checks, tests and a build on every push and pull request. Needs no secrets: the build
+# uses .env.production, whose values are all public.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # The worker's tests use node:sqlite.
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npx tsc -p worker/tsconfig.json
+      - run: npm run format:check
+      - run: npm test
+      - run: npm run build
