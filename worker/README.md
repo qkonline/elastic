@@ -9,24 +9,30 @@ Sends Elastic's notifications (time's up, and heads-ups before fixed-time tasks)
 - `POST /schedule` with `{ "endpoint": "<push subscription endpoint>", "at": [<epoch ms>, …] }` books a push at each time (up to 20), replacing any booked before. A single number is accepted too.
 - `POST /cancel` with `{ "endpoint": "…" }` cancels them.
 
+Both work without signing in (signed-out devices use them), so they're limited per network like the other open routes (below). Only addresses on the browsers' own push services are taken, without a login, port or fragment, and each address has one Timer however it's written (its name is the address as the URL parser writes it).
+
 Each browser gets a Durable Object (`Timer`, named after its push endpoint) that stores the endpoint and the times and sets an alarm for the earliest; when the alarm fires it sends an empty, VAPID-signed push and sets the alarm for the next time, forgetting the endpoint after the last. Pushes carry no payload, so no task data reaches the worker this way.
 
 ## Accounts
 
 Signing in (`src/auth.ts`, D1 database `elastic-day`, schema in `migrations/`):
 
-- `POST /auth/email/send`, `/auth/email/verify`: a six-digit code by email (through [Resend](https://resend.com); key in the `RESEND_API_KEY` secret, sender in `EMAIL_FROM`). Without a session, a code signs in, or makes the account if the address is new (the reply to `send` is the same either way). With one, it adds or changes the account's email (and can set its name at the same time). Codes last 10 minutes and allow 5 tries; at most 6 an hour go to one address and 30 to one network. The counts and tries are each kept in one statement, so requests at the same moment can't get past them, and a code is used up once. Resend gets 10 seconds to answer. Without a key `/auth/config` says `{ "email": false }`; with `DEV_MAIL` set (local) and no key, codes are kept at `GET /dev/mail` instead of sent. Where a key is set, `DEV_MAIL` does nothing.
+- `POST /auth/email/send`, `/auth/email/verify`: a six-digit code by email (through [Resend](https://resend.com); key in the `RESEND_API_KEY` secret, sender in `EMAIL_FROM`). Without a session, a code signs in, or makes the account if the address is new (the reply to `send` is the same either way). With one, it adds or changes the account's email (and can set its name at the same time); an address another account has gets the same reply, but no code, so the one typed is simply wrong. Codes last 10 minutes and allow 5 tries. Mail is limited, in this order: 30 emails a day for the whole app (`MAIL_A_DAY`: Elastic shares a free Resend account, 100 a day, with Boardo and highyieldprep.com), then 30 codes an hour to one network (an IPv6 /64 counts as one) and 6 to one address. Tries at codes count per address and network, 30 a day, and only where a code was sent, so someone else's guesses can't lock an address out. The counts and tries are each kept in one statement, so requests at the same moment can't get past them, and a code is used up once. Resend gets 10 seconds to answer. Changing an account's email emails the old address and signs the account out on its other devices. Without a key `/auth/config` says `{ "email": false }`; with `DEV_MAIL` set (local) and no key, codes are kept at `GET /dev/mail` instead of sent. Where a key is set, `DEV_MAIL` does nothing.
+- Turnstile: with both `TURNSTILE_SITE_KEY` (a var) and `TURNSTILE_SECRET` (a secret) set, `/auth/config` gives the site key, the sign-in page shows Cloudflare's Turnstile check, and `/auth/email/send` from someone signed out needs its token (`turnstile` in the body). With either missing it's off.
 - `POST /auth/name`: set the account's name.
 - `POST /auth/register/start`, `/auth/register/finish` (signed in): add a passkey to the account, labelled with the browser and device it was made on.
 - `POST /auth/login/start`, `/auth/login/finish`: sign in with any passkey made for the site.
 - `POST /auth/passkeys/remove`, `/auth/signout`, `/account` (details, with the passkeys), `/account/delete`.
-- `POST /account/handoff` (signed in) and `/auth/handoff` with `{ code }`: carry a sign-in to the app's new address. The first gives a one-time code good for two minutes (stored hashed); the second signs in with it.
+- `POST /auth/signout/others` with `{ device }`: sign the account out everywhere but this session. Their sync connections close, and the account stops pushing to every device but this one.
+- `POST /account/handoff` (signed in) and `/auth/handoff` with `{ code }`: carry a sign-in to the app's new address. The first gives a one-time code good for two minutes (stored hashed); the second signs in with it, once, and ends the session that asked for it, so the copy left at the old address has nothing to sign in with. The app at the new address asks "Continue as …?" before keeping it.
 
-Passkeys belong to `RP_ID` (kaiserkhan.com) when the page is on it or a subdomain, so the ones made at kaiserkhan.com/planner/ work at elastic.kaiserkhan.com; anywhere else (localhost) they belong to the page's own host.
+Passkeys belong to `RP_ID` (kaiserkhan.com) when the page is on it or a subdomain, so the ones made at kaiserkhan.com/planner/ work at elastic.kaiserkhan.com; anywhere else (localhost) they belong to the page's own host. Signing in with a passkey needs user verification (Face ID, a fingerprint, a PIN), and so does adding one, so no passkey is kept that couldn't sign in.
 
 An account syncs once it has a verified email and a name. Accounts made with only a passkey (before October 2026) still sign in, but `/sync` answers them with `{ "t": "setup" }` and their alerts stop until they add both.
 
-Signing in returns a token; only its SHA-256 is stored. A session unused for a year lapses.
+Signing in returns a token; only its SHA-256 is stored. A session unused for a year lapses. Each sync connection remembers the hash of the session it was opened with, and is checked again on every `put`, and before anything goes out to it once its last check is a minute old: a connection whose session has gone is told `{ "t": "signedout" }` and closed.
+
+Once a day (the cron in `wrangler.toml`), old rate-limit counts, expired codes, handoffs and passkey challenges, and sessions unused for a year are cleared out of D1.
 
 Each account has a Durable Object (`Account`, `src/account.ts`) holding its plan as versioned records (each day, each repeating task, and the shared settings), its devices, and the alerts to send them:
 
@@ -49,9 +55,22 @@ The account's link to [Boardo](https://kaiserkhan.com/boardo/), the shared proje
 
 Boardo calls back through its own binding to the `BoardoHooks` entrypoint when someone's cards change, and their account tells its open devices (`{ "t": "boardo" }` on the sync socket). Locally, run both Workers with `wrangler dev` and they find each other.
 
-Requests are only accepted from the origins in `ALLOWED_ORIGINS`, for the browsers' own push services, and for times within the next 24 hours. The routes anyone can call without signing in (`/schedule`, `/cancel`, and starting a passkey sign-in or registration) take at most 60 requests a minute from one network (Cloudflare's rate limiting, the `LIMITER` binding).
+Requests have to carry an `Origin` header from `ALLOWED_ORIGINS`, and the CORS headers only name those. That keeps other sites' pages from using the API from a browser; a script outside a browser can send any `Origin`, so nothing relies on it: the routes anyone can call are rate limited, and the rest need a session. The routes anyone can call without signing in (`OPEN` in `src/index.ts`: `/schedule`, `/cancel`, `/auth/login/start`, `/auth/register/start`, `/auth/handoff`, `/auth/email/send` and `/auth/email/verify`) take at most 60 requests a minute from one network, an IPv6 /64 counting as one (Cloudflare's rate limiting, the `LIMITER` binding).
 
-An account holds up to 20,000 records. New ones past that aren't kept, and the `ack` lists them as `full`, so the app can say so rather than retrying them.
+An account holds up to 20,000 records, and up to 50 MB (`MAX_BYTES`), counting every stored record, deletions too, as its paths, the record built from them and its key. New records past the count, and changes that would go past the size, aren't kept, and the `ack` lists them as `full`, so the app keeps them and says the account is full rather than retrying them. A deletion of a record the account never had keeps only that it's deleted. One connection may send 600 `put`s a minute; past that it's closed (code 1013) and the app connects again after a pause and sends what wasn't acknowledged.
+
+## Running it locally
+
+`ALLOWED_ORIGINS` in `wrangler.toml` lists only the real addresses. For `wrangler dev`, put the local ones in `.dev.vars` (git-ignored), which takes the place of the value in `wrangler.toml`, along with the rest:
+
+```bash
+# worker/.dev.vars
+VAPID_PRIVATE_KEY=…
+DEV_MAIL=1
+ALLOWED_ORIGINS=http://localhost:5173,http://localhost:5175,http://localhost:4173,http://localhost:8787
+```
+
+`--var ALLOWED_ORIGINS:…` on the command line does the same for one run.
 
 ```bash
 npx wrangler d1 migrations apply elastic-day --local   # once, for wrangler dev

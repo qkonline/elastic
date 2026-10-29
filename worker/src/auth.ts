@@ -11,7 +11,7 @@ import {
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
 } from '@simplewebauthn/server';
-import { cleanEmail, cleanName, deviceLabel } from './checks';
+import { cleanEmail, cleanName, deviceLabel, network, sameText } from './checks';
 import { type MailEnv, sendMail } from './mail';
 import { b64url, fromB64url } from './vapid';
 
@@ -19,6 +19,12 @@ export interface AuthEnv extends MailEnv {
   DB: D1Database;
   /** The passkey site for this domain and its subdomains (kaiserkhan.com). */
   RP_ID?: string;
+  /**
+   * Cloudflare Turnstile, asked for before a code is emailed to someone signed out: the widget's
+   * site key (a var, public) and its secret (a secret). Off unless both are set.
+   */
+  TURNSTILE_SITE_KEY?: string;
+  TURNSTILE_SECRET?: string;
 }
 
 export interface User {
@@ -52,8 +58,14 @@ const CODE_TRIES = 5;
 /** Codes per address, and per network, per hour. */
 const PER_EMAIL = 6;
 const PER_IP = 30;
+/**
+ * Emails Elastic sends in a day, all told, checked before anything else. Elastic, Boardo and
+ * highyieldprep.com share one Resend account on the free plan, which sends 100 a day: Elastic
+ * keeps to 30 of them, so a flood of sign-ins here can't stop the others' mail.
+ */
+export const MAIL_A_DAY = 30;
 /** A device that hasn't been used for this long is signed out. */
-const SESSION_IDLE_MS = 365 * 24 * 3600_000;
+export const SESSION_IDLE_MS = 365 * 24 * 3600_000;
 const DAY_MS = 24 * 3600_000;
 
 const enc = new TextEncoder();
@@ -63,7 +75,9 @@ async function sha256(s: string): Promise<string> {
   return b64url(await crypto.subtle.digest('SHA-256', enc.encode(s)));
 }
 
-/** The relying party is the site the app is served from, as the browser reports it. */
+/** What a session token is stored as. */
+export const tokenHash = sha256;
+
 /**
  * The passkey site: RP_ID (kaiserkhan.com) for the page on it or any of its subdomains, so a
  * passkey made on kaiserkhan.com/planner/ works on elastic.kaiserkhan.com; otherwise the page's
@@ -86,8 +100,8 @@ async function newSession(env: AuthEnv, userId: string): Promise<string> {
   return token;
 }
 
-/** Whose session this token is, or null. */
-export async function sessionUser(env: AuthEnv, token: unknown): Promise<string | null> {
+/** Whose session this token is, and the session's hash (how it's stored), or null. */
+export async function sessionOf(env: AuthEnv, token: unknown): Promise<{ user: string; hash: string } | null> {
   if (typeof token !== 'string' || !token || token.length > 100) return null;
   const hash = await sha256(token);
   const row = await env.DB.prepare('SELECT user_id, used FROM sessions WHERE hash = ?')
@@ -101,13 +115,55 @@ export async function sessionUser(env: AuthEnv, token: unknown): Promise<string 
   }
   if (now - row.used > DAY_MS)
     await env.DB.prepare('UPDATE sessions SET used = ? WHERE hash = ?').bind(now, hash).run();
-  return row.user_id;
+  return { user: row.user_id, hash };
+}
+
+/** Whose session this token is, or null. */
+export async function sessionUser(env: AuthEnv, token: unknown): Promise<string | null> {
+  return (await sessionOf(env, token))?.user ?? null;
 }
 
 export async function signOut(env: AuthEnv, token: string): Promise<void> {
   await env.DB.prepare('DELETE FROM sessions WHERE hash = ?')
     .bind(await sha256(token))
     .run();
+}
+
+/** Sign the account out everywhere but the session `keep` (a hash): how many went. */
+export async function signOutOthers(env: AuthEnv, userId: string, keep: string): Promise<number> {
+  const gone = await env.DB.prepare('DELETE FROM sessions WHERE user_id = ? AND hash != ? RETURNING hash')
+    .bind(userId, keep)
+    .all();
+  return gone.results.length;
+}
+
+/** Of these sessions (hashes), the ones that still exist. */
+export async function liveSessions(env: AuthEnv, hashes: string[]): Promise<Set<string>> {
+  const live = new Set<string>();
+  // A statement takes at most 100 values.
+  for (let i = 0; i < hashes.length; i += 90) {
+    const part = hashes.slice(i, i + 90);
+    const rows = await env.DB.prepare(`SELECT hash FROM sessions WHERE hash IN (${part.map(() => '?').join(',')})`)
+      .bind(...part)
+      .all<{ hash: string }>();
+    for (const r of rows.results) live.add(r.hash);
+  }
+  return live;
+}
+
+/**
+ * Clear out what's no longer any use, once a day (the cron in wrangler.toml): rate-limit counts
+ * from before yesterday, codes, handoffs and passkey challenges that have expired, and sessions
+ * not used for a year.
+ */
+export async function prune(env: AuthEnv, now = Date.now()): Promise<void> {
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM limits WHERE start < ?').bind(now - 2 * DAY_MS),
+    env.DB.prepare('DELETE FROM email_codes WHERE expires < ?').bind(now - DAY_MS),
+    env.DB.prepare('DELETE FROM handoffs WHERE expires < ?').bind(now),
+    env.DB.prepare('DELETE FROM challenges WHERE expires < ?').bind(now),
+    env.DB.prepare('DELETE FROM sessions WHERE used < ?').bind(now - SESSION_IDLE_MS),
+  ]);
 }
 
 async function userOf(env: AuthEnv, userId: string): Promise<User | null> {
@@ -182,29 +238,31 @@ const HANDOFF_MS = 2 * 60_000;
 
 /**
  * A one-time code for this sign-in to carry over to the app's new address (another origin, so
- * it has none of this one's storage). Good for two minutes; it makes a new session there.
+ * it has none of this one's storage). Good for two minutes; it makes a new session there, and
+ * the session handing over (`session`, its hash) ends then, so the copy left at the old address
+ * has nothing to sign in with.
  */
-export async function handoffStart(env: AuthEnv, userId: string): Promise<{ code: string }> {
+export async function handoffStart(env: AuthEnv, userId: string, session: string): Promise<{ code: string }> {
   const code = randomId(24);
-  const now = Date.now();
-  await env.DB.batch([
-    env.DB.prepare('DELETE FROM handoffs WHERE expires < ?').bind(now),
-    env.DB.prepare('INSERT INTO handoffs (code_hash, user_id, expires) VALUES (?, ?, ?)').bind(
-      await sha256(code),
-      userId,
-      now + HANDOFF_MS,
-    ),
-  ]);
+  await env.DB.prepare('INSERT INTO handoffs (code_hash, user_id, expires, session) VALUES (?, ?, ?, ?)')
+    .bind(await sha256(code), userId, Date.now() + HANDOFF_MS, session)
+    .run();
   return { code };
 }
 
+/** Sign in with a handoff code: once, and only within its two minutes. */
 export async function handoffFinish(env: AuthEnv, body: { code?: unknown }): Promise<SignedIn> {
   const gone = new Refusal(400, 'That link has expired. Sign in here instead.');
   if (typeof body.code !== 'string' || body.code.length > 64) throw gone;
-  const row = await env.DB.prepare('DELETE FROM handoffs WHERE code_hash = ? AND expires >= ? RETURNING user_id')
+  // Taken in one statement, so two arrivals with the same code can't both have it.
+  const row = await env.DB.prepare(
+    'DELETE FROM handoffs WHERE code_hash = ? AND expires >= ? RETURNING user_id, session',
+  )
     .bind(await sha256(body.code), Date.now())
-    .first<{ user_id: string }>();
+    .first<{ user_id: string; session: string | null }>();
   if (!row) throw gone;
+  if (row.session)
+    await env.DB.prepare('DELETE FROM sessions WHERE hash = ? AND user_id = ?').bind(row.session, row.user_id).run();
   return signedIn(env, row.user_id, false);
 }
 
@@ -212,17 +270,9 @@ export async function handoffFinish(env: AuthEnv, body: { code?: unknown }): Pro
 
 async function saveChallenge(env: AuthEnv, challenge: string, userId: string, purpose: string): Promise<string> {
   const id = randomId();
-  const now = Date.now();
-  await env.DB.batch([
-    env.DB.prepare('DELETE FROM challenges WHERE expires < ?').bind(now),
-    env.DB.prepare('INSERT INTO challenges (id, challenge, user_id, purpose, expires) VALUES (?, ?, ?, ?, ?)').bind(
-      id,
-      challenge,
-      userId,
-      purpose,
-      now + CHALLENGE_MS,
-    ),
-  ]);
+  await env.DB.prepare('INSERT INTO challenges (id, challenge, user_id, purpose, expires) VALUES (?, ?, ?, ?, ?)')
+    .bind(id, challenge, userId, purpose, Date.now() + CHALLENGE_MS)
+    .run();
   return id;
 }
 
@@ -262,7 +312,8 @@ export async function registerStart(env: AuthEnv, origin: string, userId: string
     userID: enc.encode(userId) as Uint8Array<ArrayBuffer>,
     attestationType: 'none',
     excludeCredentials: exclude,
-    authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
+    // Only a passkey that checks it's you (Face ID, a PIN) can sign in, so only those are added.
+    authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
   });
   const challengeId = await saveChallenge(env, options.challenge, userId, 'add');
   return { challengeId, options };
@@ -287,7 +338,7 @@ export async function registerFinish(
       expectedChallenge: ch.challenge,
       expectedOrigin: origin,
       expectedRPID: rpID,
-      requireUserVerification: false,
+      requireUserVerification: true,
     });
   } catch {
     throw new Refusal(400, "That passkey couldn't be checked. Try again.");
@@ -317,7 +368,8 @@ export async function registerFinish(
 /** Options for signing in: any passkey this site made can answer. */
 export async function loginStart(env: AuthEnv, origin: string) {
   const { rpID } = rpOf(env, origin);
-  const options = await generateAuthenticationOptions({ rpID, userVerification: 'preferred' });
+  // The passkey has to check it's you (Face ID, a fingerprint, a PIN), not only that it's there.
+  const options = await generateAuthenticationOptions({ rpID, userVerification: 'required' });
   const challengeId = await saveChallenge(env, options.challenge, '', 'login');
   return { challengeId, options };
 }
@@ -351,7 +403,7 @@ export async function loginFinish(
         counter: key.counter,
         transports: key.transports ? JSON.parse(key.transports) : undefined,
       },
-      requireUserVerification: false,
+      requireUserVerification: true,
     });
   } catch {
     throw new Refusal(400, "That passkey couldn't be checked. Try again.");
@@ -392,45 +444,91 @@ async function withinLimit(env: AuthEnv, key: string, max: number, now: number, 
   return (row?.count ?? 1) <= max;
 }
 
-/** Tries at codes for one address in a day, whatever the network: guessing stays hopeless. */
+/** Tries at codes for one address from one network in a day: guessing stays hopeless. */
 const TRIES_A_DAY = 30;
+
+/** Whether the day's mail has run out, without counting anything (so a refusal writes nothing). */
+async function mailSpent(env: AuthEnv, now: number): Promise<boolean> {
+  const row = await env.DB.prepare("SELECT count, start FROM limits WHERE key = 'mail:day'").first<{
+    count: number;
+    start: number;
+  }>();
+  return !!row && now - row.start <= DAY_MS && row.count >= MAIL_A_DAY;
+}
+
+/** Count one email against the day's; false once there's none left. */
+const mailSlot = (env: AuthEnv, now: number) => withinLimit(env, 'mail:day', MAIL_A_DAY, now, DAY_MS);
+
+const NO_MAIL_LEFT = () =>
+  new Refusal(429, "Elastic can't send any more codes today. Sign in with a passkey, or try again tomorrow.");
+
+/** The site key the sign-in page shows Turnstile with, when it's on. */
+export const turnstileKey = (env: AuthEnv) =>
+  env.TURNSTILE_SECRET && env.TURNSTILE_SITE_KEY ? env.TURNSTILE_SITE_KEY : null;
+
+/** Turnstile's answer for the widget's token: a person, or not. */
+async function human(env: AuthEnv, token: unknown, ip: string): Promise<boolean> {
+  if (typeof token !== 'string' || !token || token.length > 2048) return false;
+  const form = new FormData();
+  form.append('secret', env.TURNSTILE_SECRET!);
+  form.append('response', token);
+  if (ip) form.append('remoteip', ip);
+  try {
+    const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      body: form,
+      signal: AbortSignal.timeout(10_000),
+    });
+    return !!((await res.json()) as { success?: boolean }).success;
+  } catch (e) {
+    console.error('Turnstile', e);
+    return false;
+  }
+}
 
 /**
  * Email a code: to sign in, or make an account (`userId` null; the same for new and known
  * addresses, so it says nothing about who has an account), or to add or change the email of the
- * signed-in account.
+ * signed-in account. An address another account has is answered the same way, and nothing is
+ * sent: the code the person types then just isn't right.
  */
 export async function emailSend(
   env: AuthEnv,
-  body: { email?: unknown },
+  body: { email?: unknown; turnstile?: unknown },
   userId: string | null,
   ip: string,
 ): Promise<void> {
   const email = cleanEmail(body.email);
   if (!email) throw new Refusal(400, "That doesn't look like an email address.");
+  const now = Date.now();
+  // The whole app's mail for the day first: once it's used up, nothing else is worth counting.
+  if (await mailSpent(env, now)) throw NO_MAIL_LEFT();
+  if (!userId && turnstileKey(env) && !(await human(env, body.turnstile, ip)))
+    throw new Refusal(403, "We couldn't check you're a person. Try again.");
   const purpose = userId ? 'add' : 'signin';
-  if (userId) {
-    const owner = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first<{ id: string }>();
-    if (owner && owner.id !== userId) throw new Refusal(409, 'That email is already used by another account.');
-  }
+  const taken =
+    !!userId &&
+    !!(await env.DB.prepare('SELECT id FROM users WHERE email = ? AND id != ?').bind(email, userId).first());
   const last = await env.DB.prepare('SELECT sent FROM email_codes WHERE email = ? AND purpose = ?')
     .bind(email, purpose)
     .first<{ sent: number }>();
-  const now = Date.now();
   if (last && now - last.sent < CODE_GAP_MS)
     throw new Refusal(429, 'A code is on its way. Wait a minute before asking for another.');
   // The network first: one that's used up its codes mustn't use up an address's too.
-  if (!(await withinLimit(env, `ip:${ip}`, PER_IP, now)) || !(await withinLimit(env, `email:${email}`, PER_EMAIL, now)))
+  const net = network(ip);
+  if (
+    !(await withinLimit(env, `ip:${net}`, PER_IP, now)) ||
+    !(await withinLimit(env, `email:${email}`, PER_EMAIL, now))
+  )
     throw new Refusal(429, 'Too many codes asked for. Try again in an hour.');
+  if (taken) return;
+  if (!(await mailSlot(env, now))) throw NO_MAIL_LEFT();
   const code = sixDigits();
-  await env.DB.batch([
-    env.DB.prepare(
-      'INSERT OR REPLACE INTO email_codes (email, purpose, user_id, hash, expires, tries, sent) VALUES (?, ?, ?, ?, ?, 0, ?)',
-    ).bind(email, purpose, userId ?? '', await sha256(`${email}|${code}`), now + CODE_MS, now),
-    // Old counts and codes nobody used go, so neither table grows for ever.
-    env.DB.prepare('DELETE FROM limits WHERE start < ?').bind(now - 2 * DAY_MS),
-    env.DB.prepare('DELETE FROM email_codes WHERE expires < ?').bind(now - DAY_MS),
-  ]);
+  await env.DB.prepare(
+    'INSERT OR REPLACE INTO email_codes (email, purpose, user_id, hash, expires, tries, sent) VALUES (?, ?, ?, ?, ?, 0, ?)',
+  )
+    .bind(email, purpose, userId ?? '', await sha256(`${email}|${code}`), now + CODE_MS, now)
+    .run();
   const p = 'font:16px/1.5 system-ui,sans-serif';
   await sendMail(env, {
     to: email,
@@ -440,15 +538,26 @@ export async function emailSend(
   });
 }
 
+/** The signed-in session checking a code, to add or change its account's email. */
+export interface Signed {
+  user: string;
+  /** The session's hash: it stays signed in when the others are signed out. */
+  hash: string;
+}
+
 /**
  * Check an emailed code. Signed out: sign in, or make the account if the address is new.
  * Signed in: keep it as the account's email (with `name`, when one is given at the same time).
+ * Changing an email that was there tells the old address, and signs the account out on its
+ * other devices (`others` says so, for their open connections).
  */
 export async function emailVerify(
   env: AuthEnv,
   body: { email?: unknown; code?: unknown; name?: unknown },
-  userId: string | null,
-): Promise<SignedIn | User> {
+  signed: Signed | null,
+  ip = '',
+): Promise<SignedIn | (User & { others?: boolean })> {
+  const userId = signed?.user ?? null;
   const email = cleanEmail(body.email);
   const code = typeof body.code === 'string' ? body.code.replace(/\D/g, '') : '';
   const purpose = userId ? 'add' : 'signin';
@@ -456,8 +565,6 @@ export async function emailVerify(
   if (!email || code.length !== 6) throw wrong;
   const name = body.name === undefined ? undefined : cleanName(body.name);
   if (name === null) throw new Refusal(400, 'Enter your name.');
-  if (!(await withinLimit(env, `tries:${email}`, TRIES_A_DAY, Date.now(), DAY_MS)))
-    throw new Refusal(429, 'Too many tries for this email today. Try again tomorrow.');
   // Every try counts before the code is compared, in one statement, so tries at the same moment
   // can't get past the limit; the right code is then used up once (a second, concurrent use fails).
   const row = await env.DB.prepare(
@@ -466,8 +573,13 @@ export async function emailVerify(
   )
     .bind(email, purpose, CODE_TRIES, Date.now())
     .first<{ user_id: string; hash: string }>();
-  if (!row || (userId && row.user_id !== userId)) throw wrong;
-  if ((await sha256(`${email}|${code}`)) !== row.hash) throw wrong;
+  if (!row) throw wrong;
+  // Tries are counted per address and network, and only at a code there is: someone else's
+  // wrong guesses from elsewhere can't lock the address out.
+  if (!(await withinLimit(env, `tries:${email}|${network(ip)}`, TRIES_A_DAY, Date.now(), DAY_MS)))
+    throw new Refusal(429, 'Too many tries for this email today. Try again tomorrow.');
+  if (userId && row.user_id !== userId) throw wrong;
+  if (!sameText(await sha256(`${email}|${code}`), row.hash)) throw wrong;
   const used = await env.DB.prepare('DELETE FROM email_codes WHERE email = ? AND purpose = ? AND hash = ? RETURNING 1')
     .bind(email, purpose, row.hash)
     .first();
@@ -488,6 +600,7 @@ export async function emailVerify(
     }
     return signedIn(env, id, true);
   }
+  const before = await userOf(env, userId);
   try {
     await env.DB.prepare('UPDATE users SET email = ?, name = COALESCE(?, name) WHERE id = ?')
       .bind(email, name ?? null, userId)
@@ -495,5 +608,34 @@ export async function emailVerify(
   } catch {
     throw new Refusal(409, 'That email is already used by another account.');
   }
-  return (await userOf(env, userId))!;
+  const user = (await userOf(env, userId))!;
+  if (!before?.email || before.email === email) return user;
+  // The email changed: whoever had the account's other sessions has to sign in again, with
+  // the new address or a passkey, and the old address hears about it.
+  await signOutOthers(env, userId, signed!.hash);
+  await emailChanged(env, before.email, email);
+  return { ...user, others: true };
+}
+
+/** Tell the address an account had that it now has another one (if the day's mail allows). */
+async function emailChanged(env: AuthEnv, old: string, next: string): Promise<void> {
+  if (!(await mailSlot(env, Date.now()))) {
+    console.error('No mail left today to tell an old address about its change');
+    return;
+  }
+  const text = `The email on your Elastic account was changed from ${old} to ${next}, and the account was signed out on your other devices.\n\nIf that wasn't you, sign in with a passkey and change it back.`;
+  try {
+    await sendMail(env, {
+      to: old,
+      subject: 'Your Elastic email was changed',
+      text,
+      html: `<p style="font:16px/1.5 system-ui,sans-serif">${text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/\n\n/g, '</p><p style="font:16px/1.5 system-ui,sans-serif">')}</p>`,
+    });
+  } catch (e) {
+    // The change itself stands; the note is a courtesy.
+    console.error('Telling the old address', e);
+  }
 }

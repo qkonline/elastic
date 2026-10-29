@@ -5,10 +5,11 @@
 name = "elastic-day-push"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
-workers_dev = true
 # The app lives at elastic.kaiserkhan.com, served by this Worker with its API under /api (since
 # 23 Oct 2026; before, the app was at kaiserkhan.com/planner/ on Hostinger). workers.dev stays
-# on for app versions from before, which call the API there at the root.
+# on for app versions from before, which call the API there at the root, and for the farewell
+# build still at kaiserkhan.com/planner/, whose VITE_PUSH_URL is the workers.dev address.
+workers_dev = true
 routes = [{ pattern = "elastic.kaiserkhan.com", custom_domain = true }]
 
 # The built app (`npm run build` first). /api/* always reaches the Worker; any other path that
@@ -21,9 +22,11 @@ run_worker_first = ["/api/*"]
 [vars]
 VAPID_PUBLIC_KEY = "BIUrkbS-EnZQ2hLavgQmshFuBLt_mD2aD4l9VLtB5mEhCQjF9CQDBRRWlEMcdkkdtiVz--i3rZocPSV3abVpycY"
 VAPID_SUBJECT = "https://elastic.kaiserkhan.com/"
-# www.kaiserkhan.com serves the same files; the app moves itself to kaiserkhan.com, but copies
-# already opened on www still need to reach the Worker.
-ALLOWED_ORIGINS = "https://elastic.kaiserkhan.com,https://kaiserkhan.com,https://www.kaiserkhan.com,http://localhost:4173,http://localhost:8787"
+# The app's address, then the old one: kaiserkhan.com/planner/ (and www, which the site sends to
+# kaiserkhan.com) still serves the farewell build, which reaches the Worker from there to hand
+# each copy over (src/lib/move.ts). Local addresses go in .dev.vars, which replaces this for
+# `wrangler dev` (see README.md), so production never accepts them.
+ALLOWED_ORIGINS = "https://elastic.kaiserkhan.com,https://kaiserkhan.com,https://www.kaiserkhan.com"
 EMAIL_FROM = "Elastic <elastic@kaiserkhan.com>"
 # Passkeys belong to kaiserkhan.com, so the ones made at kaiserkhan.com/planner/ keep working here.
 RP_ID = "kaiserkhan.com"
@@ -44,12 +47,18 @@ new_sqlite_classes = ["Timer"]
 tag = "v2"
 new_sqlite_classes = ["Account"]
 
-# Requests per network a minute on the routes anyone can call (booking pushes, starting a passkey
-# sign-in): Cloudflare's rate limiting, counted where the request lands, nothing stored.
+# Requests per network (an IPv6 /64 counts as one) a minute on the routes anyone can call (booking
+# pushes, codes, passkey and handoff sign-ins; OPEN in src/index.ts): Cloudflare's rate limiting,
+# counted where the request lands, nothing stored.
 [[ratelimits]]
 name = "LIMITER"
 namespace_id = "1001"
 simple = { limit = 60, period = 60 }
+
+# Once a day, at 03:17 UTC: rate-limit counts, codes and challenges that have expired, and
+# sessions unused for a year are cleared out of D1 (prune() in src/auth.ts).
+[triggers]
+crons = ["17 3 * * *"]
 
 [[d1_databases]]
 binding = "DB"
@@ -60,6 +69,8 @@ migrations_dir = "migrations"
 # Email (sign-in codes) goes through Resend, like Boardo's, from the kaiserkhan.com domain verified
 # there. The key is a secret: `npx wrangler secret put RESEND_API_KEY` (run it in a terminal, it
 # asks for the key). For `wrangler dev`, put DEV_MAIL=1 in .dev.vars to keep codes at /dev/mail.
+# Turnstile before a code is emailed is off until both TURNSTILE_SITE_KEY (a var, here) and the
+# TURNSTILE_SECRET secret are set.
 
 # Boardo's Worker, for the account's link to it (src/boardo.ts). Boardo calls back through its
 # own binding to the BoardoHooks entrypoint when someone's cards change.

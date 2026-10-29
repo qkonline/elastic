@@ -11,7 +11,7 @@
 // sending its alerts to every device.
 
 import { DurableObject } from 'cloudflare:workers';
-import { Account, PROTOCOL } from './account';
+import { Account, PROTOCOL, SESSION_HEADER } from './account';
 import {
   accountInfo,
   type AuthEnv,
@@ -23,13 +23,16 @@ import {
   handoffStart,
   loginFinish,
   loginStart,
+  prune,
   Refusal,
   registerFinish,
   registerStart,
   removePasskey,
-  sessionUser,
+  sessionOf,
   setName,
   signOut,
+  signOutOthers,
+  turnstileKey,
 } from './auth';
 import {
   boardoAdopt,
@@ -44,7 +47,7 @@ import {
   boardoOps,
   boardoStatus,
 } from './boardo';
-import { bookableTimes, isPushEndpoint } from './checks';
+import { bookableTimes, isPushEndpoint, network, timerName } from './checks';
 import { devMail, devOutbox, mailOn } from './mail';
 import { sendPush } from './push';
 import type { VapidKeys } from './vapid';
@@ -62,8 +65,8 @@ export interface Env extends VapidKeys, AuthEnv, BoardoEnv {
   ASSETS?: Fetcher;
 }
 
-/** Routes that need no sign-in, so each network may only call them so often. */
-const OPEN = new Set([
+/** Routes that need no sign-in, so each network (an IPv6 /64 counts as one) may only call them so often. */
+export const OPEN = new Set([
   '/schedule',
   '/cancel',
   '/auth/login/start',
@@ -78,6 +81,11 @@ const NO_PASSKEYS = new Set(['https://kaiserkhan.com', 'https://www.kaiserkhan.c
 const MAX_BODY = 64 * 1024;
 
 export default {
+  // Once a day: old rate-limit counts, expired codes and challenges, and sessions unused for a year go.
+  async scheduled(_event, env): Promise<void> {
+    await prune(env);
+  },
+
   async fetch(req, env): Promise<Response> {
     const origin = req.headers.get('origin') ?? '';
     const allowed = env.ALLOWED_ORIGINS.split(',').some((o) => o.trim() === origin);
@@ -113,7 +121,7 @@ export default {
     if (pathname === '/dev/mail' && devMail(env)) return reply(200, devOutbox);
     if (req.method !== 'POST') return reply(404);
     if (OPEN.has(pathname) && env.LIMITER) {
-      const { success } = await env.LIMITER.limit({ key: req.headers.get('cf-connecting-ip') ?? 'unknown' });
+      const { success } = await env.LIMITER.limit({ key: network(req.headers.get('cf-connecting-ip')) });
       if (!success) return reply(429, { error: 'Too many requests. Try again in a minute.' });
     }
 
@@ -131,12 +139,15 @@ export default {
     try {
       // Calls that can't set headers (beacons, the service worker's) carry the token in the body.
       const token = req.headers.get('authorization')?.replace(/^Bearer /, '') ?? body.token;
-      const user = () => sessionUser(env, token);
-      const mustUser = async () => {
-        const id = await user();
-        if (!id) throw new Refusal(401, 'Signed out');
-        return id;
+      const session = () => sessionOf(env, token);
+      const user = async () => (await session())?.user ?? null;
+      const mustSession = async () => {
+        const s = await session();
+        if (!s) throw new Refusal(401, 'Signed out');
+        return s;
       };
+      const mustUser = async () => (await mustSession()).user;
+      const ip = req.headers.get('cf-connecting-ip') ?? '';
       const account = (id: string) => env.ACCOUNTS.get(env.ACCOUNTS.idFromName(id));
       // Signed in to an account that's set up (a name and an email), as syncing needs.
       const mustSetUp = async () => {
@@ -153,7 +164,7 @@ export default {
           return reply(await timer(pathname, body, env));
 
         case '/auth/config':
-          return reply(200, { email: mailOn(env) });
+          return reply(200, { email: mailOn(env), turnstile: turnstileKey(env) });
         case '/auth/register/start':
           return reply(200, await registerStart(env, origin, token ? await mustUser() : null));
         case '/auth/register/finish':
@@ -166,10 +177,20 @@ export default {
         case '/auth/login/finish':
           return reply(200, await loginFinish(env, origin, body));
         case '/auth/email/send':
-          await emailSend(env, body, token ? await mustUser() : null, req.headers.get('cf-connecting-ip') ?? '');
+          await emailSend(env, body, token ? await mustUser() : null, ip);
           return reply(204);
-        case '/auth/email/verify':
-          return reply(200, await emailVerify(env, body, token ? await mustUser() : null));
+        case '/auth/email/verify': {
+          const signed = token ? await mustSession() : null;
+          const r = await emailVerify(env, body, signed, ip);
+          if (signed && 'others' in r) {
+            // The email changed and the other sessions ended: their connections close too.
+            const { others: _, ...u } = r;
+            const device = typeof body.device === 'string' && body.device.length <= 64 ? body.device : null;
+            await account(signed.user).signedOutOthers(device);
+            return reply(200, u);
+          }
+          return reply(200, r);
+        }
         case '/auth/name':
           return reply(200, await setName(env, await mustUser(), body));
         case '/auth/passkeys/remove':
@@ -177,8 +198,10 @@ export default {
           return reply(204);
         case '/auth/handoff':
           return reply(200, await handoffFinish(env, body));
-        case '/account/handoff':
-          return reply(200, await handoffStart(env, await mustUser()));
+        case '/account/handoff': {
+          const s = await mustSession();
+          return reply(200, await handoffStart(env, s.user, s.hash));
+        }
         case '/auth/signout':
           if (typeof token === 'string') {
             // The device stops getting this account's pushes (its id came with the sign-out).
@@ -186,8 +209,18 @@ export default {
             if (id && typeof body.device === 'string' && body.device.length <= 64)
               await account(id).forget(body.device);
             await signOut(env, token);
+            // Any other connection opened with this sign-in closes too.
+            if (id) await account(id).checkSessions(true);
           }
           return reply(204);
+        case '/auth/signout/others': {
+          // Every other device signed in to the account is signed out, and its connection closes.
+          const s = await mustSession();
+          const n = await signOutOthers(env, s.user, s.hash);
+          const device = typeof body.device === 'string' && body.device.length <= 64 ? body.device : null;
+          await account(s.user).signedOutOthers(device);
+          return reply(200, { signedOut: n });
+        }
 
         case '/account': {
           const id = await mustUser();
@@ -275,10 +308,16 @@ async function connect(req: Request, env: Env): Promise<Response> {
     server.close(4426, 'Update the app');
     return new Response(null, { status: 101, webSocket: client, headers: { 'sec-websocket-protocol': proto } });
   }
-  const id = proto === PROTOCOL ? await sessionUser(env, token) : null;
+  const session = proto === PROTOCOL ? await sessionOf(env, token) : null;
+  const id = session?.user ?? null;
   const account = id ? env.ACCOUNTS.get(env.ACCOUNTS.idFromName(id)) : null;
-  // Only held back once email works, or it would have no way to be set up.
-  if (id && account && (!mailOn(env) || (await canSync(env, id)))) return account.fetch(req);
+  // Only held back once email works, or it would have no way to be set up. The connection
+  // remembers its session, so it closes once the session ends.
+  if (session && account && (!mailOn(env) || (await canSync(env, session.user)))) {
+    const headers = new Headers(req.headers);
+    headers.set(SESSION_HEADER, session.hash);
+    return account.fetch(new Request(req, { headers }));
+  }
   if (account) await account.pause();
   const [client, server] = Object.values(new WebSocketPair());
   server.accept();
@@ -289,7 +328,8 @@ async function connect(req: Request, env: Env): Promise<Response> {
 
 async function timer(path: string, body: { endpoint?: unknown; at?: unknown }, env: Env): Promise<number> {
   if (!isPushEndpoint(body.endpoint)) return 400;
-  const timer = env.TIMERS.get(env.TIMERS.idFromName(body.endpoint));
+  // One Timer per push address, however it's written.
+  const timer = env.TIMERS.get(env.TIMERS.idFromName(timerName(body.endpoint)));
   if (path === '/cancel') {
     await timer.cancel();
     return 204;

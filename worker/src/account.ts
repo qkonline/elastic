@@ -16,9 +16,16 @@
 
 import { DurableObject } from 'cloudflare:workers';
 import { fromPaths, merge, newer, type Paths, toPaths, ZERO } from '../../shared/lww';
+import { liveSessions } from './auth';
 import { type AlertGroup, alertGroups, isPushEndpoint, patches, type RecordKind } from './checks';
 import { sendPush } from './push';
 import type { VapidKeys } from './vapid';
+
+/** What the object needs from the worker's settings. */
+export interface AccountEnv extends VapidKeys {
+  /** The accounts database, to check that a connection's session still exists (absent in some tests). */
+  DB?: D1Database;
+}
 
 /** A record (or what changed in it) as it goes out to devices. */
 interface Rec {
@@ -37,13 +44,37 @@ interface Attachment {
   visible: boolean;
   /** Last heard from (ms). */
   at: number;
+  /** The hash of the session it was opened with (connections from before 29 Oct 2026 have none). */
+  session?: string;
+  /** When that session was last found to still exist. */
+  checked?: number;
+  /** Puts in the current minute, and when that minute began. */
+  puts?: number;
+  since?: number;
 }
+
+/** The header the worker passes a connection's session hash in. */
+export const SESSION_HEADER = 'x-elastic-session';
 
 /** A device whose app is open stops counting as watching after this long without a word. */
 const WATCHING_MS = 45_000;
 /** Big first syncs go out in pieces of about this size. */
 const CHUNK = 400_000;
-const MAX_RECORDS = 20_000;
+export const MAX_RECORDS = 20_000;
+/**
+ * How much an account may hold, counting every stored record (deletions too) as its paths, the
+ * record built from them and its key. A year of busy days is a few megabytes.
+ */
+export const MAX_BYTES = 50 * 1024 * 1024;
+/** What a stored row costs beyond its text. */
+const ROW_BYTES = 100;
+/**
+ * Puts one connection may send in a minute. The app sends one at a time and waits for its ack,
+ * so only a first sync of a big plan, sent a record at a time, comes near it.
+ */
+export const PUTS_A_MINUTE = 600;
+/** A connection's session is checked again before anything goes out to it once this old. */
+const SESSION_CHECK_MS = 60_000;
 /** A device the account hasn't heard from in this long is forgotten. */
 const DEVICE_IDLE_MS = 90 * 24 * 3600_000;
 
@@ -55,6 +86,10 @@ type Row = {
   paths: string | null;
 };
 
+/** What a stored record takes up, as MAX_BYTES counts it. */
+const size = (key: string, paths: string | null, data: string | null) =>
+  key.length + (paths?.length ?? 0) + (data?.length ?? 0) + ROW_BYTES;
+
 /** A stored record's paths (one from before paths: its data, as set at ZERO). */
 function pathsOf(r: Row): Paths {
   if (r.paths) return JSON.parse(r.paths) as Paths;
@@ -62,10 +97,10 @@ function pathsOf(r: Row): Paths {
   return toPaths(r.kind, JSON.parse(r.data));
 }
 
-export class Account extends DurableObject<VapidKeys> {
+export class Account extends DurableObject<AccountEnv> {
   private sql: SqlStorage;
 
-  constructor(ctx: DurableObjectState, env: VapidKeys) {
+  constructor(ctx: DurableObjectState, env: AccountEnv) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
     this.tables();
@@ -97,7 +132,10 @@ export class Account extends DurableObject<VapidKeys> {
     if (req.headers.get('upgrade') !== 'websocket') return new Response(null, { status: 426 });
     const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ device: null, visible: false, at: Date.now() } satisfies Attachment);
+    const now = Date.now();
+    // The worker checked the session a moment ago.
+    const session = req.headers.get(SESSION_HEADER) ?? undefined;
+    server.serializeAttachment({ device: null, visible: false, at: now, session, checked: now } satisfies Attachment);
     return new Response(null, { status: 101, webSocket: client, headers: { 'sec-websocket-protocol': PROTOCOL } });
   }
 
@@ -113,6 +151,9 @@ export class Account extends DurableObject<VapidKeys> {
     att.at = Date.now();
     switch (m.t) {
       case 'hello':
+        // What it asks for goes out only to a session that still exists.
+        if (!(await this.stillSignedIn(ws))) return;
+        att.checked = (ws.deserializeAttachment() as Attachment).checked;
         att.device = typeof m.device === 'string' && m.device.length <= 64 ? m.device : null;
         att.visible = !!m.visible;
         if (att.device && 'endpoint' in m) this.setDevice(att.device, m.endpoint);
@@ -120,16 +161,29 @@ export class Account extends DurableObject<VapidKeys> {
         this.sendSince(ws, Number.isInteger(m.since) ? (m.since as number) : 0);
         return;
       case 'put': {
+        // Too many at once: the connection closes as if dropped, and the app connects again
+        // after a pause and sends what the account hasn't acknowledged. Nothing is lost, as it
+        // would be with a refusal (a refused record is dropped, see sync.ts).
+        if (att.since === undefined || att.at - att.since > 60_000) {
+          att.since = att.at;
+          att.puts = 0;
+        }
+        att.puts = (att.puts ?? 0) + 1;
         ws.serializeAttachment(att);
+        if (att.puts > PUTS_A_MINUTE) return this.hangUp(ws, 1013, 'Slow down');
+        // Nothing is taken from a session that has ended (signed out, or out elsewhere).
+        if (!(await this.stillSignedIn(ws, true))) return;
         const res = this.put(m.recs, m.bulk === true);
         const ack = res ? (res.full.length ? { full: res.full } : {}) : { error: 'bad' };
         ws.send(JSON.stringify({ t: 'ack', id: m.id, ...ack }));
-        if (res?.changed.length) this.broadcast(res.changed, ws);
+        if (res?.changed.length) await this.broadcast(res.changed, ws);
         return;
       }
       case 'state':
         att.visible = !!m.visible;
         ws.serializeAttachment(att);
+        // A device coming back to the front is a good moment to see it's still signed in.
+        await this.stillSignedIn(ws);
         return;
       case 'device':
         ws.serializeAttachment(att);
@@ -171,8 +225,10 @@ export class Account extends DurableObject<VapidKeys> {
     ws.send(JSON.stringify({ t: 'changes', recs, rev, done: true }));
   }
 
-  private broadcast(recs: Rec[], except: WebSocket | null): void {
+  private async broadcast(recs: Rec[], except: WebSocket | null): Promise<void> {
     const msg = JSON.stringify({ t: 'changes', recs, rev: this.rev() });
+    // Not to a session that has ended since it was last checked.
+    await this.checkSessions();
     for (const ws of this.ctx.getWebSockets()) {
       // Not before its hello: a device saves the rev of what it's sent as how far it has got, and
       // this would take it past records its catch-up hasn't brought yet.
@@ -192,10 +248,23 @@ export class Account extends DurableObject<VapidKeys> {
     return row ? Number(row.v) : 0;
   }
 
+  /** What the account holds, as MAX_BYTES counts it (worked out once, then kept up to date). */
+  private bytes(): number {
+    const row = this.sql.exec<{ v: string }>("SELECT v FROM kv WHERE k = 'bytes'").toArray()[0];
+    if (row) return Number(row.v);
+    return this.sql
+      .exec<{ n: number }>(
+        `SELECT COALESCE(SUM(LENGTH(key) + COALESCE(LENGTH(paths), 0) + COALESCE(LENGTH(data), 0) + ${ROW_BYTES}), 0) AS n FROM records`,
+      )
+      .one().n;
+  }
+
   /**
    * Merge in what a device changed. A record whose merge changes it gets the next rev, and what
-   * changed goes to the other devices. New records past the account's limit aren't kept, and the
-   * device is told. Null: something in it is off, or it deletes too much at once (below).
+   * changed goes to the other devices. New records past the account's limit, and changes that
+   * would take it past MAX_BYTES, aren't kept, and the device is told (`full`: the app keeps them
+   * and says the account is full). Null: something in it is off, or it deletes too much at once
+   * (below).
    */
   private put(raw: unknown, bulk = false): { changed: Rec[]; full: { kind: RecordKind; key: string }[] } | null {
     const list = patches(raw);
@@ -206,11 +275,13 @@ export class Account extends DurableObject<VapidKeys> {
     let rev = this.rev();
     let count: number | null = null;
     this.ctx.storage.transactionSync(() => {
+      let bytes = this.bytes();
       for (const c of list) {
         const row = this.sql
           .exec<Row>('SELECT kind, key, rev, data, paths FROM records WHERE kind = ? AND key = ?', c.kind, c.key)
           .toArray()[0];
-        if (!row) {
+        const deleting = c.paths._?.[0] === null;
+        if (!row && !deleting) {
           // Deletions are kept (as data: null) but don't count.
           count ??= this.sql.exec<{ n: number }>('SELECT COUNT(*) AS n FROM records WHERE data IS NOT NULL').one().n;
           if (count++ >= MAX_RECORDS) {
@@ -218,24 +289,35 @@ export class Account extends DurableObject<VapidKeys> {
             continue;
           }
         }
+        // A record the account never had, deleted: all there is to keep is that it's gone.
+        const incoming: Paths = !row && deleting ? { _: c.paths._ } : c.paths;
         const cur = row ? pathsOf(row) : {};
-        const news = newer(cur, c.paths);
+        const news = newer(cur, incoming);
         if (!Object.keys(news).length) continue;
-        const paths = merge(cur, c.paths);
+        const paths = merge(cur, incoming);
         const doc = fromPaths(c.kind, c.key, paths);
+        const pathsText = JSON.stringify(paths);
+        const dataText = doc == null ? null : JSON.stringify(doc);
+        const grows = size(c.key, pathsText, dataText) - (row ? size(row.key, row.paths, row.data) : 0);
+        if (grows > 0 && bytes + grows > MAX_BYTES) {
+          full.push({ kind: c.kind, key: c.key });
+          continue;
+        }
+        bytes += grows;
         rev++;
         this.sql.exec(
           'INSERT INTO records (kind, key, rev, data, paths) VALUES (?, ?, ?, ?, ?) ON CONFLICT (kind, key) DO UPDATE SET rev = excluded.rev, data = excluded.data, paths = excluded.paths',
           c.kind,
           c.key,
           rev,
-          doc == null ? null : JSON.stringify(doc),
-          JSON.stringify(paths),
+          dataText,
+          pathsText,
         );
         // The whole record goes out: a device that hasn't got it yet can't build it from a part.
         changed.push({ kind: c.kind, key: c.key, rev, paths });
       }
       this.sql.exec("INSERT OR REPLACE INTO kv (k, v) VALUES ('rev', ?)", String(rev));
+      this.sql.exec("INSERT OR REPLACE INTO kv (k, v) VALUES ('bytes', ?)", String(bytes));
     });
     return { changed, full };
   }
@@ -266,6 +348,81 @@ export class Account extends DurableObject<VapidKeys> {
       JSON.stringify({ n: win.n + dels, since: win.since }),
     );
     return true;
+  }
+
+  // ---------- sessions ----------
+
+  /** Close a connection, whatever state it's in. */
+  private hangUp(ws: WebSocket, code: number, reason: string): void {
+    try {
+      ws.close(code, reason);
+    } catch {
+      /* already closed */
+    }
+  }
+
+  /**
+   * Whether this connection's session still exists (checked again once it's a minute old, or
+   * now when `now`). One that has ended is told it's signed out (the app forgets its sign-in, as
+   * when its token is refused) and closed. A connection from before sessions were noted on it
+   * is closed to come back with one.
+   */
+  private async stillSignedIn(ws: WebSocket, now = false): Promise<boolean> {
+    const att = ws.deserializeAttachment() as Attachment;
+    if (!this.env.DB) return true;
+    if (!att.session) {
+      this.hangUp(ws, 1012, 'Connect again');
+      return false;
+    }
+    if (!now && Date.now() - (att.checked ?? 0) < SESSION_CHECK_MS) return true;
+    return !(await this.checkSessions(true, [ws])).has(ws);
+  }
+
+  /**
+   * Check the sessions of these connections (all of them unless said; only ones not checked in
+   * the last minute unless `all`), and close those whose session has gone.
+   */
+  async checkSessions(all = false, only?: WebSocket[]): Promise<Set<WebSocket>> {
+    const closed = new Set<WebSocket>();
+    if (!this.env.DB) return closed;
+    const now = Date.now();
+    const due = (only ?? this.ctx.getWebSockets()).filter((ws) => {
+      const att = ws.deserializeAttachment() as Attachment;
+      return all || !att.session || now - (att.checked ?? 0) >= SESSION_CHECK_MS;
+    });
+    if (!due.length) return closed;
+    const hashes = [
+      ...new Set(due.map((ws) => (ws.deserializeAttachment() as Attachment).session).filter((h) => !!h)),
+    ] as string[];
+    const live = hashes.length ? await liveSessions(this.env as Required<AccountEnv>, hashes) : new Set<string>();
+    for (const ws of due) {
+      const att = ws.deserializeAttachment() as Attachment;
+      if (att.session && live.has(att.session)) {
+        ws.serializeAttachment({ ...att, checked: now });
+        continue;
+      }
+      closed.add(ws);
+      if (!att.session) {
+        this.hangUp(ws, 1012, 'Connect again');
+        continue;
+      }
+      try {
+        ws.send(JSON.stringify({ t: 'signedout' }));
+      } catch {
+        /* gone already */
+      }
+      this.hangUp(ws, 1000, 'Signed out');
+    }
+    return closed;
+  }
+
+  /**
+   * Signed out on the other devices: their connections close now, and the account stops pushing
+   * to every device but `device` (this one), since none of the others is signed in any more.
+   */
+  async signedOutOthers(device: string | null): Promise<void> {
+    if (device) this.sql.exec('DELETE FROM devices WHERE id != ?', device);
+    await this.checkSessions(true);
   }
 
   // ---------- devices & alerts ----------
@@ -363,7 +520,7 @@ export class Account extends DurableObject<VapidKeys> {
   async beacon(device: string, body: { recs?: unknown; visible?: unknown; alerts?: unknown; endpoint?: unknown }) {
     if (body.recs) {
       const res = this.put(body.recs);
-      if (res?.changed.length) this.broadcast(res.changed, null);
+      if (res?.changed.length) await this.broadcast(res.changed, null);
     }
     if ('endpoint' in body) this.setDevice(device, body.endpoint);
     if ('visible' in body)

@@ -83,7 +83,7 @@ shared/
   components/          the screens and sheets
   sw.js                service worker: opening the app from the device (offline too), and showing pushed notifications
 worker/                Cloudflare Worker: notification pushes, accounts and sync
-public/                icons, web app manifest, _headers (cache rules)
+public/                icons, web app manifest, _headers (cache rules, security headers)
 scripts/deploy.sh      test, build and deploy the worker with the app
 ```
 
@@ -113,7 +113,7 @@ npx wrangler d1 migrations apply elastic-day --remote
 npx wrangler deploy
 ```
 
-Then set `VITE_PUSH_URL` in `.env.production` to the worker's address and add your site's origin to `ALLOWED_ORIGINS` in `worker/wrangler.toml`. Passkeys belong to the site they were made on, so accounts work on the origins listed there.
+Then set `VITE_PUSH_URL` in `.env.production` to the worker's address and add your site's origin to `ALLOWED_ORIGINS` in `worker/wrangler.toml` (local addresses go in `worker/.dev.vars`; see `worker/README.md`). Passkeys belong to the site they were made on, so accounts work on the origins listed there.
 
 ## Deploying the site
 

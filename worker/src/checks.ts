@@ -12,10 +12,56 @@ export function isPushEndpoint(v: unknown): v is string {
   if (typeof v !== 'string' || v.length > 1024) return false;
   try {
     const u = new URL(v);
+    // No push service hands out addresses with a login, a port or a fragment.
+    if (u.username || u.password || u.port || u.hash) return false;
     return u.protocol === 'https:' && PUSH_HOSTS.test(u.hostname);
   } catch {
     return false;
   }
+}
+
+/**
+ * The name of a push address's Timer: the address as the URL parser writes it, so the same
+ * address typed differently (a host in capitals, say) still gets the one Timer.
+ */
+export const timerName = (endpoint: string) => new URL(endpoint).href;
+
+/**
+ * The network a request comes from, for counting requests: an IPv4 address as it is, an IPv6 one
+ * as its /64. A home or a phone is usually given a whole /64, so counting single IPv6 addresses
+ * would let one device through as millions of different ones.
+ */
+export function network(ip: string | null | undefined): string {
+  const a = (ip ?? '').trim().toLowerCase().split('%')[0];
+  if (!a) return 'unknown';
+  if (!a.includes(':')) return a;
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(a);
+  if (mapped) return mapped[1];
+  const halves = a.split('::');
+  if (halves.length > 2) return a;
+  const groups = (s: string) => (s ? s.split(':') : []);
+  const head = groups(halves[0]);
+  const tail = halves.length === 2 ? groups(halves[1]) : [];
+  // An IPv4 address written at the end takes the room of two groups.
+  const size = (g: string[]) => g.reduce((n, x) => n + (x.includes('.') ? 2 : 1), 0);
+  const all =
+    halves.length === 2 ? [...head, ...Array(Math.max(0, 8 - size(head) - size(tail))).fill('0'), ...tail] : head;
+  const first = all.slice(0, 4);
+  if (first.length < 4 || !first.every((g) => /^[0-9a-f]{1,4}$/.test(g))) return a;
+  return `${first.map((g) => parseInt(g, 16).toString(16)).join(':')}::/64`;
+}
+
+/**
+ * Whether two strings are the same, taking as long whichever character differs, so a hash or a
+ * secret compared with it can't be guessed bit by bit from how long the answer takes.
+ */
+export function sameText(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const x = enc.encode(a);
+  const y = enc.encode(b);
+  let diff = x.length ^ y.length;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ (y[i % (y.length || 1)] ?? 0);
+  return diff === 0;
 }
 
 export function isBookableTime(v: unknown, now = Date.now()): v is number {
