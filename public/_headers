@@ -1,4 +1,4 @@
-# Cache rules on elastic.kaiserkhan.com (Cloudflare reads this file; it isn't served). The page,
+# Headers on elastic.kaiserkhan.com (Cloudflare reads this file; it isn't served). Caching: the page,
 # sw.js, version.json and the manifest keep Cloudflare's default: checked with the server every
 # time, so a new build is seen at once.
 
@@ -11,3 +11,16 @@
   Cache-Control: public, max-age=86400
 /screenshots/*
   Cache-Control: public, max-age=86400
+
+# Every page and file: no framing, no type sniffing, HTTPS only, a short referrer, and none of the
+# device features the app doesn't use. The content security policy only reports for now (in the
+# browser's console): once it has run quietly for a while it can enforce. The hash is the inline
+# theme script's in index.html (worker/src/headers.test.ts keeps them matching). Turnstile, when
+# it's on, comes from challenges.cloudflare.com.
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), hid=(), bluetooth=(), midi=(), magnetometer=(), gyroscope=(), accelerometer=(), browsing-topics=()
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'sha256-msi2fzFhrQM3JRbJ1mXQuC9xhMnCcX4czXb7Ub1BjXc=' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' wss://elastic.kaiserkhan.com https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
