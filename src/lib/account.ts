@@ -155,13 +155,24 @@ export async function passkeyAutofill(): Promise<boolean> {
   }
 }
 
-/** Email a code: to sign in or make an account, or (with `token`) to add or change its email. */
-export const sendCode = (email: string, token?: string) => call<void>('/auth/email/send', { email }, token);
+/**
+ * Email a code: to sign in or make an account, or (with `token`) to add or change its email.
+ * `turnstile`: the widget's token, where the server asks for one (authConfig()).
+ */
+export const sendCode = (email: string, token?: string, turnstile?: string) =>
+  call<void>('/auth/email/send', { email, ...(turnstile ? { turnstile } : {}) }, token);
+
+/** What the server asks of the sign-in page: Turnstile's site key, when it checks for people. */
+export const authConfig = () => call<{ email: boolean; turnstile?: string | null }>('/auth/config');
 
 export function verifyCode(email: string, code: string): Promise<SignedIn>;
-export function verifyCode(email: string, code: string, token: string, name?: string): Promise<User>;
-export function verifyCode(email: string, code: string, token?: string, name?: string) {
-  return call('/auth/email/verify', { email, code, ...(name !== undefined ? { name } : {}) }, token);
+export function verifyCode(email: string, code: string, token: string, name?: string, device?: string): Promise<User>;
+export function verifyCode(email: string, code: string, token?: string, name?: string, device?: string) {
+  return call(
+    '/auth/email/verify',
+    { email, code, ...(name !== undefined ? { name } : {}), ...(device ? { device } : {}) },
+    token,
+  );
 }
 
 export const setName = (token: string, name: string) => call<{ name: string }>('/auth/name', { name }, token);
@@ -169,13 +180,19 @@ export const removePasskey = (token: string, id: string) => call<void>('/auth/pa
 export const accountInfo = (token: string) => call<AccountInfo>('/account', {}, token);
 export const deleteAccount = (token: string) => call<void>('/account/delete', {}, token);
 
-/** Best effort: the token is forgotten here either way. */
 /** A one-time code to carry this sign-in to the app's new address (src/lib/move.ts). */
 export const startHandoff = (token: string) => call<{ code: string }>('/account/handoff', {}, token);
 /** Arriving at the new address: the old one's code, for a sign-in here. */
 export const finishHandoff = (code: string) => call<SignedIn>('/auth/handoff', { code });
 
-/** Sign this device out on the server: the session goes, and so do the account's pushes to it. */
+/**
+ * Sign this device out on the server: the session goes, and so do the account's pushes to it.
+ * Best effort: the token is forgotten here either way.
+ */
 export async function signOutRemote(token: string, device?: string): Promise<void> {
   await call('/auth/signout', device ? { device } : {}, token).catch(() => {});
 }
+
+/** Sign the account out on every other device: how many were signed out. */
+export const signOutOthers = (token: string, device: string) =>
+  call<{ signedOut: number }>('/auth/signout/others', { device }, token);

@@ -110,6 +110,19 @@
       {:else}
         <button class="btn-plain self" onclick={() => P.arm('signout', 'me')}>Sign out</button>
       {/if}
+      {#if P.armed('others', 'me')}
+        <span class="confirm">
+          Sign out on every other device? They keep their copies of your plan but stop syncing until you sign in there
+          again.
+          <button class="btn-yes" onclick={() => P.signOutOthers()} {@attach (el) => el.focus()}>Sign out</button>
+          <button class="btn-no" onclick={() => P.disarm()}>Cancel</button>
+          <DisarmBar />
+        </span>
+      {:else}
+        <button class="btn-plain self" disabled={P.accountBusy} onclick={() => P.arm('others', 'me')}
+          >Sign out other devices</button
+        >
+      {/if}
       {#if P.armed('unaccount', 'me')}
         <span class="confirm">
           Delete your account and the plan it holds? Each device keeps the copy it has now.

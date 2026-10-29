@@ -1,13 +1,15 @@
 <script lang="ts">
   import { WebAuthnAbortService } from '@simplewebauthn/browser';
   import { onMount } from 'svelte';
-  import { passkeysAvailable } from '../lib/account';
+  import { accountsAvailable, authConfig, passkeysAvailable } from '../lib/account';
   import { planner as P } from '../lib/planner.svelte';
+  import { HumanCheck } from '../lib/turnstile';
 
   // Elastic starts here until there's an account on this device: an email confirmed with a
   // six-digit code (the same code makes a new account), or a passkey added earlier. Then the steps
   // that finish signing in: a name for a new account, which plan to keep when this device has its
   // own, a passkey for next time. An account from before emails adds a name and an email here.
+  // Arriving from the app's old address signed in, it asks first whose sign-in it is.
   let step = $state<'email' | 'code'>('email');
   let email = $state('');
   let code = $state('');
@@ -28,9 +30,28 @@
     P.holdUpdates = !!email.trim() || step === 'code';
   });
 
+  /** Turnstile, where the worker asks for it before sending a code (off unless it's set up there). */
+  let siteKey = $state<string | null>(null);
+  let humanBox = $state<HTMLElement>();
+  let check: HumanCheck | null = null;
+  $effect(() => {
+    if (!siteKey || !humanBox) return;
+    const c = new HumanCheck(humanBox, siteKey);
+    check = c;
+    return () => {
+      c.destroy();
+      if (check === c) check = null;
+    };
+  });
+  const human = () => (siteKey && check ? () => check!.token() : undefined);
+
   onMount(() => {
     // Passkeys made for Elastic are offered in the email field's suggestions too, where the browser can.
     if (!P.session) void P.passkeyFromAutofill();
+    if (accountsAvailable())
+      void authConfig()
+        .then((c) => (siteKey = c.turnstile ?? null))
+        .catch(() => {});
     return () => {
       P.holdUpdates = false;
       WebAuthnAbortService.cancelCeremony();
@@ -50,7 +71,7 @@
   });
 
   async function send() {
-    if (await P.sendSignInCode(email.trim())) {
+    if (await P.sendSignInCode(email.trim(), human())) {
       had = false;
       resent = false;
       step = 'code';
@@ -70,7 +91,7 @@
 
   async function sendAgain() {
     resent = false;
-    if (await P.sendSignInCode(email.trim())) resent = true;
+    if (await P.sendSignInCode(email.trim(), human())) resent = true;
   }
 
   const signIn = () => P.signInWithCode(email.trim(), code);
@@ -134,7 +155,17 @@
     <img class="mark" src={icon} alt="" width="56" height="56" />
     <h1>Elastic</h1>
 
-    {#if S && P.joinAsk}
+    {#if !S && P.handoffAsk}
+      {@const who = P.handoffAsk.user.email ?? P.handoffAsk.user.name ?? 'your account'}
+      <p class="lede">Elastic has moved here. Continue as <b>{who}</b>?</p>
+      <div class="stack">
+        <button class="key ink" disabled={P.accountBusy} onclick={() => P.answerHandoff(true)}>Continue</button>
+        <p class="note">You were signed in to this account at the app's old address.</p>
+        <button class="quiet" disabled={P.accountBusy} onclick={() => P.answerHandoff(false)}
+          >That's not me. Sign in another way</button
+        >
+      </div>
+    {:else if S && P.joinAsk}
       <p class="lede">This device has its own plan, and your account has one too. Which should this device use?</p>
       <div class="stack">
         <button class="key ink" disabled={P.accountBusy} onclick={() => P.joinAccount('account')}
@@ -233,6 +264,9 @@
       {/if}
       <p class="note">New here? The same code makes your account. Your plan syncs across your devices.</p>
     {/if}
+    {#if siteKey && !S && !P.handoffAsk}
+      <div class="human" bind:this={humanBox}></div>
+    {/if}
 
     {#if P.accountMsg}
       <p class="msg" class:err={P.accountMsg.err} role={P.accountMsg.err ? 'alert' : 'status'}>{P.accountMsg.t}</p>
@@ -241,6 +275,9 @@
 </div>
 
 <style>
+  .human:empty {
+    display: none;
+  }
   .gate {
     position: fixed;
     inset: 0;

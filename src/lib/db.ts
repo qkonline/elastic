@@ -417,6 +417,19 @@ export async function closeDb(): Promise<void> {
   dbp = null;
 }
 
+/**
+ * Delete the whole database (the copy left at the app's old address, once everything in it is on
+ * the account). Gives up waiting after a few seconds if another tab holds it open.
+ */
+export async function destroy(): Promise<void> {
+  await closeDb();
+  await new Promise<void>((resolve) => {
+    const req = indexedDB.deleteDatabase(DB_NAME);
+    req.onsuccess = req.onerror = () => resolve();
+    setTimeout(resolve, 3000);
+  });
+}
+
 /** Ask the browser not to evict our data under storage pressure. Best effort. */
 export async function requestPersistence(): Promise<void> {
   try {

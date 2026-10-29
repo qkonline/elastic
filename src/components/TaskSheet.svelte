@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { cardLink } from '../lib/boardo.svelte';
   import { planner as P } from '../lib/planner.svelte';
   import { itemVM, RUN, stripSegs } from '../lib/rows';
   import { pastedSteps } from '../lib/steps';
@@ -426,7 +427,9 @@
         {#if it.card}
           <!-- Changing a card, or reopening it, happens in Boardo; only its time is kept here. -->
           {#if card}
-            <a class="edit" href={card.url} target="_blank" rel="noopener">Open in Boardo</a>
+            {#if cardLink(card.url)}
+              <a class="edit" href={cardLink(card.url)} target="_blank" rel="noopener">Open in Boardo</a>
+            {/if}
           {:else}
             <p class="ended">This card isn't assigned to you in Boardo any more.</p>
           {/if}

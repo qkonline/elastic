@@ -70,6 +70,16 @@ const b64url = (b: Uint8Array) =>
 const randomId = (n = 16) => b64url(crypto.getRandomValues(new Uint8Array(n))).replace(/[^A-Za-z0-9_-]/g, '');
 
 /** The calendar day a card's date falls on, here. */
+/** A card's link to Boardo, only when it's an https address: anything else isn't followed. */
+export function cardLink(url: unknown): string | null {
+  if (typeof url !== 'string') return null;
+  try {
+    return new URL(url).protocol === 'https:' ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 export function dayOfValue(v: string): string {
   return v.includes('T') ? dkey(new Date(v)) : v.slice(0, 10);
 }

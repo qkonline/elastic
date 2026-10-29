@@ -87,7 +87,17 @@ export type Sheet =
   | { type: 'reorder'; id: string; anchor: string; dir: 'up' | 'down' }
   | { type: 'card'; id: string };
 export type ConfirmType =
-  'postpone' | 'delete' | 'clear' | 'erase' | 'sample' | 'finish' | 'signout' | 'unaccount' | 'goal' | 'passkey';
+  | 'postpone'
+  | 'delete'
+  | 'clear'
+  | 'erase'
+  | 'sample'
+  | 'finish'
+  | 'signout'
+  | 'others'
+  | 'unaccount'
+  | 'goal'
+  | 'passkey';
 /** Running this far over before Done asks when it was really finished (minutes). */
 export const ASK_FINISH_OVER = 5;
 export interface Confirm {
@@ -231,6 +241,11 @@ export class Planner {
   accountMsg = $state<{ err: boolean; t: string } | null>(null);
   /** Just made an account here: offer a passkey for signing in next time. */
   offerPasskey = $state(false);
+  /**
+   * Arrived from the app's old address with a sign-in: asked "Continue as …?" before it's kept,
+   * so a link made by someone else can't sign this device in to their account.
+   */
+  handoffAsk = $state.raw<SignedIn | null>(null);
   /** Signed in, but the account has no name or email yet, so it doesn't sync until it has. */
   get needsSetup(): boolean {
     return !!this.session && (this.syncStatus === 'paused' || !complete(this.session.user));
@@ -551,7 +566,7 @@ export class Planner {
     if (!this.updateReady || this.reloading) return;
     if (this.sheet || this.drag || this.confirm || this.resched || this.celebrate || this.showWelcome) return;
     if (this.screen.type === 'settings') return;
-    if (this.signInFirst && (this.holdUpdates || this.session)) return;
+    if (this.signInFirst && (this.holdUpdates || this.session || this.handoffAsk)) return;
     this.reloading = true;
     // Only once everything is saved: a reload would lose what isn't.
     void this.flush().then((ok) => {
@@ -2312,9 +2327,12 @@ export class Planner {
     }
   }
 
-  /** Email a code, to sign in or to make an account (the same either way). */
-  sendSignInCode(email: string): Promise<boolean> {
-    return this.accountAction(() => api.sendCode(email));
+  /**
+   * Email a code, to sign in or to make an account (the same either way). `human`: gets a
+   * Turnstile token, where the server asks for one.
+   */
+  sendSignInCode(email: string, human?: () => Promise<string>): Promise<boolean> {
+    return this.accountAction(async () => api.sendCode(email, undefined, human ? await human() : undefined));
   }
 
   signInWithCode(email: string, code: string): Promise<boolean> {
@@ -2377,14 +2395,65 @@ export class Planner {
     this.post({ t: 'all' });
   }
 
-  /** Arrived from the app's old address with its device settings and, if signed in there, a sign-in code. */
+  /**
+   * Arrived from the app's old address with its device settings and, if signed in there, a
+   * sign-in code. The code is used at once (it lasts two minutes), but the sign-in is only kept
+   * once the person says it's theirs (`handoffAsk`). A device already signed in keeps its own;
+   * if the code was for another account, it says so.
+   */
   private async arrive(came: NonNullable<ReturnType<typeof arrival>>): Promise<void> {
     const { notify, ...rest } = came.settings;
-    this.setSettings(came.code ? { ...rest, onboarded: true } : rest);
+    this.setSettings(rest);
     // Notifications are allowed address by address: offered again here.
     if (notify) this.notifyPrompt = 'timer';
     const code = came.code;
-    if (code && !this.session) await this.accountAction(async () => this.signedIn(await api.finishHandoff(code)));
+    if (!code) return;
+    await this.accountAction(async () => {
+      const r = await api.finishHandoff(code);
+      const mine = this.session;
+      if (!mine) {
+        this.handoffAsk = r;
+        return;
+      }
+      await api.signOutRemote(r.token);
+      if (mine.user.id !== r.user.id) {
+        const t = `This device is signed in as ${mine.user.email ?? 'someone else'}. To use ${r.user.email ?? 'the other account'} here, sign out first.`;
+        this.nudge = { text: t, at: Date.now(), quiet: true };
+        this.say(t);
+        throw new ApiError(409, t);
+      }
+    });
+  }
+
+  /** "Continue as …?" answered: keep the sign-in the old address handed over, or not. */
+  async answerHandoff(keep: boolean): Promise<void> {
+    const r = this.handoffAsk;
+    if (!r) return;
+    this.handoffAsk = null;
+    if (!keep) {
+      await api.signOutRemote(r.token);
+      return;
+    }
+    // Arriving signed in: this device has seen the app before.
+    await this.accountAction(async () => {
+      this.setSettings({ onboarded: true });
+      await this.signedIn(r);
+    });
+  }
+
+  /**
+   * The copy at the old address has handed over (a code is on its way to the new one): if
+   * everything it had is on the account, its sign-in ends and its storage goes, so nothing that
+   * still signs in, or holds the plan, stays at the old address. A copy whose changes didn't all
+   * make it (an account not set up yet, records the account had no room for) keeps its storage,
+   * and its sign-in ends anyway once the new address uses the code.
+   */
+  private async leaveNothing(s: Session): Promise<void> {
+    const pending = await db.getPending().catch(() => ({ unknown: true }));
+    if (this.syncStatus !== 'live' || !(await this.sync.drained()) || Object.keys(pending).length) return;
+    this.sync.stop();
+    await api.signOutRemote(s.token, s.device);
+    await db.destroy();
   }
 
   /**
@@ -2413,6 +2482,7 @@ export class Planner {
         try {
           const code = s ? (await api.startHandoff(s.token)).code : null;
           this.moving = 'going';
+          if (s) await this.leaveNothing(s).catch(() => {});
           location.replace(moveUrl(code, this.settings));
           return;
         } catch (e) {
@@ -2529,16 +2599,43 @@ export class Planner {
     return this.accountAction(() => api.sendCode(email, s.token));
   }
 
-  /** Confirm the account's email with its code (and, for an account that has none, its name). */
+  /**
+   * Confirm the account's email with its code (and, for an account that has none, its name).
+   * Changing it signs the account out on its other devices.
+   */
   confirmEmail(email: string, code: string, name?: string): Promise<boolean> {
     const s = this.session;
     if (!s) return Promise.resolve(false);
     return this.accountAction(async () => {
       const was = complete(s.user);
-      const u = await api.verifyCode(email, code, s.token, name);
+      const before = s.user.email;
+      const u = await api.verifyCode(email, code, s.token, name, s.device);
       await this.updateUser({ email: u.email, name: u.name });
       if ((!was || this.syncStatus === 'paused') && complete(this.session?.user)) this.setUp();
-      else this.accountMsg = { err: false, t: 'Email saved.' };
+      else
+        this.accountMsg = {
+          err: false,
+          t:
+            before && before !== u.email
+              ? 'Email saved. Your other devices were signed out: sign in there with the new email.'
+              : 'Email saved.',
+        };
+    });
+  }
+
+  /** Sign the account out everywhere else: the other devices keep their copies but stop syncing. */
+  signOutOthers(): Promise<boolean> {
+    const s = this.session;
+    this.confirm = null;
+    if (!s) return Promise.resolve(false);
+    return this.accountAction(async () => {
+      const { signedOut } = await api.signOutOthers(s.token, s.device);
+      this.accountMsg = {
+        err: false,
+        t: signedOut
+          ? `Signed out on ${signedOut === 1 ? 'one other device' : `${signedOut} other devices`}.`
+          : 'No other device was signed in.',
+      };
     });
   }
 

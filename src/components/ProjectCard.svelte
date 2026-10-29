@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { deadlineLabel } from '../lib/boardo.svelte';
+  import { cardLink, deadlineLabel } from '../lib/boardo.svelte';
   import { planner as P } from '../lib/planner.svelte';
   import { hueColor, isHue } from '../lib/types';
 
@@ -48,7 +48,7 @@
       {#if !c.myDone && !c.completed && P.isToday && !P.locked}
         <button class="ctl primary" onclick={() => (P.closeSheet(), P.startCard(c))}>Start</button>
       {/if}
-      <a class="ctl" href={c.url} target="_blank" rel="noopener">Open in Boardo</a>
+      {#if cardLink(c.url)}<a class="ctl" href={cardLink(c.url)} target="_blank" rel="noopener">Open in Boardo</a>{/if}
     </div>
     <p class="note">Comments, files and other fields are in Boardo.</p>
   {:else}
