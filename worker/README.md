@@ -70,7 +70,7 @@ DEV_MAIL=1
 ALLOWED_ORIGINS=http://localhost:5173,http://localhost:5175,http://localhost:4173,http://localhost:8787
 ```
 
-`--var ALLOWED_ORIGINS:…` on the command line does the same for one run.
+`--var ALLOWED_ORIGINS:…` on the command line does the same for one run. To run the daily clean-up under `wrangler dev`: `curl 'http://localhost:8787/cdn-cgi/handler/scheduled?cron=17+3+*+*+*'`.
 
 ```bash
 npx wrangler d1 migrations apply elastic-day --local   # once, for wrangler dev
