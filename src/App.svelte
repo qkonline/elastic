@@ -305,18 +305,8 @@
       max-width: 780px;
     }
   }
-  .plan.waiting {
-    opacity: 0.6;
-    filter: saturate(0.35);
-    transition:
-      opacity 400ms ease,
-      filter 400ms ease;
-  }
-  .plan {
-    transition:
-      opacity 400ms ease,
-      filter 400ms ease;
-  }
+  /* Before Start my day the plan stays readable: only what waits for the start (the Start
+     buttons, check boxes and habit rings, all aria-disabled) is dimmed, by each of them. */
   .failed {
     max-width: 480px;
     margin: 15vh auto 0;

@@ -108,13 +108,13 @@
   type Cell = [label: string, value: string];
   const view = $derived.by((): { cells: Cell[]; left: string; right: string } => {
     if (!started) {
-      if (!P.timesShown) return { cells: [['Planned', dL(to - from)]], left: '', right: '' };
+      if (!P.timesShown) return { cells: [['Planned day', dL(to - from)]], left: '', right: '' };
       return {
         cells: [
           ['Planned start', t(from)],
           ['Planned finish', t(to)],
         ],
-        left: `${dL(to - from)} planned`,
+        left: `${dL(to - from)} start to finish`,
         right: '',
       };
     }

@@ -51,6 +51,24 @@
 
   const boxRing = $derived(v.isOver ? 'rgba(248,113,113,.6)' : 'var(--border)');
 
+  // Where the now line crosses this row (it's drawn at the same place as .now-in), so its time
+  // hides the row's own start or end time it would sit on instead of printing over it.
+  let row = $state<HTMLElement>();
+  let rowH = $state(0);
+  let startT = $state<HTMLElement>();
+  let endT = $state<HTMLElement>();
+  const covered = $derived.by(() => {
+    if (v.nowIn == null || !row || !P.timesShown) return { start: false, end: false };
+    const y = 4 + v.nowIn * (rowH - 8);
+    const top = row.getBoundingClientRect().top;
+    const under = (el?: HTMLElement) => {
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      return y + 9 > r.top - top && y - 9 < r.bottom - top;
+    };
+    return { start: under(startT), end: under(endT) };
+  });
+
   // Press and hold anywhere on the task's text to pick it up (touch). A pointer-only shortcut:
   // keyboard and screen-reader users move tasks with Earlier / Later in the task sheet.
   function holdToDrag(el: HTMLElement) {
@@ -70,6 +88,8 @@
 </script>
 
 <li
+  bind:this={row}
+  bind:clientHeight={rowH}
   data-drag-idx={v.idx}
   class="row"
   class:active={v.active}
@@ -83,10 +103,12 @@
   onmouseleave={() => P.hover === id && (P.hover = null)}
 >
   <div class="times" {@attach holdToDrag}>
-    {#if v.t1}<span class="t1">{v.t1}</span>{/if}
-    {#if v.ap1}<span class="ap">{v.ap1}</span>{/if}
-    {#if v.t2}<span class="t2">{v.t2}</span>{/if}
-    {#if v.ap2}<span class="ap faint">{v.ap2}</span>{/if}
+    {#if v.t1}<span class="tg" class:under={covered.start} bind:this={startT}
+        ><span class="t1">{v.t1}</span>{#if v.ap1}<span class="ap">{v.ap1}</span>{/if}</span
+      >{/if}
+    {#if v.t2}<span class="tg end" class:under={covered.end} bind:this={endT}
+        ><span class="t2">{v.t2}</span>{#if v.ap2}<span class="ap faint">{v.ap2}</span>{/if}</span
+      >{/if}
   </div>
 
   <div class="spine">
@@ -295,13 +317,24 @@
     align-items: flex-end;
     gap: 3px;
   }
+  .tg {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+  }
+  .tg.end {
+    margin-top: 5px;
+  }
+  .tg.under {
+    visibility: hidden;
+  }
   .t1 {
     font: 400 13px/1 var(--font);
   }
   .t2 {
     font: 400 12px/1 var(--font);
     color: var(--faint);
-    margin-top: 5px;
   }
   .ap {
     font: 400 10px/1 var(--font);

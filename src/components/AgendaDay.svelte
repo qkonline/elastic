@@ -35,7 +35,7 @@
       {:else if past && totals.logged >= 1}
         {dL(Math.round(totals.logged))} logged
       {:else if totals.planned >= 1}
-        {dL(Math.round(totals.planned))} planned
+        {dL(Math.round(totals.planned))} of tasks
       {/if}
     </span>
     {#if !ended && !past}
