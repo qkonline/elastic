@@ -111,7 +111,7 @@
     align-items: center;
     gap: 10px;
     min-height: 44px;
-    margin: 0 -14px 0 -12px;
+    margin: 0;
     padding: 0 14px 0 12px;
     border: none;
     border-radius: inherit;
