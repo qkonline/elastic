@@ -284,6 +284,81 @@ describe('Planner', () => {
     expect(p.day.items.map((i) => i.title)).toEqual(['Stretch']);
   });
 
+  it('repeats a number of times, and asks how to skip one', async () => {
+    const p = await boot();
+    p.addTask({
+      title: 'Tablets',
+      min: 0,
+      kind: 'check',
+      hue: 'lime',
+      fixedAt: null,
+      repeat: 'Every day',
+      ends: { times: 6 },
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    const sid = byTitle(p, 'Tablets').seriesId!;
+    const series = () => p.series.find((s) => s.id === sid)!;
+    expect(series()).toMatchObject({ until: '2026-09-30', ends: 'times' });
+    expect(p.repeatCount(byTitle(p, 'Tablets'))).toBe('1 of 6');
+    await p.switchDay('2026-09-30');
+    expect(p.repeatCount(byTitle(p, 'Tablets'))).toBe('6 of 6');
+    await p.switchDay('2026-10-01');
+    expect(p.day.items).toEqual([]);
+
+    // Skipping asks; adding a day at the end keeps it at 6 times.
+    await p.switchDay(TODAY);
+    p.skip(byTitle(p, 'Tablets').id);
+    expect(p.sheet).toMatchObject({ type: 'skip' });
+    expect(byTitle(p, 'Tablets').status).toBe('todo');
+    await p.skipLimited(byTitle(p, 'Tablets').id, 'extend');
+    expect(byTitle(p, 'Tablets').status).toBe('skipped');
+    expect(series()).toMatchObject({ until: '2026-10-01', skips: { [TODAY]: 'extend' } });
+    await p.switchDay('2026-10-01');
+    expect(p.repeatCount(byTitle(p, 'Tablets'))).toBe('6 of 6');
+
+    // Restoring it takes the extra day away again.
+    await p.switchDay(TODAY);
+    await p.restore(byTitle(p, 'Tablets').id);
+    expect(series().until).toBe('2026-09-30');
+    expect(series().skips).toBeUndefined();
+
+    // Keeping the end date makes it one time fewer.
+    p.skip(byTitle(p, 'Tablets').id);
+    await p.skipLimited(byTitle(p, 'Tablets').id, 'keep');
+    expect(series().until).toBe('2026-09-30');
+    await p.switchDay('2026-09-30');
+    expect(p.repeatCount(byTitle(p, 'Tablets'))).toBe('5 of 5');
+  });
+
+  it('changes how a task repeats and when it ends from the Edit form', async () => {
+    const p = await boot();
+    p.addTask({
+      title: 'Class',
+      min: 60,
+      kind: 'task',
+      hue: 'cyan',
+      fixedAt: null,
+      repeat: 'Every Friday',
+      ends: { times: 3 },
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    const it = byTitle(p, 'Class');
+    const series = () => p.series.find((s) => s.id === it.seriesId)!;
+    expect(series().until).toBe('2026-10-09');
+    const form = { ...it, ends: { times: 3 } };
+    await p.saveTask(it.id, { ...form, repeat: 'Every 2 weeks on Friday' });
+    expect(series()).toMatchObject({ repeat: 'Every 2 weeks on Friday', until: '2026-10-23', ends: 'times' });
+    await p.switchDay('2026-10-02');
+    expect(p.day.items).toEqual([]);
+    await p.switchDay(TODAY);
+    await p.saveTask(it.id, { ...form, repeat: 'Every 2 weeks on Friday', ends: { until: '2026-11-06' } });
+    expect(series()).toMatchObject({ until: '2026-11-06', ends: 'date' });
+    expect(p.repeatCount(byTitle(p, 'Class'))).toBe('1 of 4');
+    await p.saveTask(it.id, { ...form, repeat: 'Every 2 weeks on Friday', ends: null });
+    expect(series()).toMatchObject({ until: null, ends: null });
+    expect(p.repeatCount(byTitle(p, 'Class'))).toBeNull();
+  });
+
   it('keeps the week strip on the week of the day shown', async () => {
     const p = await boot();
     await p.switchDay('2026-09-28'); // next Monday, e.g. swiping on from Sunday

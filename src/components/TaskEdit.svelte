@@ -6,12 +6,14 @@
   import { planner as P } from '../lib/planner.svelte';
   import { isActive } from '../lib/schedule';
   import { pastedSteps } from '../lib/steps';
-  import { clockToDay, hhmm, hm, keyDate, weekdayLong } from '../lib/time';
+  import { clockToDay, hhmm, hm } from '../lib/time';
+  import { type Ends, endsOf } from '../lib/repeat';
   import type { Item, Kind } from '../lib/types';
   import { reducedMotion } from '../lib/ui.svelte';
   import Fields from './Fields.svelte';
   import IconPicker from './IconPicker.svelte';
   import KindChips from './KindChips.svelte';
+  import RepeatFields, { repeatShort } from './RepeatFields.svelte';
   import SwitchRow from './SwitchRow.svelte';
 
   // The task sheet's Edit form: the New task form filled in with the task, plus its steps and
@@ -41,6 +43,13 @@
   let fixedStr = $state(hhmm(it.fixedAt ?? Math.ceil((P.nowToday() + 30) / 15) * 15));
   let repeats = $state(it.repeat !== 'Once');
   let repeat = $state(it.repeat !== 'Once' ? it.repeat : 'Every day');
+  const series = it.seriesId ? P.series.find((s) => s.id === it.seriesId) : undefined;
+  const endsWas = endsOf(series);
+  let ends = $state<Ends>(endsWas);
+  // A changed rule counts from today on (P.setRepeat); an unchanged one from where it began.
+  const from = $derived(
+    series && repeat === series.repeat ? series.from : series && series.from > P.today ? series.from : P.viewKey,
+  );
   let goalId = $state(it.goalId ?? null);
   let habitId = $state(it.habitId ?? null);
   let icon = $state(it.icon ?? null);
@@ -50,11 +59,6 @@
 
   // A running timer keeps its task timed.
   const running = isActive(it);
-  const repeatOpts = $derived.by(() => {
-    const list = ['Every day', 'Weekdays', 'Every ' + weekdayLong(keyDate(P.viewKey))];
-    if (it.repeat !== 'Once' && !list.includes(it.repeat)) list.push(it.repeat);
-    return list;
-  });
   const quarterGoals = $derived(
     P.goals.filter((g) => g.quarter === P.quarterOf(P.viewKey) && g.title.trim()).sort((a, b) => a.order - b.order),
   );
@@ -108,6 +112,7 @@
       hue,
       fixedAt: k === 'fixed' ? fixedAt() : null,
       repeat: repeats ? repeat : 'Once',
+      ends: repeats ? ends : null,
       note,
       subtasks: [...steps, ...pending].filter((x) => x.t.trim()),
       goalId: k === 'buffer' ? null : goalId,
@@ -127,6 +132,7 @@
       hue: it.hue,
       fixedAt: it.kind === 'fixed' ? it.fixedAt : null,
       repeat: it.repeat,
+      ends: it.repeat !== 'Once' ? endsWas : null,
       note: it.note,
       subtasks: it.subtasks,
       goalId: it.goalId ?? null,
@@ -185,15 +191,25 @@
   <div class="props">
     <SwitchRow
       label="Repeats"
-      note={repeats ? "Also changes the other days you haven't started yet" : 'Just this once'}
+      note={repeats ? repeatShort(repeat, ends, P.today) : 'Just this once'}
       on={repeats}
       ontoggle={() => (repeats = !repeats)}
     >
-      <div class="row">
-        {#each repeatOpts as r (r)}
-          <button class="chip" aria-pressed={repeat === r} onclick={() => (repeat = r)}>{r}</button>
-        {/each}
-      </div>
+      <RepeatFields
+        {repeat}
+        {ends}
+        day={P.viewKey}
+        {from}
+        today={P.today}
+        was={series && repeat === series.repeat ? series : undefined}
+        onchange={(r, e) => {
+          repeat = r;
+          ends = e;
+        }}
+      />
+      {#if it.repeat !== 'Once'}
+        <p class="lnote rnote">Also changes the other days you haven't started yet.</p>
+      {/if}
     </SwitchRow>
     {#if quarterGoals.length && kind !== 'buffer'}
       <SwitchRow
@@ -306,6 +322,9 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+  }
+  .rnote {
+    margin-top: 10px;
   }
   .lnote {
     margin: 0;

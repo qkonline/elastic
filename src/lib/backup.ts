@@ -189,7 +189,18 @@ export function normalizeSeries(raw: unknown, index: number): Series | null {
     ...(typeof r.habitId === 'string' && r.habitId ? { habitId: r.habitId } : {}),
     ...(typeof r.goalId === 'string' && r.goalId ? { goalId: r.goalId } : {}),
     ...(isIcon(r.icon) ? { icon: r.icon } : {}),
+    ...(r.ends === 'times' || r.ends === 'date' ? { ends: r.ends } : {}),
+    ...(skipsOf(r.skips) ? { skips: skipsOf(r.skips) } : {}),
+    ...(typeof r.prior === 'number' && r.prior > 0 ? { prior: Math.floor(r.prior) } : {}),
   };
+}
+
+/** A series' skipped days (day key → 'extend' | 'keep'), or undefined if there are none. */
+function skipsOf(raw: unknown): Series['skips'] {
+  const out = Object.fromEntries(
+    Object.entries(obj(raw)).filter(([k, v]) => KEY.test(k) && (v === 'extend' || v === 'keep')),
+  ) as NonNullable<Series['skips']>;
+  return Object.keys(out).length ? out : undefined;
 }
 
 export function normalizeSettings(raw: unknown): Settings {

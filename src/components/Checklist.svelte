@@ -113,8 +113,8 @@
         <button class="title" onclick={() => tapped(P, it.id)}>{it.title}</button>
         {#if moved && it.movedKey}
           <span class="meta">Moved to {shortDate(keyDate(it.movedKey))}</span>
-        {:else if it.repeat !== 'Once' && it.repeat !== 'Every day'}
-          <span class="meta">↻ {it.repeat}</span>
+        {:else if it.repeat !== 'Once' && (it.repeat !== 'Every day' || P.repeatCount(it))}
+          <span class="meta">↻ {it.repeat}{P.repeatCount(it) ? ` · ${P.repeatCount(it)}` : ''}</span>
         {/if}
       </span>
       {#if !moved}

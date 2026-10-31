@@ -27,13 +27,21 @@ import { habitMet, isHabit, progressText } from './habits';
 import { type DueReview, dueQuarterly, dueWeekly, reviewNumbers, weekId, weekRange } from './review';
 import { type HeadsUp, headsUps, type Note, pushPlan } from './reminders';
 import {
+  type Ends,
+  endsOf,
+  limitsOf,
   materialize,
+  nextDay,
   orderAt,
   orderNextTo,
   orderSeries,
   placeBySeries,
+  prevDay,
+  seriesCount,
   seriesFromItem,
   syncSeriesInto,
+  timesUpTo,
+  withEnds,
   withoutSeries,
 } from './repeat';
 import { sampleItems } from './sample';
@@ -75,7 +83,7 @@ export type Screen =
 export type TaskForm = Pick<
   Item,
   'title' | 'kind' | 'min' | 'hue' | 'fixedAt' | 'repeat' | 'note' | 'subtasks' | 'goalId' | 'habitId' | 'icon'
->;
+> & { ends?: Ends };
 /** What opens over the page. */
 export type Sheet =
   | { type: 'task'; id: string }
@@ -85,6 +93,7 @@ export type Sheet =
   | { type: 'wrapup' }
   | { type: 'account' }
   | { type: 'reorder'; id: string; anchor: string; dir: 'up' | 'down' }
+  | { type: 'skip'; id: string }
   | { type: 'card'; id: string };
 export type ConfirmType =
   | 'postpone'
@@ -1698,8 +1707,53 @@ export class Planner {
   }
 
   skip(id: string): void {
-    this.update((d) => A.skip(d, id), `${this.item(id)?.title} skipped`);
+    const it = this.item(id);
+    // One of a repeat that ends: ask whether to add a day at the end or keep the end date.
+    if (it?.status === 'todo' && this.limitedSeries(it) && !this.locked) return this.openSheet({ type: 'skip', id });
+    this.update((d) => A.skip(d, id), `${it?.title} skipped`);
   }
+
+  /** The series of a task that repeats a number of times or until a date, if it has one. */
+  limitedSeries(it: Item): Series | undefined {
+    const s = it.seriesId ? this.series.find((x) => x.id === it.seriesId) : undefined;
+    return s?.ends && s.until ? s : undefined;
+  }
+
+  /**
+   * Skip one of a repeat that ends. 'extend': its last day moves on to the next one it has, so it
+   * still comes up as many times; 'keep': the end date stays, so it's one time fewer.
+   */
+  async skipLimited(id: string, how: 'extend' | 'keep'): Promise<void> {
+    const it = this.item(id);
+    const s = it && this.limitedSeries(it);
+    this.sheet = null;
+    if (!it || !s || this.locked) return;
+    const key = this.viewKey;
+    this.update((d) => A.skip(d, id), `${it.title} skipped`);
+    const skips = { ...s.skips, [key]: how };
+    const until = how === 'extend' ? (nextDay({ ...s, skips }, s.until!) ?? s.until) : s.until;
+    const next: Series = { ...s, skips, until };
+    this.series = this.series.map((x) => (x.id === s.id ? next : x));
+    await this.saveRecord('series', s.id, s, next);
+    this.post({ t: 'series' });
+    await this.propagate(next, s, s.id, key);
+  }
+
+  /** "2 of 6" for one of a repeat that ends, else null. Kept, since rows ask on every tick. */
+  repeatCount(it: Item, key = this.viewKey): string | null {
+    const s = this.limitedSeries(it);
+    if (!s) return null;
+    const k = `${s.id}|${s.repeat}|${s.from}|${s.until}|${s.prior ?? 0}|${JSON.stringify(s.skips ?? {})}|${key}`;
+    let v = this.counts.get(k);
+    if (v === undefined) {
+      const c = seriesCount(s, key);
+      v = c ? `${c.nth} of ${c.total}` : null;
+      if (this.counts.size > 500) this.counts.clear();
+      this.counts.set(k, v);
+    }
+    return v;
+  }
+  private counts = new Map<string, string | null>();
 
   /** Restore a skipped item, or undo a move (removing the untouched copy from the other day). */
   async restore(id: string): Promise<void> {
@@ -1715,6 +1769,19 @@ export class Planner {
     const d = this.days[key];
     if (d) this.put(A.restore(d, id));
     this.say(`${it.title} restored`);
+    // Back from a skip that moved the series' last day on: it comes back, so the extra day goes.
+    const s = it.status === 'skipped' ? this.limitedSeries(it) : undefined;
+    const how = s?.skips?.[key];
+    if (!s || !how) return;
+    const { [key]: _, ...skips } = s.skips!;
+    const until = how === 'extend' ? (prevDay({ ...s, skips }, s.until!) ?? s.until) : s.until;
+    const next: Series = { ...s, until };
+    if (Object.keys(skips).length) next.skips = skips;
+    else delete next.skips;
+    this.series = this.series.map((x) => (x.id === s.id ? next : x));
+    await this.saveRecord('series', s.id, s, next);
+    this.post({ t: 'series' });
+    await this.propagate(next, s, s.id, key);
   }
 
   // ---------- postpone / reschedule ----------
@@ -1785,9 +1852,10 @@ export class Planner {
     hue: Hue;
     fixedAt: number | null;
     repeat?: string;
+    ends?: Ends;
     habit?: Habit;
   }): void {
-    const { repeat: asked, habit, ...fields } = o;
+    const { repeat: asked, habit, ends, ...fields } = o;
     // A habit always repeats: on its days, or every day for one due a number of times a week.
     const repeat =
       o.kind === 'habit' ? (habit?.per === 'day' && asked && asked !== 'Once' ? asked : 'Every day') : asked;
@@ -1800,7 +1868,7 @@ export class Planner {
     this.sheet = null;
     this.update((d) => A.addItem(d, it, this.n), `Added ${it.title}`);
     // A repeating task becomes a series straight away, like choosing a repeat in the task sheet.
-    if (repeat && repeat !== 'Once') void this.setRepeat(it.id, repeat);
+    if (repeat && repeat !== 'Once') void this.setRepeat(it.id, repeat, ends ?? null);
     if (it.kind === 'fixed') this.offerNotifications('fixed');
   }
 
@@ -1841,7 +1909,9 @@ export class Planner {
       }, `Updated ${title}`);
       if (it.seriesId) this.queueSeriesSync(it.seriesId, this.viewKey);
     }
-    if (f.repeat !== it.repeat) await this.setRepeat(id, f.repeat);
+    const series = it.seriesId ? this.series.find((x) => x.id === it.seriesId) : undefined;
+    const endsChanged = f.repeat !== 'Once' && JSON.stringify(f.ends ?? null) !== JSON.stringify(endsOf(series));
+    if (f.repeat !== it.repeat || endsChanged) await this.setRepeat(id, f.repeat, f.ends ?? null);
     if (f.kind === 'fixed' && it.kind !== 'fixed') this.offerNotifications('fixed');
   }
 
@@ -1877,7 +1947,7 @@ export class Planner {
     this.say(`Deleted ${it.title} from later days too`);
     this.cancelSeriesSync(s.id);
     const before = addDays(key, -1);
-    const ended = { ...s, until: s.until != null && s.until < before ? s.until : before };
+    const ended = { ...s, until: s.until != null && s.until < before ? s.until : before, ends: null };
     this.series = this.series.map((x) => (x.id === s.id ? ended : x));
     await this.saveRecord('series', s.id, s, ended);
     this.post({ t: 'series' });
@@ -1913,17 +1983,42 @@ export class Planner {
     this.say(said);
   }
 
-  async setRepeat(id: string, repeat: string): Promise<void> {
+  /**
+   * Make a task repeat, change how, or stop it ('Once'), with how it ends (`ends`: after a number
+   * of times, on a date, or never). A changed rule counts from today on (`from` moves, with the
+   * times already gone by kept in `prior`), so "every 2 weeks" starts from the next one.
+   */
+  async setRepeat(id: string, repeat: string, ends: Ends = null): Promise<void> {
     if (this.locked) return;
     const it = this.item(id);
-    if (!it || it.repeat === repeat) return;
-    if (repeat === 'Once') return this.stopRepeating(id);
-    if (it.seriesId) {
-      this.edit(id, { repeat });
+    if (!it) return;
+    if (repeat === 'Once') return it.repeat === 'Once' ? undefined : this.stopRepeating(id);
+    const old = it.seriesId ? this.series.find((x) => x.id === it.seriesId) : undefined;
+    if (it.seriesId && !old) {
+      if (it.repeat !== repeat) this.edit(id, { repeat });
       return;
     }
     const key = this.viewKey;
-    const s = seriesFromItem({ ...it, repeat }, key, A.uid(), orderAt(this.series, this.day.items, id));
+    if (old) {
+      let next: Series = { ...old, repeat };
+      if (repeat !== old.repeat && it.kind !== 'habit') {
+        const from = old.from > this.today ? old.from : this.today;
+        const gone = old.ends ? timesUpTo(old, addDays(from, -1)) : 0;
+        const skips = Object.fromEntries(Object.entries(old.skips ?? {}).filter(([k]) => k >= from));
+        next = { ...next, from, prior: gone || undefined, skips };
+      }
+      next = withEnds(next, ends);
+      if (!next.prior) delete next.prior;
+      if (!next.skips || !Object.keys(next.skips).length) delete next.skips;
+      this.series = this.series.map((x) => (x.id === old.id ? next : x));
+      if (it.repeat !== repeat) this.update((d) => A.patchItem(d, id, { repeat }));
+      await this.saveRecord('series', old.id, old, next);
+      this.post({ t: 'series' });
+      await this.propagate(next, old, old.id, key);
+      return;
+    }
+    let s = seriesFromItem({ ...it, repeat }, key, A.uid(), orderAt(this.series, this.day.items, id));
+    if (ends) s = withEnds(s, ends);
     this.series = [...this.series, s];
     this.update((d) => A.patchItem(d, id, { repeat, seriesId: s.id }));
     await this.saveRecord('series', s.id, null, s);
@@ -1942,7 +2037,7 @@ export class Planner {
     this.cancelSeriesSync(sid);
     const s = this.series.find((x) => x.id === sid);
     if (!s) return;
-    const ended = { ...s, until: key };
+    const ended = { ...s, until: key, ends: null };
     this.series = this.series.map((x) => (x.id === sid ? ended : x));
     await this.saveRecord('series', sid, s, ended);
     this.post({ t: 'series' });
@@ -1972,7 +2067,7 @@ export class Planner {
     const it = this.days[key]?.items.find((i) => i.seriesId === sid);
     const old = this.series.find((x) => x.id === sid);
     if (!it || !old) return;
-    const s: Series = { ...seriesFromItem(it, old.from, sid, old.order), until: old.until };
+    const s: Series = { ...seriesFromItem(it, old.from, sid, old.order), until: old.until, ...limitsOf(old) };
     this.series = this.series.map((x) => (x.id === sid ? s : x));
     await this.saveRecord('series', sid, old, s);
     this.post({ t: 'series' });

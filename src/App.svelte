@@ -21,6 +21,7 @@
   import BoardoOffer from './components/BoardoOffer.svelte';
   import PullIndicator from './components/PullIndicator.svelte';
   import ReorderAsk from './components/ReorderAsk.svelte';
+  import SkipAsk from './components/SkipAsk.svelte';
   import RunningElsewhere from './components/RunningElsewhere.svelte';
   import StartDay from './components/StartDay.svelte';
   import StartFirst from './components/StartFirst.svelte';
@@ -121,7 +122,7 @@
   const variantOf = (s: SheetState) =>
     s.type === 'add' || s.type === 'card'
       ? 'form'
-      : s.type === 'hours' || s.type === 'install' || s.type === 'wrapup' || s.type === 'reorder'
+      : s.type === 'hours' || s.type === 'install' || s.type === 'wrapup' || s.type === 'reorder' || s.type === 'skip'
         ? 'small'
         : 'full';
   // Where there's room, a task (or the account) opens beside the plan rather than over it: the
@@ -165,6 +166,7 @@
     wrapup: 'End your day',
     account: 'Sync across devices',
     reorder: 'Later days',
+    skip: 'Skip',
     card: 'Project card',
   } as const;
 </script>
@@ -279,6 +281,8 @@
             <WrapUp />
           {:else if shownSheet.type === 'reorder'}
             <ReorderAsk id={shownSheet.id} anchor={shownSheet.anchor} dir={shownSheet.dir} />
+          {:else if shownSheet.type === 'skip'}
+            <SkipAsk id={shownSheet.id} />
           {:else}
             <Account />
           {/if}

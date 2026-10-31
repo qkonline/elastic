@@ -3,16 +3,18 @@
   import { cubicOut } from 'svelte/easing';
   import { slide } from 'svelte/transition';
   import { planner as P } from '../lib/planner.svelte';
-  import { clockToDay, fT, hhmm, hm, keyDate, shortDate, weekdayLong } from '../lib/time';
+  import { clockToDay, fT, hhmm, hm, keyDate, shortDate } from '../lib/time';
   import { habitDefaults } from '../lib/habits';
   import { stripSegs } from '../lib/rows';
   import { isPartial } from '../lib/schedule';
+  import type { Ends } from '../lib/repeat';
   import type { Habit, Hue, Kind } from '../lib/types';
   import { hueColor, untimed } from '../lib/types';
   import { reducedMotion } from '../lib/ui.svelte';
   import Fields from './Fields.svelte';
   import HabitFields from './HabitFields.svelte';
   import KindChips from './KindChips.svelte';
+  import RepeatFields, { repeatShort } from './RepeatFields.svelte';
   import SwitchRow from './SwitchRow.svelte';
 
   // The name, type, length and colour are always shown; repeating is behind a switch that opens
@@ -54,7 +56,7 @@
   let habitRepeat = $state('Every day');
   let repeats = $state(false);
   let repeat = $state('Every day');
-  const repeatOpts = $derived(['Every day', 'Weekdays', 'Every ' + weekdayLong(keyDate(P.viewKey))]);
+  let ends = $state<Ends>(null);
   // Fixed items default to the next quarter hour, half an hour from now (after midnight on a
   // late day, that's still this day).
   const defaultFixed = Math.ceil((P.nowToday() + 30) / 15) * 15;
@@ -99,6 +101,7 @@
       hue: sel,
       fixedAt,
       repeat: repeats ? repeat : 'Once',
+      ends: repeats ? ends : null,
     });
   }
   const enter = (e: KeyboardEvent) => e.key === 'Enter' && !e.isComposing && add();
@@ -156,15 +159,21 @@
     <div class="props">
       <SwitchRow
         label="Repeats"
-        note={repeats ? 'Also added to the matching days after this one' : 'Just this once'}
+        note={repeats ? repeatShort(repeat, ends, P.today) : 'Just this once'}
         on={repeats}
         ontoggle={() => (repeats = !repeats)}
       >
-        <div class="row">
-          {#each repeatOpts as r (r)}
-            <button class="chip" aria-pressed={repeat === r} onclick={() => (repeat = r)}>{r}</button>
-          {/each}
-        </div>
+        <RepeatFields
+          {repeat}
+          {ends}
+          day={P.viewKey}
+          from={P.viewKey}
+          today={P.today}
+          onchange={(r, e) => {
+            repeat = r;
+            ends = e;
+          }}
+        />
       </SwitchRow>
     </div>
     {#if preview}
@@ -284,12 +293,6 @@
     font: 400 13px/1.4 var(--font);
     color: var(--muted);
     text-wrap: pretty;
-  }
-  .row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    align-items: center;
   }
   .at {
     display: flex;

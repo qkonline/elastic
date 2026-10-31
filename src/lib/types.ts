@@ -14,7 +14,12 @@ export type Kind = 'task' | 'buffer' | 'fixed' | 'check' | 'habit';
 /** Kinds that take no time in the plan and live in the Checklist instead of the timeline. */
 export const untimed = (k: Kind) => k === 'check' || k === 'habit';
 export type Status = 'todo' | 'running' | 'paused' | 'done' | 'postponed' | 'skipped';
-export type Repeat = string; // 'Once' | 'Every day' | 'Weekdays' | `Every ${Weekday}` | 'Every Monday, Friday'
+/**
+ * 'Once', or a repeat in words (repeat.ts parses them): 'Every day', 'Every 3 days', 'Weekdays',
+ * 'Every Monday, Friday', 'Every 2 weeks on Monday', 'Monthly on the 30th', 'Monthly on the last
+ * Friday', 'Every 2 months on the last day'.
+ */
+export type Repeat = string;
 export type ThemePref = 'match' | 'light' | 'dark';
 export type ShowTimes = 'started' | 'always' | 'never';
 
@@ -157,8 +162,20 @@ export interface Series {
   subtasks: { id: string; t: string }[];
   /** First day key the series applies to. */
   from: string;
-  /** Day key after which it stops (set when repeating is switched off), or null while active. */
+  /** Day key after which it stops (set when repeating is switched off, or by `ends`), or null while active. */
   until: string | null;
+  /**
+   * Set when it was made to end: after a number of times ('times', with `until` its last day)
+   * or on a date ('date'). Rows then say which time each one is ("2 of 6").
+   */
+  ends?: 'times' | 'date' | null;
+  /**
+   * Days of a series that ends that were skipped: they don't count as one of its times.
+   * 'extend' moved its last day on to keep the number of times; 'keep' kept the end date.
+   */
+  skips?: Record<string, 'extend' | 'keep'>;
+  /** Times it came up before its rule last changed (its `from` then moved on). */
+  prior?: number;
   /** Where it goes among the repeating tasks on days built from them: lower comes first. */
   order: number;
   habit?: Habit;

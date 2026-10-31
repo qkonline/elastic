@@ -1,8 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { newItem } from './actions';
-import { parseBackup } from './backup';
+import { normalizeSeries, parseBackup } from './backup';
 import {
+  endsOf,
   materialize,
+  nextDay,
+  parseRepeat,
+  prevDay,
+  ruleText,
+  seriesApplies,
+  seriesCount,
+  timesUpTo,
+  withEnds,
   orderAt,
   orderNextTo,
   orderSeries,
@@ -249,3 +258,98 @@ describe('order of repeating tasks', () => {
 function itemOf(s: Series) {
   return newItem({ title: s.title, repeat: s.repeat, seriesId: s.id });
 }
+
+// 2026-10-30 is a Friday.
+describe('repeats every few weeks, monthly and custom', () => {
+  it('reads and writes each kind of repeat', () => {
+    for (const r of [
+      'Every day',
+      'Every 3 days',
+      'Weekdays',
+      'Every Monday',
+      'Every Monday, Thursday',
+      'Every 2 weeks on Monday',
+      'Every 3 weeks on Tuesday, Thursday',
+      'Monthly on the 30th',
+      'Monthly on the 1st',
+      'Monthly on the 22nd',
+      'Monthly on the last Friday',
+      'Monthly on the second Tuesday',
+      'Monthly on the last day',
+      'Every 2 months on the 15th',
+    ])
+      expect(ruleText(parseRepeat(r)!)).toBe(r);
+    expect(parseRepeat('Once')).toBeNull();
+    expect(parseRepeat('Every Funday')).toBeNull();
+  });
+
+  it('counts an interval from the first day it has', () => {
+    const fortnightly = (k: string) => repeatMatches('Every 2 weeks on Monday', k, '2026-10-30');
+    expect(['2026-11-02', '2026-11-09', '2026-11-16', '2026-11-23'].map(fortnightly)).toEqual([
+      true,
+      false,
+      true,
+      false,
+    ]);
+    expect(fortnightly('2026-10-26')).toBe(false); // before it starts
+    const third = (k: string) => repeatMatches('Every 3 days', k, '2026-10-30');
+    expect(['2026-10-30', '2026-10-31', '2026-11-02'].map(third)).toEqual([true, false, true]);
+    const twoMonths = (k: string) => repeatMatches('Every 2 months on the 15th', k, '2026-10-20');
+    expect(['2026-11-15', '2026-12-15', '2027-01-15'].map(twoMonths)).toEqual([true, false, true]);
+  });
+
+  it('finds the day of the month', () => {
+    expect(repeatMatches('Monthly on the last Friday', '2026-10-30')).toBe(true);
+    expect(repeatMatches('Monthly on the last Friday', '2026-11-27')).toBe(true);
+    expect(repeatMatches('Monthly on the last Friday', '2026-11-20')).toBe(false);
+    expect(repeatMatches('Monthly on the second Tuesday', '2026-11-10')).toBe(true);
+    expect(repeatMatches('Monthly on the last day', '2026-11-30')).toBe(true);
+    // A month too short for the date has it on its last day.
+    expect(repeatMatches('Monthly on the 31st', '2026-11-30')).toBe(true);
+    expect(repeatMatches('Monthly on the 31st', '2027-02-28')).toBe(true);
+    expect(repeatMatches('Monthly on the 31st', '2026-12-30')).toBe(false);
+  });
+
+  it('ends after a number of times, and counts which time each one is', () => {
+    const base = { ...seriesFromItem(newItem({ title: 'Class', repeat: 'Every Monday' }), '2026-10-30', 'C') };
+    const six = withEnds(base, { times: 6 });
+    expect(six).toMatchObject({ until: '2026-12-07', ends: 'times' });
+    expect(seriesCount(six, '2026-11-09')).toEqual({ nth: 2, total: 6 });
+    expect(endsOf(six)).toEqual({ times: 6 });
+    expect(seriesApplies(six, '2026-12-07')).toBe(true);
+    expect(seriesApplies(six, '2026-12-14')).toBe(false);
+    // On a date: as many times as fit.
+    const byDate = withEnds(base, { until: '2026-11-20' });
+    expect(endsOf(byDate)).toEqual({ until: '2026-11-20' });
+    expect(seriesCount(byDate, '2026-11-16')).toEqual({ nth: 3, total: 3 });
+    expect(seriesCount(base, '2026-11-16')).toBeNull();
+    // Skipped days don't count: keeping the end date makes it one fewer.
+    const kept = { ...six, skips: { '2026-11-09': 'keep' as const } };
+    expect(seriesCount(kept, '2026-11-16')).toEqual({ nth: 2, total: 5 });
+    // A day added at the end keeps the number of times.
+    const extended = { ...six, skips: { '2026-11-09': 'extend' as const }, until: nextDay(six, six.until!)! };
+    expect(extended.until).toBe('2026-12-14');
+    expect(seriesCount(extended, '2026-12-14')).toEqual({ nth: 6, total: 6 });
+    expect(prevDay(extended, extended.until)).toBe('2026-12-07');
+    // Times from before the rule changed still count.
+    expect(timesUpTo({ ...six, prior: 2 }, six.until!)).toBe(8);
+    expect(withEnds({ ...base, prior: 2 }, { times: 6 }).until).toBe('2026-11-23');
+  });
+});
+
+describe('backups of repeats that end', () => {
+  it('keep how a series ends and its skipped days', () => {
+    const raw = {
+      id: 'C',
+      title: 'Class',
+      repeat: 'Every 2 weeks on Monday',
+      from: '2026-10-30',
+      until: '2026-12-07',
+      ends: 'times',
+      skips: { '2026-11-16': 'extend', nope: 'extend', '2026-11-30': 'maybe' },
+      prior: 2,
+    };
+    expect(normalizeSeries(raw, 0)).toMatchObject({ ends: 'times', skips: { '2026-11-16': 'extend' }, prior: 2 });
+    expect(normalizeSeries({ ...raw, ends: 'soon', skips: {}, prior: -1 }, 0)).not.toHaveProperty('ends');
+  });
+});

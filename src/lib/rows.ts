@@ -84,6 +84,8 @@ export interface Ctx {
   isToday: boolean;
   showTimes: boolean;
   clock24: boolean;
+  /** For a repeat that ends: which time this one is, as in "2 of 6". */
+  count?: (it: Item) => string | null;
 }
 
 export const capHeight = (min: number) => Math.max(44, Math.round(min * 0.85));
@@ -157,7 +159,10 @@ export function itemVM(r: Row, c: Ctx): ItemVM {
   if (r.pastEnd) flags.push({ t: 'past wrap-up', tone: 'r' });
 
   const badges: string[] = [];
-  if (it.repeat !== 'Once') badges.push('↻ ' + it.repeat);
+  if (it.repeat !== 'Once') {
+    const count = c.count?.(it);
+    badges.push('↻ ' + it.repeat + (count ? ` · ${count}` : ''));
+  }
   if (it.subtasks.length) badges.push(`☑ ${it.subtasks.filter((x) => x.d).length}/${it.subtasks.length}`);
   if (it.note) badges.push('✎ note');
   if (it.continued) badges.push('↷ continued');

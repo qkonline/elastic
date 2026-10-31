@@ -5,7 +5,9 @@
   let { id, anchor, dir }: { id: string; anchor: string; dir: 'up' | 'down' } = $props();
   const it = $derived(P.item(id));
   const other = $derived(P.series.find((s) => s.id === anchor)?.title ?? 'the other task');
-  const when = $derived(!it ? '' : it.repeat === 'Weekdays' ? 'on weekdays' : it.repeat.replace(/^Every/, 'every'));
+  const when = $derived(
+    !it ? '' : it.repeat === 'Weekdays' ? 'on weekdays' : it.repeat[0].toLowerCase() + it.repeat.slice(1),
+  );
 </script>
 
 {#if it}

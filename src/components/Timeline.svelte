@@ -19,6 +19,7 @@
       isToday: P.isToday,
       showTimes,
       clock24: P.settings.clock24,
+      count: (it) => P.repeatCount(it),
     }),
   );
   // While a task is dragged, the rows between its old and new place slide to open a gap.

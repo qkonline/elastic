@@ -33,6 +33,7 @@
           isToday: P.isToday,
           showTimes: true,
           clock24: P.settings.clock24,
+          count: (x) => P.repeatCount(x),
         })
       : null,
   );
@@ -106,7 +107,9 @@
     <div class="head">
       <span class="icon" aria-hidden="true"><KindMark kind={it.kind} hue={it.hue} size={16} /></span>
       <div class="ht">
-        <span class="kind">{kindName}{it.repeat !== 'Once' ? `, ${it.repeat.toLowerCase()}` : ''}</span>
+        <span class="kind"
+          >{kindName}{it.repeat !== 'Once' ? `, ${it.repeat[0].toLowerCase()}${it.repeat.slice(1)}` : ''}</span
+        >
         <h2 class="title" class:done={v.s === 'done'}>{it.title}</h2>
       </div>
       <button class="close-x" aria-label="Close" onclick={() => P.closeSheet()}>×</button>
@@ -299,7 +302,11 @@
         {#if !it.card}
           <div>
             <dt>Repeats</dt>
-            <dd>{it.repeat === 'Once' ? 'No, just this once' : it.repeat}</dd>
+            <dd>
+              {it.repeat === 'Once'
+                ? 'No, just this once'
+                : it.repeat + (P.repeatCount(it) ? `, ${P.repeatCount(it)}` : '')}
+            </dd>
           </div>
         {/if}
         {#if goal}
