@@ -88,7 +88,7 @@ export type TaskForm = Pick<
 export type Sheet =
   | { type: 'task'; id: string }
   | { type: 'hours' }
-  | { type: 'add'; at?: number; kind?: Kind; someday?: boolean }
+  | { type: 'add'; at?: number; kind?: Kind; someday?: boolean; preset?: { title: string; hue: Hue; habit: Habit } }
   | { type: 'install' }
   | { type: 'wrapup' }
   | { type: 'account' }
@@ -132,6 +132,11 @@ export interface Drag {
 }
 
 export const CONFIRM_MS = 10_000;
+/**
+ * Confirms that wait for an answer rather than going after CONFIRM_MS: Clear this day, and the
+ * choices that aren't a risk (Postpone's where, Done's when): a countdown there only hurries them.
+ */
+export const UNTIMED_CONFIRMS: ConfirmType[] = ['clear', 'postpone', 'finish'];
 /** How long the "start your day first" message stays up. */
 export const NUDGE_MS = 6000;
 /** How long a timer tap waits for this device to catch up with the account before going ahead. */
@@ -362,6 +367,8 @@ export class Planner {
   /** First visit: show the welcome until it's been completed or skipped. */
   showWelcome = $derived(this.ready && !this.settings.onboarded);
   celebrate = $state<Celebration | null>(null);
+  /** The + was tapped on Goals: Goals opens a new goal (counts up, so each tap is heard). */
+  goalAsked = $state(0);
   active = $derived(this.day.items.find(isActive) ?? null);
   /** A timer running or paused on a day other than the one on screen (e.g. left on last night). */
   elsewhere = $derived.by(() => this.activeOn((k) => k !== this.viewKey));
@@ -695,7 +702,8 @@ export class Planner {
     const tk = activeDayKey(todayKey(), this.days, this.clock);
     if (tk !== this.today) this.rollover(tk);
     // Clearing a day waits for an answer; the other confirms give up after a while.
-    if (this.confirm && this.confirm.type !== 'clear' && Date.now() - this.confirm.at > CONFIRM_MS) this.confirm = null;
+    if (this.confirm && !UNTIMED_CONFIRMS.includes(this.confirm.type) && Date.now() - this.confirm.at > CONFIRM_MS)
+      this.confirm = null;
     if (this.nudge && Date.now() - this.nudge.at > NUDGE_MS) this.nudge = null;
     if (this.clock - this.followedAt >= 1000) this.followNow();
     if (Date.now() - this.updateCheckedAt > UPDATE_EVERY_MS) void this.checkForUpdate(false);

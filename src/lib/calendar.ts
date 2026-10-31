@@ -41,6 +41,35 @@ export function calendarRows(plan: Day, n: number): CalRow[] {
     }));
 }
 
+/**
+ * Side by side where blocks overlap (a timer running into a fixed time, say): each block's lane
+ * and how many lanes its group of overlapping blocks needs, by task id. Blocks that touch end to
+ * start don't overlap.
+ */
+export function lanes(rows: CalRow[]): Map<string, { lane: number; of: number }> {
+  const out = new Map<string, { lane: number; of: number }>();
+  const sorted = [...rows].sort((a, b) => a.start - b.start || b.end - a.end);
+  let group: CalRow[] = [];
+  let ends: number[] = [];
+  let groupEnd = -Infinity;
+  const close = () => {
+    for (const r of group) out.get(r.it.id)!.of = ends.length;
+    group = [];
+    ends = [];
+  };
+  for (const r of sorted) {
+    if (r.start >= groupEnd) close();
+    let lane = ends.findIndex((e) => e <= r.start);
+    if (lane < 0) lane = ends.push(r.end) - 1;
+    else ends[lane] = r.end;
+    out.set(r.it.id, { lane, of: 0 });
+    group.push(r);
+    groupEnd = Math.max(groupEnd, r.end);
+  }
+  close();
+  return out;
+}
+
 /** Minutes planned (timed tasks, not buffers) and logged on the day. */
 export function dayTotals(day: Day, n: number): { planned: number; logged: number } {
   let planned = 0,

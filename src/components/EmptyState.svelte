@@ -1,5 +1,11 @@
 <script lang="ts">
   import { planner as P } from '../lib/planner.svelte';
+
+  // A day with nothing in it: say how planning works, and start it (or try a sample day).
+  function add() {
+    if (P.locked) P.sayLocked();
+    else P.openSheet({ type: 'add' });
+  }
 </script>
 
 <div class="empty">
@@ -8,7 +14,12 @@
   <div class="p">
     Add what you want to do and how long it takes. The order is the plan, and the times work themselves out.
   </div>
-  <button class="sample" onclick={() => P.loadSample()}>load a sample day</button>
+  <button class="btn-add" onclick={add}
+    ><span class="plus" aria-hidden="true"
+      ><svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 2.5v9M2.5 7h9" /></svg></span
+    >Add a task</button
+  >
+  <button class="btn-plain sample" onclick={() => P.loadSample()}>Try a sample day</button>
 </div>
 
 <style>
@@ -39,14 +50,11 @@
     max-width: 320px;
     text-wrap: pretty;
   }
+  .btn-add {
+    margin-top: 8px;
+  }
   .sample {
-    border: none;
-    background: transparent;
-    color: var(--orT);
-    font: 400 14px/1 var(--font);
-    text-decoration: underline;
-    text-underline-offset: 3px;
-    cursor: pointer;
-    padding: 12px;
+    height: 44px;
+    font-size: 14px;
   }
 </style>

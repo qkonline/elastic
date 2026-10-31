@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { completion, habitMet, history, isHabit, periodCount, streak } from '../lib/habits';
+  import { completion, habitDefaults, habitMet, history, isHabit, periodCount, streak } from '../lib/habits';
   import { planner as P } from '../lib/planner.svelte';
   import { addDays, keyDate, minutesInto, mondayOf, shortDate, weekdayShort } from '../lib/time';
-  import { hueColor, type Habit, type Item, type Series } from '../lib/types';
+  import { hueColor, type Habit, type Hue, type Item, type Series } from '../lib/types';
   import { oftenText } from './HabitFields.svelte';
   import HabitRow from './HabitRow.svelte';
   import KindMark from './KindMark.svelte';
@@ -25,6 +25,19 @@
   const days = $derived(Array.from({ length: 7 }, (_, i) => addDays(P.today, i - 6)));
   const todays = $derived(P.isToday ? (P.day.items.filter((i) => isHabit(i)) as (Item & { habit: Habit })[]) : []);
   const itemOf = (s: Series) => todays.find((i) => i.seriesId === s.id && i.status !== 'skipped');
+
+  // With no habits yet: a few to start from, one of each kind. A tap opens New habit filled in.
+  const STARTERS: { label: string; title: string; hue: Hue; habit: Habit }[] = [
+    {
+      label: 'Drink 8 glasses of water',
+      title: 'Drink water',
+      hue: 'cyan',
+      habit: { ...habitDefaults('amount'), unit: 'glasses' },
+    },
+    { label: 'Read for 20 minutes', title: 'Read', hue: 'indigo', habit: { ...habitDefaults('time'), target: 20 } },
+    { label: 'Take vitamins', title: 'Take vitamins', hue: 'lime', habit: habitDefaults('check') },
+    { label: 'No phone after 10 pm', title: 'No phone after 10 pm', hue: 'orange', habit: habitDefaults('quit') },
+  ];
 
   // This week, Monday to today: the share of habit days kept, and each day's share for the bars.
   const week = $derived.by(() => {
@@ -77,7 +90,21 @@
 <div class="body">
   {#if !habits.length}
     <section class="card empty">
-      <p>No habits yet. Add one to track something you want to do regularly, like drinking water or reading.</p>
+      <p>No habits yet. Track something you want to do regularly, or stop doing. Start from one of these:</p>
+      <div class="starters">
+        {#each STARTERS as x (x.title)}
+          <button
+            class="starter"
+            onclick={() =>
+              P.openSheet({
+                type: 'add',
+                kind: 'habit',
+                preset: { title: x.title, hue: x.hue, habit: { ...x.habit } },
+              })}><KindMark kind="habit" hue={x.hue} size={14} />{x.label}</button
+          >
+        {/each}
+      </div>
+      <p class="or">Or your own:</p>
       <button class="btn-add" onclick={() => P.openSheet({ type: 'add', kind: 'habit' })}
         ><span class="plus" aria-hidden="true"
           ><svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 2.5v9M2.5 7h9" /></svg></span
@@ -165,6 +192,29 @@
     margin: 0 0 12px;
     font: 400 14px/1.5 var(--font);
     color: var(--muted);
+  }
+  .starters {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .starter {
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-ctl);
+    background: var(--bg);
+    color: var(--text);
+    font: 400 15px/1.3 var(--font);
+    text-align: left;
+    cursor: pointer;
+  }
+  .empty p.or {
+    margin: 16px 0 0;
+    text-align: center;
   }
   .week {
     display: flex;

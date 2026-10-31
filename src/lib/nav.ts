@@ -22,9 +22,22 @@ export function go(t: Tab): void {
   P.openScreen({ type: t } as Screen);
 }
 
-/** From a screen without the plan in sight, a new task goes on Today, not a day last looked at. */
+/** What the + adds on the screen in view: a habit on Habits, a goal on Goals, else a task. */
+export const addLabel = (): string =>
+  P.screen.type === 'habits' ? 'Add habit' : P.screen.type === 'goals' ? 'Add goal' : 'Add task';
+
+/**
+ * The + (bottom bar, sidebar). On Habits, New task opens with Habit picked; on Goals, the screen's
+ * own new goal opens (`P.goalAsked`). From a screen without the plan in sight, a new task goes on
+ * Today, not a day last looked at.
+ */
 export async function addTask(): Promise<void> {
+  if (P.screen.type === 'goals') {
+    P.goalAsked++;
+    return;
+  }
+  const habit = P.screen.type === 'habits';
   if (P.screen.type !== 'today' && !P.isToday) await P.switchDay(P.today);
   if (P.locked) P.sayLocked();
-  else P.openSheet({ type: 'add' });
+  else P.openSheet(habit ? { type: 'add', kind: 'habit' } : { type: 'add' });
 }

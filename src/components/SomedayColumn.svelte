@@ -1,35 +1,49 @@
 <script lang="ts">
-  import { dayTotals } from '../lib/calendar';
   import { planner as P } from '../lib/planner.svelte';
   import { stripSegs } from '../lib/rows';
   import { schedule } from '../lib/schedule';
-  import { addDays, dL, keyDate, shortDate } from '../lib/time';
+  import { addDays, dL, fT, keyDate, shortDate } from '../lib/time';
+  import { type Item, untimed } from '../lib/types';
+  import KindMark from './KindMark.svelte';
   import SectionHead from './SectionHead.svelte';
   import SomedayList from './SomedayList.svelte';
 
   // Beside the plan on a computer or a wide iPad, while no task is open there: Someday, to drag
-  // onto a day or tap to plan, and the next few days, which take a drop too and open on a tap.
-  // An open task covers it, and closing the task shows it again.
+  // onto a day or tap to plan, and the next few days, to see which has room before dropping one
+  // there: when each runs (and by how much it overruns its wrap-up), its first few tasks (each
+  // opens), and how many more. An open task covers it, and closing the task shows it again.
+  const SHOWN = 4;
   const keys = $derived([1, 2, 3].map((i) => addDays(P.today, i)));
   $effect(() => {
     for (const k of keys) void P.ensureDay(k);
   });
+  const c24 = $derived(P.settings.clock24);
   const days = $derived(
     keys.map((k) => {
       const d = P.days[k];
       const label = k === addDays(P.today, 1) ? 'Tomorrow' : shortDate(keyDate(k));
-      if (!d) return { k, label, sub: '', segs: [] };
-      const { planned } = dayTotals(d, 0);
+      const date = k === addDays(P.today, 1) ? shortDate(keyDate(k)) : '';
+      if (!d) return { k, label, date, span: '', over: 0, wrap: 0, segs: [], first: [] as Item[], more: '' };
+      const plan = P.planOf(d);
+      const sch = schedule(plan, 0);
+      const timed = sch.rows.filter((r) => !untimed(r.it.kind) && r.it.status === 'todo');
+      const tasks = timed.filter((r) => r.it.kind !== 'buffer').map((r) => r.it);
       const checks = d.items.filter((i) => i.kind === 'check' && i.status === 'todo').length;
-      const parts = [
-        planned ? `${dL(planned)} of tasks` : '',
-        checks ? `${checks} check${checks === 1 ? '' : 's'}` : '',
-      ].filter(Boolean);
+      const rest = tasks.length - SHOWN;
+      const more = [rest > 0 ? `and ${rest} more` : '', checks ? `${checks} check${checks === 1 ? '' : 's'}` : '']
+        .filter(Boolean)
+        .join(', ');
+      const end = timed.length ? Math.max(...timed.map((r) => r.end)) : 0;
       return {
         k,
         label,
-        sub: parts.length ? parts.join(', ') : 'Nothing planned yet',
-        segs: stripSegs(schedule(P.planOf(d), 0).rows, false),
+        date,
+        span: timed.length ? `${fT(timed[0].start, c24)} to ${fT(end, c24)}` : '',
+        over: timed.length ? Math.max(0, Math.round(end - d.wrap)) : 0,
+        wrap: d.wrap,
+        segs: stripSegs(sch.rows, false),
+        first: tasks.slice(0, SHOWN),
+        more: rest > 0 || !tasks.length ? more : more && `and ${more}`,
       };
     }),
   );
@@ -52,20 +66,38 @@
     <SectionHead icon="upcoming" title="Coming up" inset />
     <ul class="days">
       {#each days as d (d.k)}
-        <li>
-          <button class="day" data-drop-day={d.k} onclick={() => P.openDay(d.k)}>
-            <span class="top">
-              <span class="dn">{d.label}</span>
-              <span class="ds">{d.sub}</span>
-            </span>
-            {#if d.segs.length}
-              <span class="strip" aria-hidden="true">
-                {#each d.segs as g (g.key)}
-                  <span class:buf={g.c === 'var(--line)'} style:flex-grow={g.min} style:--c={g.c}></span>
-                {/each}
-              </span>
-            {/if}
+        <li class="day" data-drop-day={d.k}>
+          <button class="top" onclick={() => P.openDay(d.k)} aria-label="Open {d.label}{d.date ? `, ${d.date}` : ''}">
+            <span class="dn"
+              >{d.label}{#if d.date}<span class="dd">{d.date}</span>{/if}</span
+            >
+            <span class="ds">{d.span || 'Nothing planned yet'}</span>
           </button>
+          {#if d.segs.length}
+            <span class="strip" aria-hidden="true">
+              {#each d.segs as g (g.key)}
+                <span class:buf={g.c === 'var(--line)'} style:flex-grow={g.min} style:--c={g.c}></span>
+              {/each}
+            </span>
+          {/if}
+          {#if d.over >= 5}
+            <span class="over">{dL(d.over)} past the {fT(d.wrap, c24)} wrap-up</span>
+          {/if}
+          {#if d.first.length}
+            <ul class="tasks">
+              {#each d.first as it (it.id)}
+                <li>
+                  <button class="task" onclick={() => P.openTaskOn(d.k, it.id)}>
+                    <KindMark kind={it.kind} hue={it.hue} size={10} />
+                    {#if it.kind === 'fixed' && it.fixedAt != null}<span class="at">{fT(it.fixedAt, c24)}</span>{/if}
+                    <span class="tt">{it.title}</span>
+                    <span class="len">{dL(it.min)}</span>
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+          {#if d.more}<span class="more">{d.more}</span>{/if}
         </li>
       {/each}
     </ul>
@@ -112,39 +144,44 @@
   .days {
     list-style: none;
     margin: 0;
-    padding: 6px 0;
+    padding: 4px 0 6px;
   }
   .day {
-    width: 100%;
     display: flex;
     flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-    padding: 14px 16px;
-    border: none;
-    background: transparent;
-    color: var(--text);
-    text-align: left;
-    cursor: pointer;
+    gap: 8px;
+    padding: 12px 16px 14px;
   }
-  @media (hover: hover) {
-    .day:hover {
-      background: var(--sunk);
-    }
+  .day + .day {
+    border-top: 1px solid var(--border);
   }
   .top {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
     gap: 12px;
+    margin: -6px -8px 0;
+    padding: 6px 8px;
+    border: none;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
   }
   .dn {
     font: 600 16px/1.2 var(--font);
+  }
+  .dd {
+    margin-left: 8px;
+    font: 400 13px/1.2 var(--font);
+    color: var(--muted);
   }
   .ds {
     font: 400 13px/1.3 var(--font);
     color: var(--muted);
     text-align: right;
+    font-variant-numeric: tabular-nums;
   }
   .strip {
     display: flex;
@@ -160,5 +197,58 @@
   .strip .buf {
     background: none;
     box-shadow: inset 0 0 0 1px var(--faint);
+  }
+  .over {
+    font: 500 13px/1.3 var(--font);
+    color: var(--redT);
+  }
+  .tasks {
+    list-style: none;
+    margin: 2px 0 0;
+    padding: 0;
+  }
+  .task {
+    width: 100%;
+    min-height: 34px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 -8px;
+    padding: 0 8px;
+    box-sizing: content-box;
+    border: none;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--text);
+    font: 400 14px/1.3 var(--font);
+    text-align: left;
+    cursor: pointer;
+  }
+  .at {
+    flex: none;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .tt {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .len {
+    flex: none;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .more {
+    font: 400 13px/1.3 var(--font);
+    color: var(--muted);
+  }
+  @media (hover: hover) {
+    .top:hover,
+    .task:hover {
+      background: var(--sunk);
+    }
   }
 </style>

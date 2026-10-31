@@ -347,23 +347,21 @@ a {
   border-color: var(--text);
   font-weight: 500;
 }
-/* A missed task's two ways out: try again (amber, like its Missed label) or count it done (green). */
+/* A missed task's way back: try again (amber, like its Missed label). Mark done and Postpone are
+   plain buttons: colour is for state (green for done, rose for running), not for actions. */
 .ctl.resched {
   background: color-mix(in oklab, #facc15 16%, var(--raised));
   border-color: color-mix(in oklab, #eab308 50%, transparent);
   color: var(--yelT);
 }
 .ctl.mark {
-  background: color-mix(in oklab, #22c55e 15%, var(--raised));
-  border-color: color-mix(in oklab, #22c55e 45%, transparent);
-  color: var(--grT);
+  border-color: var(--line);
 }
 .ctl.ghost {
   flex: 1 1 100%;
   height: 40px;
   background: transparent;
-  border: 1.5px solid var(--now);
-  color: var(--orT);
+  border-color: var(--line);
 }
 
 /* Options inside an inline confirm (e.g. Later today / Tomorrow). */

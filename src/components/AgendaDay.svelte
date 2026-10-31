@@ -98,12 +98,17 @@
     letter-spacing: -0.02em;
     font-variant-numeric: tabular-nums;
   }
+  /* Today: its date in an ink chip, as in the day strip, the week and the month. */
   .today .dn {
-    color: var(--nowT);
+    padding: 3px 6px;
+    margin: -3px 0;
+    border-radius: var(--r-sm);
+    background: var(--text);
+    color: var(--bg);
   }
   .tag {
     font: 400 12px/1 var(--font);
-    color: var(--nowT);
+    color: var(--muted);
   }
   .tot {
     flex: 1;

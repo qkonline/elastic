@@ -1,6 +1,6 @@
 <script lang="ts">
   import { planner as P } from '../lib/planner.svelte';
-  import { addTask, go, TABS, type Tab } from '../lib/nav';
+  import { addLabel, addTask, go, TABS, type Tab } from '../lib/nav';
   import NavIcon from './NavIcon.svelte';
 
   // Phones: Today, Habits, Goals and Review are screens of their own; Add task sits raised in the
@@ -21,7 +21,7 @@
 
 <nav class="bar" aria-label="Main">
   {#each LEFT as [t, l] (t)}{@render tab(t, l)}{/each}
-  <button class="add" aria-label="Add task" onclick={addTask}>
+  <button class="add" aria-label={addLabel()} onclick={addTask}>
     <svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true"><path d="M11 4v14M4 11h14" /></svg>
   </button>
   {#each RIGHT as [t, l] (t)}{@render tab(t, l)}{/each}

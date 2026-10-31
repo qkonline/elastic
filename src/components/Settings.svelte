@@ -170,6 +170,9 @@
           class="tab"
           class:apart={t.id === 'data'}
           onclick={() => (picked = last = t.id)}
+          {@attach (el) => {
+            if (tab === t.id) el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          }}
         >
           {@render glyph(t.id)}<span class="tl">{t.label}</span>
         </button>
@@ -506,7 +509,8 @@
     flex-shrink: 0;
   }
 
-  /* Tabs, as Boardo's board settings: a side menu on a computer, a row of pills on a phone. */
+  /* Tabs, as Boardo's board settings: a side menu on a computer, a row of tabs on a phone that
+     scrolls sideways, keeping the picked one in view. */
   .layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -528,7 +532,7 @@
     min-height: 40px;
     padding: 0 14px;
     border: 1px solid var(--border);
-    border-radius: 20px;
+    border-radius: var(--r-ctl);
     background: var(--raised);
     color: var(--muted);
     font: 400 14px/1 var(--font);

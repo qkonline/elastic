@@ -33,9 +33,25 @@
             : 'Later quarter',
   );
 
-  function add() {
-    adding = { id: '', quarter, title: '', why: '', target: null, milestones: [], status: 'open', order: 0 };
+  function add(title = '', target: Goal['target'] = null) {
+    adding = { id: '', quarter, title, why: '', target, milestones: [], status: 'open', order: 0 };
   }
+  // With no goals yet this quarter: a few to start from. A tap opens a new goal filled in.
+  const EXAMPLES: { title: string; target: Goal['target'] }[] = [
+    { title: 'Launch the new website', target: null },
+    { title: 'Read 6 books', target: { now: 0, goal: 6, unit: 'books' } },
+    { title: 'Run 100 km', target: { now: 0, goal: 100, unit: 'km' } },
+  ];
+  // The + (bottom bar, sidebar) on this screen: a new goal, in this quarter or a later one.
+  let asked = untrack(() => P.goalAsked);
+  $effect(() => {
+    if (P.goalAsked === asked) return;
+    asked = P.goalAsked;
+    untrack(() => {
+      if (quarter < current) quarter = current;
+      if (adding?.quarter !== quarter) add();
+    });
+  });
 </script>
 
 <ScreenHeader small={sub} title="Goals">
@@ -56,14 +72,22 @@
         ? 'No goals were set for this quarter.'
         : 'What do you want to have done by the end of the quarter? A few goals keep the days pointed somewhere.'}
     </p>
+    {#if quarter >= current && !adding}
+      <div class="examples" role="group" aria-label="Examples">
+        <span class="label">For example</span>
+        {#each EXAMPLES as x (x.title)}
+          <button class="example" onclick={() => add(x.title, x.target && { ...x.target })}>{x.title}</button>
+        {/each}
+      </div>
+    {/if}
   {/if}
   {#each goals as g (g.id)}
     <GoalCard goal={g} />
   {/each}
   {#if adding?.quarter === quarter}
-    <GoalCard goal={adding} onclose={() => (adding = null)} />
+    {#key adding}<GoalCard goal={adding} onclose={() => (adding = null)} />{/key}
   {:else if quarter >= current}
-    <button class="btn-add" onclick={add}
+    <button class="btn-add" onclick={() => add()}
       ><span class="plus" aria-hidden="true"
         ><svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 2.5v9M2.5 7h9" /></svg></span
       >Add a goal</button
@@ -72,6 +96,23 @@
 </div>
 
 <style>
+  .examples {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .example {
+    min-height: 48px;
+    padding: 0 14px;
+    border: 1px dashed var(--line);
+    border-radius: var(--r-ctl);
+    background: var(--raised);
+    color: var(--text);
+    font: 400 15px/1.3 var(--font);
+    text-align: left;
+    cursor: pointer;
+  }
   .body {
     padding: 16px var(--px) 0;
     display: flex;

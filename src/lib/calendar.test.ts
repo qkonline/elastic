@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { newItem } from './actions';
-import { axis, calendarRows, dayTotals, untimedCounts } from './calendar';
+import { axis, type CalRow, calendarRows, dayTotals, lanes, untimedCounts } from './calendar';
 import { habitDefaults } from './habits';
 import type { Day } from './types';
 
@@ -56,5 +56,31 @@ describe('axis', () => {
     expect(axis([])).toEqual([480, 1080]);
     const rows = [[{ it: newItem({ title: 'x' }), start: 430, end: 1150, state: 'todo' as const }]];
     expect(axis(rows)).toEqual([420, 1200]);
+  });
+});
+
+describe('lanes', () => {
+  const row = (id: string, start: number, end: number): CalRow =>
+    ({ it: { ...newItem({ title: id }), id }, start, end, state: 'todo' }) as CalRow;
+  it('puts overlapping blocks side by side, and the rest full width', () => {
+    const l = lanes([
+      row('a', 540, 600),
+      row('b', 570, 585),
+      row('c', 600, 660),
+      row('d', 590, 620),
+      row('e', 700, 720),
+    ]);
+    expect(l.get('a')).toEqual({ lane: 0, of: 2 });
+    expect(l.get('b')).toEqual({ lane: 1, of: 2 });
+    expect(l.get('d')).toEqual({ lane: 1, of: 2 });
+    expect(l.get('c')).toEqual({ lane: 0, of: 2 });
+    expect(l.get('e')).toEqual({ lane: 0, of: 1 });
+  });
+  it('lets blocks that touch share a lane', () => {
+    const l = lanes([row('a', 540, 600), row('b', 600, 660)]);
+    expect([l.get('a'), l.get('b')]).toEqual([
+      { lane: 0, of: 1 },
+      { lane: 0, of: 1 },
+    ]);
   });
 });

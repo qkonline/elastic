@@ -1,6 +1,6 @@
 <script lang="ts">
   import { MediaQuery } from 'svelte/reactivity';
-  import { axis, calendarRows, dayTotals, untimedCounts, type CalRow } from '../lib/calendar';
+  import { axis, calendarRows, dayTotals, lanes, type CalRow, untimedCounts } from '../lib/calendar';
   import { planner as P } from '../lib/planner.svelte';
   import { addDays, dL, fT, keyDate, longDate, minutesInto, mondayOf, weekdayShort } from '../lib/time';
   import { hueColor, inkOn } from '../lib/types';
@@ -51,6 +51,8 @@
     }),
   );
   const span = $derived(axis(cols.map((c) => c.rows)));
+  // Overlapping blocks share their column's width, side by side.
+  const laneOf = $derived(cols.map((c) => lanes(c.rows)));
 
   // Strips: the chosen day (the anchor until another is tapped), and how tall a minute is so
   // the longest day fits.
@@ -269,11 +271,16 @@
             {/if}
             {#each c.rows as r (r.it.id)}
               {@const h = Math.max(18, (r.end - r.start) * PX - 2)}
+              {@const ln = laneOf[i].get(r.it.id) ?? { lane: 0, of: 1 }}
               <button
                 class="blk {r.state} {r.it.kind}"
+                class:short={h < 30}
                 class:lifted={drag?.row.it.id === r.it.id}
                 style:top="{y(r.start) + 1}px"
                 style:height="{h}px"
+                style:left="calc({(ln.lane / ln.of) * 100}% + 3px)"
+                style:width="calc({100 / ln.of}% - 6px)"
+                title="{r.it.title}, {fT(r.start, P.settings.clock24)} to {fT(r.end, P.settings.clock24)}"
                 style:--c={hueColor(r.it.hue)}
                 style:--ink={inkOn(r.it.hue)}
                 aria-label="{r.it.title}, {fT(r.start, P.settings.clock24)}"
@@ -479,9 +486,13 @@
     font: 400 20px/1 var(--font);
     font-variant-numeric: tabular-nums;
   }
-  .head.today .dn,
-  .head.today .wd {
-    color: var(--nowT);
+  /* Today: its date in an ink chip, as in the day strip and the month. */
+  .head.today .dn {
+    padding: 4px 6px;
+    margin: -4px 0;
+    border-radius: var(--r-sm);
+    background: var(--text);
+    color: var(--bg);
   }
   .mini {
     font: 400 11px/1 var(--font);
@@ -514,9 +525,6 @@
     cursor: default;
     background: color-mix(in oklab, var(--sunk) 45%, transparent);
   }
-  .col.today {
-    background: color-mix(in oklab, var(--now) 5%, transparent);
-  }
   .line {
     position: absolute;
     left: 0;
@@ -526,8 +534,6 @@
   }
   .blk {
     position: absolute;
-    left: 3px;
-    right: 3px;
     padding: 3px 6px;
     border: none;
     border-radius: 8px;
@@ -558,6 +564,17 @@
   .bm {
     font: 400 11px/1.2 var(--font);
     opacity: 0.8;
+  }
+  /* Too short for two lines: the title on one, cut off with an ellipsis (the full title and its
+     time are in the tooltip). */
+  .blk.short {
+    justify-content: center;
+    padding: 0 6px;
+  }
+  .blk.short .bt {
+    display: block;
+    white-space: nowrap;
+    line-height: 1.2;
   }
   .blk.done,
   .blk.partial {

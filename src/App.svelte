@@ -292,7 +292,12 @@
           {:else if shownSheet.type === 'someday'}
             <SomedaySheet id={shownSheet.id} />
           {:else if shownSheet.type === 'add'}
-            <AddTask at={shownSheet.at} kind={shownSheet.kind} />
+            <AddTask
+              at={shownSheet.at}
+              kind={shownSheet.kind}
+              someday={shownSheet.someday}
+              preset={shownSheet.preset}
+            />
           {:else if shownSheet.type === 'hours'}
             <DayHours />
           {:else if shownSheet.type === 'install'}

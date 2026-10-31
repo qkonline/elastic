@@ -446,17 +446,11 @@
     display: flex;
     gap: 8px;
   }
-  .hover-btn.skip {
-    color: var(--text);
-    border: 1px solid var(--border);
-  }
-  .hover-btn.mark {
-    color: var(--grT);
-    border: 1px solid color-mix(in oklab, #22c55e 45%, transparent);
-  }
+  .hover-btn.skip,
+  .hover-btn.mark,
   .hover-btn.pp {
-    color: var(--orT);
-    border: 1.5px solid var(--now);
+    color: var(--text);
+    border: 1px solid var(--line);
   }
   .title {
     all: unset;

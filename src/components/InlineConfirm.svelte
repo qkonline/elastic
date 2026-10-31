@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { planner } from '../lib/planner.svelte';
+  import { planner, UNTIMED_CONFIRMS } from '../lib/planner.svelte';
   import { intoView } from '../lib/ui.svelte';
   import DisarmBar from './DisarmBar.svelte';
 
@@ -27,7 +27,7 @@
     {/if}
   {/each}
   <button class="opt" onclick={() => planner.disarm()}>Cancel</button>
-  <DisarmBar />
+  {#if !planner.confirm || !UNTIMED_CONFIRMS.includes(planner.confirm.type)}<DisarmBar />{/if}
 </div>
 
 <style>

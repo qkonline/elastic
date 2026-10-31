@@ -21,11 +21,17 @@
   // its choices in place. A task's length starts as Settings says (No time by default): with no
   // time, it's a check, ticked off on the checklist instead of timed.
   // Added from the week grid at a time: a fixed time at that time.
-  // Added from the Habits screen: a habit to start with. From Someday: no day yet.
-  let { at, kind: startKind, someday = false }: { at?: number; kind?: Kind; someday?: boolean } = $props();
-  let title = $state('');
-  let kind = $state<Kind>(untrack(() => startKind ?? (at != null ? 'fixed' : 'task')));
-  let hue = $state<Hue | null>(null);
+  // Added from the Habits screen: a habit to start with (`preset`: one of its starter examples,
+  // filled in). From Someday: no day yet.
+  let {
+    at,
+    kind: startKind,
+    someday = false,
+    preset,
+  }: { at?: number; kind?: Kind; someday?: boolean; preset?: { title: string; hue: Hue; habit: Habit } } = $props();
+  let title = $state(untrack(() => preset?.title ?? ''));
+  let kind = $state<Kind>(untrack(() => (preset ? 'habit' : (startKind ?? (at != null ? 'fixed' : 'task')))));
+  let hue = $state<Hue | null>(untrack(() => preset?.hue ?? null));
   // Buffers and fixed times always take time, so they start at 30 minutes when No time was
   // picked; going back to Task brings No time back, so trying a type costs nothing.
   const startMin = untrack(() => P.settings.defLength);
@@ -52,7 +58,7 @@
           : 'On the timeline, with a timer to start, pause and finish.',
   );
   // A habit: what it asks for and on which days (it always repeats).
-  let habit = $state<Habit>(habitDefaults('check'));
+  let habit = $state<Habit>(untrack(() => (preset ? { ...preset.habit } : habitDefaults('check'))));
   let habitRepeat = $state('Every day');
   let repeats = $state(false);
   let repeat = $state('Every day');

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { planner as P } from '../lib/planner.svelte';
-  import { addTask, go, TABS, type Tab } from '../lib/nav';
+  import { addLabel, addTask, go, TABS, type Tab } from '../lib/nav';
   import { prefersDark } from '../lib/ui.svelte';
   import NavIcon from './NavIcon.svelte';
 
@@ -29,12 +29,12 @@
     <span class="name">Elastic</span>
   </div>
 
-  <button class="add" aria-label="Add task" onclick={addTask}>
+  <button class="add" aria-label={addLabel()} onclick={addTask}>
     <span class="key" aria-hidden="true">
       <svg viewBox="0 0 22 22" width="20" height="20"><path d="M11 4v14M4 11h14" /></svg>
-      <span class="in">Add task</span>
+      <span class="in">{addLabel()}</span>
     </span>
-    <span class="cap" aria-hidden="true">Add task</span>
+    <span class="cap" aria-hidden="true">{addLabel()}</span>
   </button>
 
   <div class="tabs">

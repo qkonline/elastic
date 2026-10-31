@@ -262,8 +262,8 @@
     opacity: 0.45;
   }
   .cell.today .dn {
-    background: var(--now);
-    color: #fff;
+    background: var(--text);
+    color: var(--bg);
   }
   .cell.sel {
     border-color: var(--text);
