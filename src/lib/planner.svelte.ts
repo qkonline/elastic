@@ -1904,6 +1904,15 @@ export class Planner {
     if (add.length > 1) this.say(`Added ${add.length} subtasks`);
   }
 
+  /** Subtasks changed in the task view (renamed, removed, moved): saved at once, like a tick. */
+  setSubs(id: string, subtasks: Item['subtasks'], said: string): void {
+    const it = this.item(id);
+    if (!it || this.locked) return;
+    this.edit(id, { subtasks });
+    if (it.seriesId) this.queueSeriesSync(it.seriesId, this.viewKey);
+    this.say(said);
+  }
+
   async setRepeat(id: string, repeat: string): Promise<void> {
     if (this.locked) return;
     const it = this.item(id);
