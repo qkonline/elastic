@@ -668,6 +668,38 @@ describe('Planner', () => {
     expect(byTitle(p, 'Water').progress ?? 0).toBe(0);
   });
 
+  it('stops a habit at its target, and undoes a tap', async () => {
+    const p = await boot();
+    p.addTask({
+      title: 'Water',
+      min: 0,
+      kind: 'habit',
+      hue: 'cyan',
+      fixedAt: null,
+      habit: { type: 'amount', target: 2, unit: 'glasses', per: 'day', times: 3, remindAt: null },
+    });
+    await vi.waitFor(() => expect(p.days[TOMORROW].items).toHaveLength(1));
+    p.startDay();
+    const id = byTitle(p, 'Water').id;
+    p.tapHabit(id);
+    expect(p.nudge?.text).toBe('Water: 1 of 2 glasses');
+    p.tapHabit(id);
+    expect(byTitle(p, 'Water')).toMatchObject({ progress: 2, status: 'done' });
+    p.tapHabit(id); // past the target: nothing more is counted
+    p.tapHabit(id);
+    expect(byTitle(p, 'Water').progress).toBe(2);
+    expect(p.nudge?.undo).toBeUndefined();
+    expect(p.nudge?.text).toMatch(/done for today/);
+
+    p.setHabitProgress(id, 1);
+    p.tapHabit(id);
+    expect(byTitle(p, 'Water')).toMatchObject({ progress: 2, status: 'done' });
+    p.nudge!.undo!();
+    expect(byTitle(p, 'Water')).toMatchObject({ progress: 1, status: 'todo', endedAt: null });
+    expect(p.nudge).toBeNull();
+    await p.flush();
+  });
+
   it('keeps a habit out of the plan: never missed, never started', async () => {
     const p = await boot();
     p.addTask({

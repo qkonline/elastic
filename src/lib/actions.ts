@@ -148,7 +148,19 @@ export function tapHabit(day: Day, id: string, n: number, by = 1): Day {
       i.status === 'done' ? { status: 'todo', endedAt: null } : { status: 'done', endedAt: n },
     );
   if (t === 'quit') return mapItem(day, id, (i) => ({ progress: i.progress ? 0 : 1 }));
-  return setProgress(day, id, (it.progress ?? 0) + by, n);
+  // An amount stops at its target: taps past it would count things not done. (Typing a number
+  // in can still go over.)
+  const now = it.progress ?? 0;
+  if (t === 'amount') {
+    const target = Math.max(1, it.habit.target);
+    return now >= target ? day : setProgress(day, id, Math.min(target, now + by), n);
+  }
+  return setProgress(day, id, now + by, n);
+}
+
+/** Put a habit back as it was before a tap (the Undo after one). */
+export function restoreHabit(day: Day, id: string, was: Pick<Item, 'progress' | 'status' | 'endedAt'>): Day {
+  return mapItem(day, id, () => ({ ...was }));
 }
 
 /** Set an amount or time habit's progress (minutes added by hand, for a time habit). */

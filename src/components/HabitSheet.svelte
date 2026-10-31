@@ -119,8 +119,10 @@
                   disabled={waits || !(it.progress ?? 0)}
                   onclick={() => P.setHabitProgress(id, (it.progress ?? 0) - step)}>−</button
                 >
-                <button class="pill pri" disabled={waits} onclick={() => P.tapHabit(id, step)}
-                  >+ {step}{h.type === 'time' ? ' min' : ''}</button
+                <button
+                  class="pill pri"
+                  disabled={waits || (h.type === 'amount' && (it.progress ?? 0) >= Math.max(1, h.target))}
+                  onclick={() => P.tapHabit(id, step)}>+ {step}{h.type === 'time' ? ' min' : ''}</button
                 >
               {/if}
               <button class="pill quiet" onclick={() => P.skip(id)}>{P.isToday ? 'Skip today' : 'Skip this day'}</button

@@ -307,7 +307,8 @@ export class Planner {
    * Shown after tapping a check or a Start button before the day has started (Start my day
    * answers it). `quiet`: a message only, without calling out the Start my day button.
    */
-  nudge = $state<{ text: string; at: number; quiet?: boolean } | null>(null);
+  /** A short message above the bottom bar; `undo` adds an Undo button to it (a habit tap). */
+  nudge = $state<{ text: string; at: number; quiet?: boolean; undo?: () => void } | null>(null);
   /**
    * Signed in, and not caught up with the account since opening or coming back after a while:
    * the plan on screen may be out of date, so timer taps wait (whenCurrent()). On 25 Oct 2026 a
@@ -1501,7 +1502,28 @@ export class Planner {
     if (!it || !isHabit(it)) return;
     const undo = it.habit.type === 'check' ? it.status === 'done' : it.habit.type === 'quit' && !!it.progress;
     if (this.waiting && !undo) return;
-    this.update((d) => A.tapHabit(d, id, this.n, by), this.habitSaid(id, by));
+    const h = it.habit;
+    if (h.type === 'amount' && (it.progress ?? 0) >= Math.max(1, h.target)) {
+      this.nudge = {
+        text: `${it.title} is done for today. Press and hold it to type a different number.`,
+        at: Date.now(),
+        quiet: true,
+      };
+      return;
+    }
+    const was = { progress: it.progress ?? 0, status: it.status, endedAt: it.endedAt };
+    const said = this.habitSaid(id, by);
+    this.update((d) => A.tapHabit(d, id, this.n, by), said);
+    // A tap is easy to make by accident: say what it did, with a way back.
+    this.nudge = {
+      text: said,
+      at: Date.now(),
+      quiet: true,
+      undo: () => {
+        this.nudge = null;
+        this.update((d) => A.restoreHabit(d, id, was), `${it.title}: undone`);
+      },
+    };
   }
 
   /** Set how much of an amount or time habit is done (minutes added by hand, for time). */
@@ -1517,8 +1539,11 @@ export class Planner {
     const h = it.habit;
     if (h.type === 'check') return `${it.title} ${it.status === 'done' ? 'not done' : 'done'}`;
     if (h.type === 'quit') return it.progress ? `${it.title}: slip taken back` : `${it.title}: slip marked`;
-    const v = value ?? (it.progress ?? 0) + by;
-    return `${it.title}: ${v} ${h.type === 'time' ? 'min' : h.unit || ''}`.trim();
+    const v =
+      value ??
+      (h.type === 'amount' ? Math.min(Math.max(1, h.target), (it.progress ?? 0) + by) : (it.progress ?? 0) + by);
+    if (h.type === 'time') return `${it.title}: ${v} min`;
+    return `${it.title}: ${v} of ${h.target}${h.unit ? ' ' + h.unit : ''}`;
   }
 
   /** The welcome's answers become the defaults for new days. */
