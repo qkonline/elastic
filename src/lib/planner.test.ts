@@ -5,6 +5,8 @@ import { IDBFactory, IDBKeyRange, IDBObjectStore } from 'fake-indexeddb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as db from './db';
 import type { Series } from './types';
+import { SOMEDAY } from './types';
+import { normalizeDay } from './backup';
 import * as A from './actions';
 import { Planner } from './planner.svelte';
 import { itemFromSeries } from './repeat';
@@ -861,5 +863,106 @@ describe('Planner', () => {
     const q = await boot();
     expect(q.goals.map((x) => x.title)).toEqual(['Ship the beta']);
     expect(q.reviews).toHaveLength(2);
+  });
+
+  describe('Someday', () => {
+    const someday = (p: Planner, title: string, min = 30) =>
+      p.addTask({ title, min, kind: min ? 'task' : 'check', hue: 'lime', fixedAt: null, on: SOMEDAY });
+    const titles = (items: { title: string }[]) => items.map((i) => i.title);
+
+    it('keeps tasks with no day across a reload, and plans one for tomorrow', async () => {
+      const p = await boot();
+      await someday(p, 'Fix the gate', 60);
+      await someday(p, 'Book the dentist', 0);
+      expect(p.day.items).toEqual([]);
+      expect(titles(p.someday)).toEqual(['Fix the gate', 'Book the dentist']);
+      expect(p.someday[1].kind).toBe('check');
+      await p.flush();
+
+      const q = await boot();
+      expect(titles(q.someday)).toEqual(['Fix the gate', 'Book the dentist']);
+      const gate = q.someday[0];
+      await q.planSomeday(gate.id, TOMORROW);
+      expect(titles(q.someday)).toEqual(['Book the dentist']);
+      expect(titles(q.days[TOMORROW].items)).toEqual(['Fix the gate']);
+      expect(q.days[TOMORROW].items[0].id).toBe(gate.id);
+      await q.flush();
+      const r = await boot();
+      expect(titles(r.someday)).toEqual(['Book the dentist']);
+      expect(titles((await r.ensureDay(TOMORROW)).items)).toEqual(['Fix the gate']);
+    });
+
+    it('plans one in front of a task on the plan, and not on an ended day', async () => {
+      const p = await boot();
+      add(p, 'Write');
+      add(p, 'Review');
+      await someday(p, 'Read the article');
+      const id = p.someday[0].id;
+      await p.planSomeday(id, TODAY, byTitle(p, 'Review').id);
+      expect(titles(p.day.items)).toEqual(['Write', 'Read the article', 'Review']);
+
+      await someday(p, 'Call the bank');
+      p.startDay();
+      await p.endDay(false);
+      await p.planSomeday(p.someday[0].id, TODAY);
+      expect(titles(p.someday)).toEqual(['Call the bank']);
+      expect(p.day.items.some((i) => i.title === 'Call the bank')).toBe(false);
+    });
+
+    it('never gets repeating tasks, and its tasks stay editable when the day has ended', async () => {
+      const p = await boot();
+      await someday(p, 'Clean the shed');
+      await p.addTask({ title: 'Stretch', min: 15, kind: 'task', hue: 'cyan', fixedAt: null, repeat: 'Every day' });
+      expect(titles(p.someday)).toEqual(['Clean the shed']);
+      p.startDay();
+      await p.endDay(false);
+      const id = p.someday[0].id;
+      expect(p.lockedFor(id)).toBe(false);
+      await p.saveTask(id, { ...p.someday[0], title: 'Clear out the shed', min: 45 });
+      p.setSubs(id, [{ id: 's1', t: 'Sort the tools', d: false }], 'Added');
+      expect(p.someday[0]).toMatchObject({ title: 'Clear out the shed', min: 45 });
+      expect(p.someday[0].subtasks.map((x) => x.t)).toEqual(['Sort the tools']);
+      p.remove(id);
+      expect(p.someday).toEqual([]);
+    });
+
+    it('adds a task to another day, repeating from that day', async () => {
+      const p = await boot();
+      await p.addTask({
+        title: 'Gym',
+        min: 60,
+        kind: 'task',
+        hue: 'lime',
+        fixedAt: null,
+        repeat: 'Every day',
+        on: TOMORROW,
+      });
+      expect(p.day.items).toEqual([]);
+      const gym = p.days[TOMORROW].items[0];
+      expect(gym).toMatchObject({ title: 'Gym', repeat: 'Every day' });
+      const s = p.series.find((x) => x.id === gym.seriesId)!;
+      expect(s.from).toBe(TOMORROW);
+      expect(titles((await p.ensureDay('2026-09-27')).items)).toEqual(['Gym']);
+    });
+
+    it('takes a postponed task, and gives it back with Undo move', async () => {
+      const p = await boot();
+      add(p, 'Write');
+      const id = byTitle(p, 'Write').id;
+      await p.postpone(id, 'someday');
+      expect(byTitle(p, 'Write')).toMatchObject({ status: 'postponed', movedKey: SOMEDAY });
+      expect(titles(p.someday)).toEqual(['Write']);
+      await p.restore(id);
+      expect(byTitle(p, 'Write').status).toBe('todo');
+      expect(p.someday).toEqual([]);
+    });
+
+    it('comes through a backup', () => {
+      expect(normalizeDay({ key: SOMEDAY, items: [{ id: 'a', title: 'Fix the gate', min: 60 }] })).toMatchObject({
+        key: SOMEDAY,
+        items: [{ title: 'Fix the gate' }],
+      });
+      expect(normalizeDay({ key: 'whenever', items: [] })).toBeNull();
+    });
   });
 });

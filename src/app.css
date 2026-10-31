@@ -127,12 +127,15 @@
     --side-w: 232px;
   }
 }
-/* A task open beside the plan (see Sheet's docked panel) takes this much of the right side. */
-html.docked {
+/* A task open beside the plan (see Sheet's docked panel), or the Someday column under it while
+   none is, takes this much of the right side. */
+html.docked,
+html.side-col {
   --dock-w: 400px;
 }
 @media (min-width: 1440px) {
-  html.docked {
+  html.docked,
+  html.side-col {
     --dock-w: 440px;
   }
 }
@@ -516,4 +519,43 @@ a {
   content: '';
   position: absolute;
   inset: calc(-1 * var(--hit-y, 6px)) calc(-1 * var(--hit-x, 6px));
+}
+
+/* A task dragged out of Someday (lib/somedayDrag.ts): it follows the pointer as a small card,
+   the day under it is outlined, and on the plan a rose line shows where it lands. */
+.sd-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 40;
+  max-width: 260px;
+  padding: 10px 14px;
+  border-radius: var(--r-ctl);
+  background: var(--raised);
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.3);
+  font: 500 15px/1.25 var(--font);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.sd-line {
+  position: fixed;
+  z-index: 39;
+  height: 3px;
+  border-radius: var(--r-bar);
+  background: var(--now);
+  pointer-events: none;
+}
+html.sd-dragging,
+html.sd-dragging * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+.drop-on {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: var(--r-card);
 }

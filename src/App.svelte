@@ -22,6 +22,9 @@
   import PullIndicator from './components/PullIndicator.svelte';
   import ReorderAsk from './components/ReorderAsk.svelte';
   import SkipAsk from './components/SkipAsk.svelte';
+  import Someday from './components/Someday.svelte';
+  import SomedayColumn from './components/SomedayColumn.svelte';
+  import SomedaySheet from './components/SomedaySheet.svelte';
   import RunningElsewhere from './components/RunningElsewhere.svelte';
   import StartDay from './components/StartDay.svelte';
   import StartFirst from './components/StartFirst.svelte';
@@ -132,6 +135,13 @@
   $effect(() => {
     document.documentElement.classList.toggle('docked', docked);
   });
+  // Beside Today's plan, with nothing open there: Someday and the next few days (an open task
+  // covers it). Narrower, Someday folds away at the foot of Today instead.
+  const sideCol = $derived(dockable.current && P.ready && !P.signInFirst && P.screen.type === 'today');
+  $effect(() => {
+    document.documentElement.classList.toggle('side-col', sideCol);
+  });
+  const somedayHere = $derived(!dockable.current && P.isToday && P.someday.length > 0);
   // Docked, there's no scrim: a click on the page beside the panel closes it, as × does. Not a
   // click on something to use (another task opens in its place, a tick just ticks), not the end
   // of a drag or a hold, and not while something is typed in the panel (its Edit form, a
@@ -168,6 +178,7 @@
     reorder: 'Later days',
     skip: 'Skip',
     card: 'Project card',
+    someday: 'Someday task',
   } as const;
 </script>
 
@@ -224,6 +235,8 @@
             {#key shownAt}
               <div
                 class="day"
+                data-drop-day={P.view === 'day' ? P.viewKey : undefined}
+                data-drop-plan={P.view === 'day' ? '' : undefined}
                 class:settling={!gestures.dragging}
                 style:transform={gestures.dx ? `translateX(${gestures.dx}px)` : undefined}
                 in:dayIn
@@ -236,6 +249,7 @@
                 {:else if P.day.items.length === 0}
                   <Projects />
                   <EmptyState />
+                  {#if somedayHere}<Someday />{/if}
                 {:else}
                   <!-- Before Start my day the plan is dimmed, but stays editable. -->
                   <div class="plan" class:waiting={P.startPending}>
@@ -248,6 +262,7 @@
                     {/if}
                     <Projects />
                     {#if timed}<Timeline />{/if}
+                    {#if somedayHere}<Someday />{/if}
                   </div>
                 {/if}
                 {#if P.view === 'day'}<DayFooter />{/if}
@@ -260,10 +275,13 @@
     <PullIndicator />
     <StartFirst />
 
-    <div inert={covered}><BottomBar /><SideNav /></div>
+    <div inert={covered}>
+      <BottomBar /><SideNav />
+      {#if sideCol}<SomedayColumn />{/if}
+    </div>
 
     {#if P.sheet && shownSheet}
-      {#key shownSheet.type === 'task' ? 'task-' + shownSheet.id : shownSheet.type}
+      {#key shownSheet.type === 'task' || shownSheet.type === 'someday' ? shownSheet.type + '-' + shownSheet.id : shownSheet.type}
         <Sheet variant={variantOf(shownSheet)} docked={shownDocked} label={LABELS[shownSheet.type]}>
           {#if shownSheet.type === 'card'}
             <ProjectCard id={shownSheet.id} />
@@ -271,6 +289,8 @@
             <HabitSheet id={shownSheet.id} />
           {:else if shownSheet.type === 'task'}
             <TaskSheet id={shownSheet.id} />
+          {:else if shownSheet.type === 'someday'}
+            <SomedaySheet id={shownSheet.id} />
           {:else if shownSheet.type === 'add'}
             <AddTask at={shownSheet.at} kind={shownSheet.kind} />
           {:else if shownSheet.type === 'hours'}

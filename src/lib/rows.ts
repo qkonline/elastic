@@ -3,7 +3,7 @@
 import { isActive, isMissed, isPartial, pausedTotal, worked, type Row } from './schedule';
 import { apOf, cd, dL, fT, fTs, keyDate, shortDate } from './time';
 import type { Day, Item, Status } from './types';
-import { hueColor, untimed } from './types';
+import { hueColor, SOMEDAY, untimed } from './types';
 
 // Running colour: rose ring, rose countdown text while within time (red once over).
 export const RUN = '#f43f5e';
@@ -136,12 +136,10 @@ export function itemVM(r: Row, c: Ctx): ItemVM {
   if (s === 'done' && it.marked) sub = 'marked done';
   if (pBuf) sub = 'passed';
   if (s === 'postponed') {
-    const where = it.movedKey ? 'moved to ' + shortDate(keyDate(it.movedKey)) : 'moved to tomorrow';
+    const to = !it.movedKey ? 'tomorrow' : it.movedKey === SOMEDAY ? 'Someday' : shortDate(keyDate(it.movedKey));
     sub = isPartial(it)
-      ? `worked ${dL(w)} · rest ${it.laterCopy ? 'later today' : where}`
-      : it.movedKey
-        ? 'Moved to ' + shortDate(keyDate(it.movedKey))
-        : 'Moved to tomorrow';
+      ? `worked ${dL(w)} · rest ${it.laterCopy ? 'later today' : 'moved to ' + to}`
+      : 'Moved to ' + to;
   }
   if (it.card && s === 'postponed') sub = `worked ${dL(w)} · set aside`;
   if (active && pausedTot >= 0.5) sub = `worked ${dL(w)} · paused ${dL(pausedTot)}`;

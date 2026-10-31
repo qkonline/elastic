@@ -29,6 +29,7 @@
       class:today={d.isT && !d.sel}
       aria-label={d.aria}
       aria-current={d.sel ? 'date' : undefined}
+      data-drop-day={d.k}
       onclick={() => P.switchDay(d.k)}
     >
       <span class="l">{d.l}</span>

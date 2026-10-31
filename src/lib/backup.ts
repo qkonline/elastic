@@ -27,6 +27,8 @@ const KINDS: Kind[] = ['task', 'buffer', 'fixed', 'check', 'habit'];
 const HABIT_TYPES: Habit['type'][] = ['check', 'amount', 'time', 'quit'];
 const STATUSES: Status[] = ['todo', 'running', 'paused', 'done', 'postponed', 'skipped'];
 const KEY = /^\d{4}-\d{2}-\d{2}$/;
+/** A day's key: a date, or Someday's (tasks with no day yet). */
+const DAY_KEY = /^(\d{4}-\d{2}-\d{2}|someday)$/;
 const num = (v: unknown, d: number | null) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const str = (v: unknown, d: string) => (typeof v === 'string' ? v : d);
 const obj = (v: unknown) => (v && typeof v === 'object' ? (v as Record<string, unknown>) : {});
@@ -104,7 +106,7 @@ export function normalizeItem(raw: unknown): Item {
     ...(status === 'todo' && typeof r.planFrom === 'number' && Number.isFinite(r.planFrom)
       ? { planFrom: r.planFrom }
       : {}),
-    movedKey: typeof r.movedKey === 'string' && KEY.test(r.movedKey) ? r.movedKey : null,
+    movedKey: typeof r.movedKey === 'string' && DAY_KEY.test(r.movedKey) ? r.movedKey : null,
     movedId: typeof r.movedId === 'string' ? r.movedId : null,
     ...(kind === 'habit' ? { habit, progress: Math.max(0, num(r.progress, 0)!) } : {}),
     ...(typeof r.habitId === 'string' && r.habitId ? { habitId: r.habitId } : {}),
@@ -128,7 +130,7 @@ function cardLink(v: unknown): Item['card'] | null {
 
 export function normalizeDay(raw: unknown): Day | null {
   const r = obj(raw);
-  if (typeof r.key !== 'string' || !KEY.test(r.key)) return null;
+  if (typeof r.key !== 'string' || !DAY_KEY.test(r.key)) return null;
   const all = Array.isArray(r.items) ? r.items.map(normalizeItem) : [];
   // Each task once (two with one id would break the lists on screen).
   const ids = new Set<string>();

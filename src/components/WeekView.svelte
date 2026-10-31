@@ -201,6 +201,7 @@
             class:today={c.k === P.today}
             aria-pressed={c.k === sel}
             aria-label={longDate(c.d)}
+            data-drop-day={c.k}
             onclick={() => (c.k === sel ? P.openDay(c.k) : (picked = c.k))}
           >
             <span class="stack" aria-hidden="true">
@@ -229,7 +230,13 @@
       <div class="heads">
         <span></span>
         {#each cols as c (c.k)}
-          <button class="head" class:today={c.k === P.today} onclick={() => P.openDay(c.k)} aria-label={longDate(c.d)}>
+          <button
+            class="head"
+            class:today={c.k === P.today}
+            data-drop-day={c.k}
+            onclick={() => P.openDay(c.k)}
+            aria-label={longDate(c.d)}
+          >
             <span class="wd">{weekdayShort(c.d)}</span>
             <span class="dn">{c.d.getDate()}</span>
             {#if c.counts && (c.counts.checks || c.counts.habits)}
@@ -250,6 +257,7 @@
             class="col"
             class:today={c.k === P.today}
             class:past={c.k < P.today}
+            data-drop-day={c.k}
             bind:this={colEls[i]}
             onclick={(e) => tapColumn(e, i)}
           >

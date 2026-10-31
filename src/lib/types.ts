@@ -13,6 +13,13 @@ export type Hue = HueName | `#${string}`;
 export type Kind = 'task' | 'buffer' | 'fixed' | 'check' | 'habit';
 /** Kinds that take no time in the plan and live in the Checklist instead of the timeline. */
 export const untimed = (k: Kind) => k === 'check' || k === 'habit';
+/**
+ * Tasks with no day yet are kept as a day of their own under this key (synced like any day,
+ * task by task). It sorts after every date, so ranges of dates never include it.
+ */
+export const SOMEDAY = 'someday';
+/** A real day's key (YYYY-MM-DD), not Someday's. */
+export const isDayKey = (k: string) => /^\d{4}-\d{2}-\d{2}$/.test(k);
 export type Status = 'todo' | 'running' | 'paused' | 'done' | 'postponed' | 'skipped';
 /**
  * 'Once', or a repeat in words (repeat.ts parses them): 'Every day', 'Every 3 days', 'Weekdays',

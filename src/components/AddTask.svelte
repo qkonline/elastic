@@ -3,13 +3,13 @@
   import { cubicOut } from 'svelte/easing';
   import { slide } from 'svelte/transition';
   import { planner as P } from '../lib/planner.svelte';
-  import { clockToDay, fT, hhmm, hm, keyDate, shortDate } from '../lib/time';
+  import { addDays, clockToDay, fT, hhmm, hm, keyDate, shortDate } from '../lib/time';
   import { habitDefaults } from '../lib/habits';
   import { stripSegs } from '../lib/rows';
   import { isPartial } from '../lib/schedule';
   import type { Ends } from '../lib/repeat';
   import type { Habit, Hue, Kind } from '../lib/types';
-  import { hueColor, untimed } from '../lib/types';
+  import { hueColor, SOMEDAY, untimed } from '../lib/types';
   import { reducedMotion } from '../lib/ui.svelte';
   import Fields from './Fields.svelte';
   import HabitFields from './HabitFields.svelte';
@@ -21,8 +21,8 @@
   // its choices in place. A task's length starts as Settings says (No time by default): with no
   // time, it's a check, ticked off on the checklist instead of timed.
   // Added from the week grid at a time: a fixed time at that time.
-  // Added from the Habits screen: a habit to start with.
-  let { at, kind: startKind }: { at?: number; kind?: Kind } = $props();
+  // Added from the Habits screen: a habit to start with. From Someday: no day yet.
+  let { at, kind: startKind, someday = false }: { at?: number; kind?: Kind; someday?: boolean } = $props();
   let title = $state('');
   let kind = $state<Kind>(untrack(() => startKind ?? (at != null ? 'fixed' : 'task')));
   let hue = $state<Hue | null>(null);
@@ -62,12 +62,27 @@
   const defaultFixed = Math.ceil((P.nowToday() + 30) / 15) * 15;
   let fixedStr = $state(hhmm(untrack(() => at) ?? defaultFixed));
   const late = $derived(Math.max(P.day.wrap, P.isToday ? P.n : 0));
+  // When: the day on screen, another day, or Someday (no day yet, to plan later).
+  let when = $state<'here' | 'day' | 'someday'>(untrack(() => (someday ? 'someday' : 'here')));
+  let date = $state(untrack(() => addDays(P.viewKey < P.today ? P.today : P.viewKey, 1)));
+  const tomorrow = $derived(addDays(P.today, 1));
+  const named = (k: string) => (k === P.today ? 'Today' : k === tomorrow ? 'Tomorrow' : shortDate(keyDate(k)));
+  const WHEN = $derived([
+    ['here', named(P.viewKey)],
+    ['day', 'Another day'],
+    ['someday', 'Someday'],
+  ] as const);
+  const target = $derived(when === 'here' ? P.viewKey : when === 'someday' ? SOMEDAY : date || P.viewKey);
+  const elsewhere = $derived(target !== P.viewKey);
+  const dayName = $derived(
+    target === P.today ? 'today' : target === tomorrow ? 'tomorrow' : shortDate(keyDate(target)),
+  );
 
   const ok = $derived(!!title.trim());
   // A timed task or buffer goes on the end of the day: show the day's strip with it added, and
   // when the day would then end.
   const preview = $derived.by(() => {
-    if (P.locked || !timed || kind === 'fixed' || kind === 'habit') return null;
+    if (P.locked || elsewhere || !timed || kind === 'fixed' || kind === 'habit') return null;
     const rows = P.sch.rows.filter(
       (r) => !untimed(r.it.kind) && r.it.status !== 'skipped' && !(r.it.status === 'postponed' && !isPartial(r.it)),
     );
@@ -76,7 +91,13 @@
     return { segs, end: Math.max(P.sch.finish, ...rows.map((r) => r.end)) + min };
   });
   const sel = $derived(hue ?? (kind === 'fixed' ? 'indigo' : kind === 'habit' ? 'lime' : 'cyan'));
-  const placeholder = $derived(P.isToday ? 'What else today?' : `What else on ${shortDate(keyDate(P.viewKey))}?`);
+  const placeholder = $derived(
+    when === 'someday'
+      ? 'What can wait for a day?'
+      : P.isToday
+        ? 'What else today?'
+        : `What else on ${shortDate(keyDate(P.viewKey))}?`,
+  );
   // A habit's fields change a lot with its kind and how often, so its sheet keeps one height.
   const sheet = getContext<{ tall: boolean } | undefined>('sheet');
   $effect(() => {
@@ -84,24 +105,26 @@
   });
   const unfold = () => ({ duration: reducedMotion.current ? 0 : 220, easing: cubicOut });
 
-  const fixedAtPicked = $derived(fixedStr ? clockToDay(hm(fixedStr), late) : defaultFixed);
+  // On another day (or Someday) a time is simply that time of day.
+  const fixedAtPicked = $derived(fixedStr ? (elsewhere ? hm(fixedStr) : clockToDay(hm(fixedStr), late)) : defaultFixed);
 
   function add() {
     if (!ok) return;
     if (kind === 'habit') {
-      P.addTask({ title: title.trim(), min: 0, kind, hue: sel, fixedAt: null, repeat: habitRepeat, habit });
+      void P.addTask({ title: title.trim(), min: 0, kind, hue: sel, fixedAt: null, repeat: habitRepeat, habit });
       return;
     }
     const k = timed ? kind : 'check';
     const fixedAt = k === 'fixed' ? fixedAtPicked : null;
-    P.addTask({
+    void P.addTask({
       title: title.trim(),
       min: timed ? Math.max(1, min) : 0,
       kind: k,
       hue: sel,
       fixedAt,
-      repeat: repeats ? repeat : 'Once',
-      ends: repeats ? ends : null,
+      repeat: repeats && when !== 'someday' ? repeat : 'Once',
+      ends: repeats && when !== 'someday' ? ends : null,
+      on: elsewhere ? target : undefined,
     });
   }
   const enter = (e: KeyboardEvent) => e.key === 'Enter' && !e.isComposing && add();
@@ -156,26 +179,43 @@
       />
     </div>
   {:else}
-    <div class="props">
-      <SwitchRow
-        label="Repeats"
-        note={repeats ? repeatShort(repeat, ends, P.today) : 'Just this once'}
-        on={repeats}
-        ontoggle={() => (repeats = !repeats)}
-      >
-        <RepeatFields
-          {repeat}
-          {ends}
-          day={P.viewKey}
-          from={P.viewKey}
-          today={P.today}
-          onchange={(r, e) => {
-            repeat = r;
-            ends = e;
-          }}
-        />
-      </SwitchRow>
+    <div class="group">
+      <span class="label" id="when-l">When</span>
+      <div class="where" role="radiogroup" aria-labelledby="when-l">
+        {#each WHEN as [w, label] (w)}
+          <button role="radio" aria-checked={when === w} class:on={when === w} onclick={() => (when = w)}
+            >{label}</button
+          >
+        {/each}
+      </div>
+      {#if when === 'day'}
+        <input class="date" type="date" aria-label="Date" min={P.today} bind:value={date} transition:slide={unfold()} />
+      {:else if when === 'someday'}
+        <p class="lnote" transition:slide={unfold()}>No day yet. It waits in Someday until you plan it.</p>
+      {/if}
     </div>
+    {#if when !== 'someday'}
+      <div class="props" transition:slide={unfold()}>
+        <SwitchRow
+          label="Repeats"
+          note={repeats ? repeatShort(repeat, ends, P.today) : 'Just this once'}
+          on={repeats}
+          ontoggle={() => (repeats = !repeats)}
+        >
+          <RepeatFields
+            {repeat}
+            {ends}
+            day={target}
+            from={target}
+            today={P.today}
+            onchange={(r, e) => {
+              repeat = r;
+              ends = e;
+            }}
+          />
+        </SwitchRow>
+      </div>
+    {/if}
     {#if preview}
       <div class="preview" transition:slide={unfold()}>
         <div class="pbar" aria-hidden="true">
@@ -195,11 +235,19 @@
       ? P.settings.habitsPlace === 'separate'
         ? 'Goes in your Habits, on each day it is due.'
         : 'Goes on your checklist, on each day it is due.'
-      : !timed
-        ? 'Goes on your checklist, above the timeline.'
-        : kind === 'fixed'
-          ? `Goes in the plan at ${fT(fixedAtPicked, P.settings.clock24)}.`
-          : 'Goes to the end of the day. Drag it to reorder.'}
+      : when === 'someday'
+        ? 'Goes to Someday, at the foot of Today.'
+        : elsewhere
+          ? !timed
+            ? `Goes on the checklist ${target === tomorrow ? 'tomorrow' : `on ${dayName}`}.`
+            : kind === 'fixed'
+              ? `Goes in the plan ${target === tomorrow ? 'tomorrow' : `on ${dayName}`} at ${fT(fixedAtPicked, P.settings.clock24)}.`
+              : `Goes to the end of ${target === tomorrow ? 'tomorrow' : dayName}.`
+          : !timed
+            ? 'Goes on your checklist, above the timeline.'
+            : kind === 'fixed'
+              ? `Goes in the plan at ${fT(fixedAtPicked, P.settings.clock24)}.`
+              : 'Goes to the end of the day. Drag it to reorder.'}
   </span>
   <button class="cancel" onclick={() => P.closeSheet()}>Cancel</button>
   <button class="add" class:ok disabled={!ok} onclick={add}>{kind === 'habit' ? 'Add habit' : 'Add task'}</button>
@@ -287,6 +335,45 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+  }
+  /* When: three choices side by side, the picked one raised (as in Reschedule). */
+  .where {
+    display: flex;
+    gap: 2px;
+    padding: 3px;
+    border-radius: var(--r-ctl);
+    background: var(--bg);
+    border: 1px solid var(--border);
+  }
+  .where button {
+    flex: 1 1 auto;
+    min-height: 40px;
+    padding: 0 6px;
+    white-space: nowrap;
+    border: none;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--muted);
+    font: 400 14px/1.2 var(--font);
+    cursor: pointer;
+  }
+  .where button.on {
+    background: var(--raised);
+    color: var(--text);
+    font-weight: 500;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  }
+  .date {
+    width: 100%;
+    min-width: 0;
+    height: 44px;
+    padding: 0 10px;
+    border-radius: var(--r-ctl);
+    border: 1px solid var(--border);
+    background: var(--raised);
+    color: var(--text);
+    font: 400 15px/1 var(--font);
+    box-sizing: border-box;
   }
   .lnote {
     margin: 0;

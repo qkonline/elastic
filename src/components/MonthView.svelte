@@ -103,6 +103,7 @@
         class:past={c.k < P.today}
         class:over={drag?.over === c.k && drag.from !== c.k}
         data-key={c.k}
+        data-drop-day={c.k}
         role="gridcell"
         tabindex="0"
         aria-label="{longDate(c.d)}{c.rows.length ? `, ${c.rows.length} tasks` : ''}"

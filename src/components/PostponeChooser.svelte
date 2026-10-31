@@ -3,7 +3,8 @@
   import { dL } from '../lib/time';
   import InlineConfirm from './InlineConfirm.svelte';
 
-  // "Postpone X?" with Later today / Tomorrow. Mid-task, it notes that logged time is kept.
+  // "Postpone X?" with Later today / Tomorrow / Someday (no day yet). Mid-task, it notes that
+  // logged time is kept.
   let {
     id,
     title,
@@ -19,5 +20,6 @@
   opts={[
     { l: 'Later today', kind: 'pri', on: () => P.postpone(id, 'later') },
     { l: 'Tomorrow', on: () => P.postpone(id, 'tomorrow') },
+    { l: 'Someday', on: () => P.postpone(id, 'someday') },
   ]}
 />

@@ -177,6 +177,19 @@ describe('sync', () => {
     expect(a.p.day.dayStarted).not.toBeNull();
   });
 
+  it('brings Someday to the other device, and a task planned from it', async () => {
+    const a = await device({ fresh: true });
+    const b = await device();
+    await a.p.addTask({ title: 'Fix the gate', min: 60, kind: 'task', hue: 'lime', fixedAt: null, on: 'someday' });
+    await settle();
+    expect(b.p.someday.map((i) => i.title)).toEqual(['Fix the gate']);
+
+    await b.p.planSomeday(b.p.someday[0].id, TODAY);
+    await settle();
+    expect(a.p.someday).toEqual([]);
+    expect(titles(a.p)).toEqual(['Fix the gate']);
+  });
+
   it('keeps both when two devices change different tasks at once', async () => {
     const a = await device({ fresh: true });
     add(a.p, 'Write');

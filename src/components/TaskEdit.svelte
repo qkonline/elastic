@@ -21,6 +21,8 @@
   let { item, ondone }: { item: Item; ondone: () => void } = $props();
   const it = untrack(() => item);
   const id = it.id;
+  // A task with no day yet: no repeating, and a fixed time is just a time of day.
+  const someday = untrack(() => P.someday.some((x) => x.id === id));
 
   let title = $state(it.title);
   let kind = $state<Kind>(it.kind === 'check' ? 'task' : it.kind);
@@ -100,6 +102,7 @@
   // A fixed time that wasn't touched stays exactly as it was (a time past midnight keeps its day).
   function fixedAt(): number {
     if (it.fixedAt != null && (!fixedStr || fixedStr === hhmm(it.fixedAt))) return it.fixedAt;
+    if (someday) return fixedStr ? hm(fixedStr) : P.settings.defStart;
     return fixedStr ? clockToDay(hm(fixedStr), late) : P.day.dayStart;
   }
   const form = $derived.by(() => {
@@ -189,28 +192,30 @@
   {/if}
 
   <div class="props">
-    <SwitchRow
-      label="Repeats"
-      note={repeats ? repeatShort(repeat, ends, P.today) : 'Just this once'}
-      on={repeats}
-      ontoggle={() => (repeats = !repeats)}
-    >
-      <RepeatFields
-        {repeat}
-        {ends}
-        day={P.viewKey}
-        {from}
-        today={P.today}
-        was={series && repeat === series.repeat ? series : undefined}
-        onchange={(r, e) => {
-          repeat = r;
-          ends = e;
-        }}
-      />
-      {#if it.repeat !== 'Once'}
-        <p class="lnote rnote">Also changes the other days you haven't started yet.</p>
-      {/if}
-    </SwitchRow>
+    {#if !someday}
+      <SwitchRow
+        label="Repeats"
+        note={repeats ? repeatShort(repeat, ends, P.today) : 'Just this once'}
+        on={repeats}
+        ontoggle={() => (repeats = !repeats)}
+      >
+        <RepeatFields
+          {repeat}
+          {ends}
+          day={P.viewKey}
+          {from}
+          today={P.today}
+          was={series && repeat === series.repeat ? series : undefined}
+          onchange={(r, e) => {
+            repeat = r;
+            ends = e;
+          }}
+        />
+        {#if it.repeat !== 'Once'}
+          <p class="lnote rnote">Also changes the other days you haven't started yet.</p>
+        {/if}
+      </SwitchRow>
+    {/if}
     {#if quarterGoals.length && kind !== 'buffer'}
       <SwitchRow
         label="Counts towards a goal"

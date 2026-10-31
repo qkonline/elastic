@@ -13,7 +13,7 @@
   let { it }: { it: Item } = $props();
   const id = $derived(it.id);
   const subs = $derived(it.subtasks);
-  const can = $derived(!P.locked);
+  const can = $derived(!P.lockedFor(it.id));
 
   let newStep = $state('');
   let queued = $state<string[]>([]);

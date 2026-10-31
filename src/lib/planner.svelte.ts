@@ -66,7 +66,7 @@ import { SHARED_SETTINGS, Sync, type SyncStatus } from './sync';
 import { activeDayKey } from './today';
 import { newBuildOut, reloadToUpdate } from './update';
 import type { Day, Goal, Habit, Hue, Item, Kind, Review, Series, Settings } from './types';
-import { DEFAULT_SETTINGS, isHue, sharedSettings, untimed } from './types';
+import { DEFAULT_SETTINGS, isDayKey, isHue, sharedSettings, SOMEDAY, untimed } from './types';
 
 /** The full-screen moment after Start my day or End my day. */
 export type Celebration =
@@ -88,13 +88,15 @@ export type TaskForm = Pick<
 export type Sheet =
   | { type: 'task'; id: string }
   | { type: 'hours' }
-  | { type: 'add'; at?: number; kind?: Kind }
+  | { type: 'add'; at?: number; kind?: Kind; someday?: boolean }
   | { type: 'install' }
   | { type: 'wrapup' }
   | { type: 'account' }
   | { type: 'reorder'; id: string; anchor: string; dir: 'up' | 'down' }
   | { type: 'skip'; id: string }
-  | { type: 'card'; id: string };
+  | { type: 'card'; id: string }
+  /** A task with no day yet. */
+  | { type: 'someday'; id: string };
 export type ConfirmType =
   | 'postpone'
   | 'delete'
@@ -288,6 +290,9 @@ export class Planner {
   }
 
   day: Day = $derived(this.days[this.viewKey] ?? this.blankDay(this.viewKey));
+  /** Tasks with no day yet, kept as a day of their own (SOMEDAY). */
+  somedayDay: Day = $derived(this.days[SOMEDAY] ?? this.blankDay(SOMEDAY));
+  someday = $derived(this.somedayDay.items);
   isToday = $derived(this.viewKey === this.today);
   /** The link to Boardo: project cards assigned to me, and the time I work on them. */
   boardo = new Boardo(
@@ -443,6 +448,7 @@ export class Planner {
       this.today = activeDayKey(todayKey(), this.days, Date.now());
       this.viewKey = this.today;
       await this.ensureDay(this.today);
+      await this.ensureDay(SOMEDAY);
       await this.fillSeriesOrder();
       await this.loadWeek();
       await this.ensureDay(addDays(this.today, 1)); // for heads-ups past midnight
@@ -759,6 +765,9 @@ export class Planner {
   // ---------- loading & saving ----------
 
   private blankDay(key: string): Day {
+    // Someday is a list, not a day: nothing repeats into it.
+    if (key === SOMEDAY)
+      return { key, dayStart: this.settings.defStart, wrap: this.settings.defWrap, dayStarted: null, items: [] };
     return materialize(key, this.series, this.settings.defStart, this.settings.defWrap, this.today);
   }
 
@@ -1166,7 +1175,7 @@ export class Planner {
   private async reloadAll(): Promise<void> {
     // Everything is read first and swapped in at once: meanwhile the plan on screen stays as it
     // was, rather than a day rebuilt from repeating tasks that a tap could save over the real one.
-    const keys = [...new Set([this.viewKey, this.today, addDays(this.today, 1), ...this.weekKeys])];
+    const keys = [...new Set([this.viewKey, this.today, addDays(this.today, 1), SOMEDAY, ...this.weekKeys])];
     const [s, series, goals, reviews, recent, got] = await Promise.all([
       db.getSettings(),
       db.getAllSeries(),
@@ -1200,8 +1209,19 @@ export class Planner {
     this.announce = m;
   }
 
+  /** A task on the day on screen, or else on Someday (its view edits it there). */
   item(id: string): Item | undefined {
-    return A.find(this.day, id);
+    return A.find(this.day, id) ?? A.find(this.somedayDay, id);
+  }
+
+  /** Where a task is kept: the day on screen, or Someday. */
+  private keyOf(id: string): string {
+    return !A.find(this.day, id) && A.find(this.somedayDay, id) ? SOMEDAY : this.viewKey;
+  }
+
+  /** A task can't be changed: it's on an ended day. Someday's never are. */
+  lockedFor(id: string): boolean {
+    return this.keyOf(id) !== SOMEDAY && this.locked;
   }
 
   /** Apply a pure action to the viewed day and store the result. An ended day stays as it is. */
@@ -1210,6 +1230,24 @@ export class Planner {
     const next = fn(this.day);
     if (next !== this.day) this.put(next);
     if (msg) this.say(msg);
+  }
+
+  /** update() on another loaded day (or Someday). An ended day stays as it is. */
+  private updateOn(key: string, fn: (d: Day) => Day, msg?: string): void {
+    if (key === this.viewKey) return this.update(fn, msg);
+    const d = this.days[key];
+    if (!d || d.dayEnded != null) return;
+    const next = fn(d);
+    if (next !== d) this.put(next);
+    if (msg) this.say(msg);
+  }
+
+  /** "today", "tomorrow" or "Mon 2 Nov": where a task went. */
+  dayWords(key: string): string {
+    if (key === SOMEDAY) return 'Someday';
+    if (key === this.today) return 'today';
+    if (key === addDays(this.today, 1)) return 'tomorrow';
+    return shortDate(keyDate(key));
   }
 
   /** Minutes since midnight of today (for defaults like a new fixed item's time). */
@@ -1386,7 +1424,7 @@ export class Planner {
 
   /** A title cleared in the task sheet becomes "Untitled" once the sheet goes away. */
   private fixBlankTitle(): void {
-    if (this.sheet?.type !== 'task') return;
+    if (this.sheet?.type !== 'task' && this.sheet?.type !== 'someday') return;
     const it = this.item(this.sheet.id);
     if (it && !it.title.trim()) this.edit(it.id, { title: 'Untitled' });
   }
@@ -1786,13 +1824,14 @@ export class Planner {
 
   // ---------- postpone / reschedule ----------
 
-  async postpone(id: string, where: 'later' | 'tomorrow'): Promise<void> {
+  async postpone(id: string, where: 'later' | 'tomorrow' | 'someday'): Promise<void> {
     if (this.locked) return;
     const it = this.item(id);
     if (!it) return;
     this.confirm = null;
     if (isActive(it) && this.whenTaskCurrent(id, () => void this.postpone(id, where))) return;
     if (where === 'tomorrow') return this.moveToDay(id, addDays(this.today, 1), `${it.title} moved to tomorrow`);
+    if (where === 'someday') return this.moveToDay(id, SOMEDAY, `${it.title} moved to Someday`);
     // A timer left running on an earlier day: "later today" means today, not that day.
     if (this.viewKey !== this.today && isActive(it))
       return this.moveToDay(id, this.today, `${it.title} moved to later today`);
@@ -1838,7 +1877,9 @@ export class Planner {
     this.confirm = null;
     this.put(res.day);
     const target = await this.ensureDay(key);
-    this.put(A.addItem(target, res.copy, minutesInto(key, this.clock)));
+    // Someday has no times: a fixed time keeps its time but isn't placed by it.
+    if (key === SOMEDAY) this.put({ ...target, items: [...target.items, res.copy] });
+    else this.put(A.addItem(target, res.copy, minutesInto(key, this.clock)));
     if (this.viewKey !== src) return;
     this.say(msg ?? `${res.copy.title} moved to ${shortDate(keyDate(key))}`);
   }
@@ -1854,8 +1895,10 @@ export class Planner {
     repeat?: string;
     ends?: Ends;
     habit?: Habit;
-  }): void {
-    const { repeat: asked, habit, ends, ...fields } = o;
+    /** Another day's key, or SOMEDAY (no day yet), rather than the day on screen. */
+    on?: string;
+  }): Promise<void> {
+    const { repeat: asked, habit, ends, on, ...fields } = o;
     // A habit always repeats: on its days, or every day for one due a number of times a week.
     const repeat =
       o.kind === 'habit' ? (habit?.per === 'day' && asked && asked !== 'Once' ? asked : 'Every day') : asked;
@@ -1866,20 +1909,57 @@ export class Planner {
       ...(o.kind === 'habit' && habit ? { habit, progress: 0 } : {}),
     });
     this.sheet = null;
+    if (on && on !== this.viewKey && o.kind !== 'habit') return this.addOnDay(on, it, repeat, ends ?? null);
     this.update((d) => A.addItem(d, it, this.n), `Added ${it.title}`);
-    // A repeating task becomes a series straight away, like choosing a repeat in the task sheet.
-    if (repeat && repeat !== 'Once') void this.setRepeat(it.id, repeat, ends ?? null);
     if (it.kind === 'fixed') this.offerNotifications('fixed');
+    // A repeating task becomes a series straight away, like choosing a repeat in the task sheet.
+    return repeat && repeat !== 'Once' ? this.setRepeat(it.id, repeat, ends ?? null) : Promise.resolve();
+  }
+
+  /** New task for another day than the one on screen, or for Someday (which never repeats). */
+  private async addOnDay(key: string, it: Item, repeat: string | undefined, ends: Ends): Promise<void> {
+    const d = await this.ensureDay(key);
+    if (d.dayEnded != null) return this.sayLocked();
+    if (key === SOMEDAY) {
+      this.put({ ...d, items: [...d.items, it] });
+      return this.say(`Added ${it.title} to Someday`);
+    }
+    this.put(A.addItem(d, it, minutesInto(key, this.clock)));
+    this.say(`Added ${it.title} to ${this.dayWords(key)}`);
+    if (repeat && repeat !== 'Once') await this.setRepeat(it.id, repeat, ends, key);
+    if (it.kind === 'fixed') this.offerNotifications('fixed');
+  }
+
+  /**
+   * Plan a task from Someday on a day: at the end of it, or (dragged onto the plan) in front of
+   * the task `before` (null: at the end). A fixed time goes where its time falls.
+   */
+  async planSomeday(id: string, key: string, before?: string | null): Promise<void> {
+    const it = A.find(this.somedayDay, id);
+    if (!it || !isDayKey(key)) return;
+    const d = await this.ensureDay(key);
+    if (d.dayEnded != null) return this.sayLocked();
+    if (this.sheet?.type === 'someday' && this.sheet.id === id) this.sheet = null;
+    this.confirm = null;
+    this.put(A.remove(this.somedayDay, id));
+    const n = minutesInto(key, this.clock);
+    const day = this.days[key] ?? d;
+    const at = before && it.kind !== 'fixed' && A.find(day, before);
+    this.put(
+      at ? { ...day, items: day.items.flatMap((x) => (x.id === before ? [it, x] : [x])) } : A.addItem(day, it, n),
+    );
+    this.say(`${it.title} planned for ${this.dayWords(key)}`);
   }
 
   /** Edit fields. Series fields on a repeating item also flow to later days not yet started. */
   edit(id: string, patch: Partial<Item>): void {
     const it = this.item(id);
     if (!it) return;
-    // A new time puts a fixed item where that time falls in the plan.
-    this.update((d) => {
+    // A new time puts a fixed item where that time falls in the plan (Someday has no times).
+    const key = this.keyOf(id);
+    this.updateOn(key, (d) => {
       const next = A.patchItem(d, id, patch);
-      return 'fixedAt' in patch ? A.placeFixed(next, id, this.n) : next;
+      return 'fixedAt' in patch && key !== SOMEDAY ? A.placeFixed(next, id, this.n) : next;
     });
     if (it.seriesId && Object.keys(patch).some((k) => SERIES_FIELDS.includes(k as keyof Item)))
       this.queueSeriesSync(it.seriesId, this.viewKey);
@@ -1891,9 +1971,10 @@ export class Planner {
    * task into a check keeps it done if it was.
    */
   async saveTask(id: string, form: TaskForm): Promise<void> {
-    if (this.locked) return;
+    if (this.lockedFor(id)) return;
     const it = this.item(id);
     if (!it) return;
+    const key = this.keyOf(id);
     const title = form.title.trim() || 'Untitled';
     const f = { ...form, title };
     const patch: Partial<Item> = {};
@@ -1903,16 +1984,20 @@ export class Planner {
     if ('kind' in patch && f.kind === 'check') Object.assign(patch, { status: it.status === 'done' ? 'done' : 'todo' });
     else if ('kind' in patch && it.kind === 'check') Object.assign(patch, { status: 'todo', endedAt: null });
     if (Object.keys(patch).length) {
-      this.update((d) => {
-        const next = A.patchItem(d, id, patch);
-        return 'fixedAt' in patch || 'kind' in patch ? A.placeFixed(next, id, this.n) : next;
-      }, `Updated ${title}`);
+      this.updateOn(
+        key,
+        (d) => {
+          const next = A.patchItem(d, id, patch);
+          return ('fixedAt' in patch || 'kind' in patch) && key !== SOMEDAY ? A.placeFixed(next, id, this.n) : next;
+        },
+        `Updated ${title}`,
+      );
       if (it.seriesId) this.queueSeriesSync(it.seriesId, this.viewKey);
     }
     const series = it.seriesId ? this.series.find((x) => x.id === it.seriesId) : undefined;
     const endsChanged = f.repeat !== 'Once' && JSON.stringify(f.ends ?? null) !== JSON.stringify(endsOf(series));
-    if (f.repeat !== it.repeat || endsChanged) await this.setRepeat(id, f.repeat, f.ends ?? null);
-    if (f.kind === 'fixed' && it.kind !== 'fixed') this.offerNotifications('fixed');
+    if (key !== SOMEDAY && (f.repeat !== it.repeat || endsChanged)) await this.setRepeat(id, f.repeat, f.ends ?? null);
+    if (f.kind === 'fixed' && it.kind !== 'fixed' && key !== SOMEDAY) this.offerNotifications('fixed');
   }
 
   setKind(id: string, k: Kind): void {
@@ -1932,8 +2017,9 @@ export class Planner {
   remove(id: string): void {
     const it = this.item(id);
     if (this.sheet?.type === 'task' && this.sheet.id === id) this.sheet = null;
+    if (this.sheet?.type === 'someday' && this.sheet.id === id) this.sheet = null;
     this.confirm = null;
-    this.update((d) => A.remove(d, id), it ? `Deleted ${it.title}` : undefined);
+    this.updateOn(this.keyOf(id), (d) => A.remove(d, id), it ? `Deleted ${it.title}` : undefined);
   }
 
   /** Delete a repeating task from this day and every later day: its series ends the day before. */
@@ -1968,7 +2054,7 @@ export class Planner {
   addSubs(id: string, ts: string[]): void {
     const it = this.item(id);
     const add = ts.map((t) => t.trim()).filter(Boolean);
-    if (!it || !add.length || this.locked) return;
+    if (!it || !add.length || this.lockedFor(id)) return;
     this.edit(id, { subtasks: [...it.subtasks, ...add.map((t) => ({ id: A.uid(), t, d: false }))] });
     if (it.seriesId) this.queueSeriesSync(it.seriesId, this.viewKey);
     if (add.length > 1) this.say(`Added ${add.length} subtasks`);
@@ -1977,7 +2063,7 @@ export class Planner {
   /** Subtasks changed in the task view (renamed, removed, moved): saved at once, like a tick. */
   setSubs(id: string, subtasks: Item['subtasks'], said: string): void {
     const it = this.item(id);
-    if (!it || this.locked) return;
+    if (!it || this.lockedFor(id)) return;
     this.edit(id, { subtasks });
     if (it.seriesId) this.queueSeriesSync(it.seriesId, this.viewKey);
     this.say(said);
@@ -1988,17 +2074,17 @@ export class Planner {
    * of times, on a date, or never). A changed rule counts from today on (`from` moves, with the
    * times already gone by kept in `prior`), so "every 2 weeks" starts from the next one.
    */
-  async setRepeat(id: string, repeat: string, ends: Ends = null): Promise<void> {
-    if (this.locked) return;
-    const it = this.item(id);
+  async setRepeat(id: string, repeat: string, ends: Ends = null, key = this.viewKey): Promise<void> {
+    const day = key === this.viewKey ? this.day : this.days[key];
+    if (!day || day.dayEnded != null || !isDayKey(key)) return;
+    const it = A.find(day, id);
     if (!it) return;
     if (repeat === 'Once') return it.repeat === 'Once' ? undefined : this.stopRepeating(id);
     const old = it.seriesId ? this.series.find((x) => x.id === it.seriesId) : undefined;
     if (it.seriesId && !old) {
-      if (it.repeat !== repeat) this.edit(id, { repeat });
+      if (it.repeat !== repeat) this.updateOn(key, (d) => A.patchItem(d, id, { repeat }));
       return;
     }
-    const key = this.viewKey;
     if (old) {
       let next: Series = { ...old, repeat };
       if (repeat !== old.repeat && it.kind !== 'habit') {
@@ -2011,16 +2097,16 @@ export class Planner {
       if (!next.prior) delete next.prior;
       if (!next.skips || !Object.keys(next.skips).length) delete next.skips;
       this.series = this.series.map((x) => (x.id === old.id ? next : x));
-      if (it.repeat !== repeat) this.update((d) => A.patchItem(d, id, { repeat }));
+      if (it.repeat !== repeat) this.updateOn(key, (d) => A.patchItem(d, id, { repeat }));
       await this.saveRecord('series', old.id, old, next);
       this.post({ t: 'series' });
       await this.propagate(next, old, old.id, key);
       return;
     }
-    let s = seriesFromItem({ ...it, repeat }, key, A.uid(), orderAt(this.series, this.day.items, id));
+    let s = seriesFromItem({ ...it, repeat }, key, A.uid(), orderAt(this.series, day.items, id));
     if (ends) s = withEnds(s, ends);
     this.series = [...this.series, s];
-    this.update((d) => A.patchItem(d, id, { repeat, seriesId: s.id }));
+    this.updateOn(key, (d) => A.patchItem(d, id, { repeat, seriesId: s.id }));
     await this.saveRecord('series', s.id, null, s);
     this.post({ t: 'series' });
     await this.propagate(s, null, s.id, key);
@@ -2103,7 +2189,7 @@ export class Planner {
     const days = new Map((await db.getDays(from, '9999-12-31')).map((d) => [d.key, d]));
     // Include stored days held in memory, and prefer them: they're never older than the database.
     for (const [k, d] of Object.entries(this.days)) if (k >= from && this.stored.has(k)) days.set(k, d);
-    return [...days.values()].filter((d) => d.dayStarted == null);
+    return [...days.values()].filter((d) => d.dayStarted == null && isDayKey(d.key));
   }
 
   /**
