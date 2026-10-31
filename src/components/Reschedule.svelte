@@ -1,12 +1,43 @@
 <script lang="ts">
   import { planner as P } from '../lib/planner.svelte';
   import type { ItemVM } from '../lib/rows';
-  import { addDays, fT } from '../lib/time';
+  import { addDays, fT, hm, keyDate, shortDate } from '../lib/time';
   import { intoView } from '../lib/ui.svelte';
 
+  // Start it now, or pick where it goes (later today, tomorrow or another day) and Move it there:
+  // one Move button, named after where it's going.
   let { v }: { v: ItemVM } = $props();
   const c24 = $derived(P.settings.clock24);
   const tomorrow = $derived(addDays(P.today, 1));
+  let where = $state<'later' | 'tomorrow' | 'day'>('later');
+  const WHERE = [
+    ['later', 'Later'],
+    ['tomorrow', 'Tomorrow'],
+    ['day', 'Another day'],
+  ] as const;
+  function pick(w: typeof where) {
+    where = w;
+    // Tomorrow has its own choice, so another day starts the day after.
+    if (w === 'day' && P.resched && (!P.resched.date || P.resched.date <= tomorrow))
+      P.resched.date = addDays(tomorrow, 1);
+  }
+  const ready = $derived(
+    !!P.resched && (where === 'tomorrow' || (where === 'later' ? !!P.resched.time : !!P.resched.date)),
+  );
+  const moveLabel = $derived(
+    !P.resched || !ready
+      ? 'Move'
+      : where === 'later'
+        ? `Move to ${fT(hm(P.resched.time), c24)}`
+        : where === 'tomorrow'
+          ? 'Move to tomorrow'
+          : `Move to ${shortDate(keyDate(P.resched.date))}`,
+  );
+  function move() {
+    if (!ready || !P.resched) return;
+    if (where === 'later') P.reschedLater(v.id);
+    else void P.moveToDay(v.id, where === 'tomorrow' ? tomorrow : P.resched.date);
+  }
 </script>
 
 {#if P.resched}
@@ -19,21 +50,23 @@
       {P.active ? `Do it next, after ${P.active.title}` : '▶ Start now'}
     </button>
     <div class="group">
-      <span class="label tight">Later today</span>
-      <div class="line">
+      <span class="label tight" id="move-to-{v.id}">Or move it to</span>
+      <div class="where" role="radiogroup" aria-labelledby="move-to-{v.id}">
+        {#each WHERE as [w, label] (w)}
+          <button role="radio" aria-checked={where === w} class:on={where === w} onclick={() => pick(w)}>{label}</button
+          >
+        {/each}
+      </div>
+      {#if where === 'later'}
         <input type="time" aria-label="Time" bind:value={P.resched.time} />
-        <button class="b" onclick={() => P.reschedLater(v.id)}>Move</button>
-      </div>
+      {:else if where === 'day'}
+        <input type="date" aria-label="Date" min={addDays(tomorrow, 1)} bind:value={P.resched.date} />
+      {/if}
     </div>
-    <div class="group">
-      <span class="label tight">Another day</span>
-      <div class="line wrap">
-        <button class="b" onclick={() => P.moveToDay(v.id, tomorrow)}>Tomorrow</button>
-        <input type="date" aria-label="Date" min={tomorrow} bind:value={P.resched.date} />
-        <button class="b" onclick={() => P.resched?.date && P.moveToDay(v.id, P.resched.date)}>Move</button>
-      </div>
+    <div class="foot">
+      <button class="cancel" onclick={() => (P.resched = null)}>Cancel</button>
+      <button class="b" disabled={!ready} onclick={move}>{moveLabel}</button>
     </div>
-    <button class="cancel" onclick={() => (P.resched = null)}>Cancel</button>
   </div>
 {/if}
 
@@ -78,16 +111,41 @@
   .tight {
     letter-spacing: 0.05em;
   }
-  .line {
+  /* Where it goes: three choices side by side, the picked one raised. */
+  .where {
     display: flex;
-    gap: 8px;
-    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    border-radius: var(--r-ctl);
+    background: var(--bg);
+    border: 1px solid var(--border);
   }
-  .line.wrap {
-    flex-wrap: wrap;
+  .where button {
+    flex: 1 1 auto;
+    min-height: 40px;
+    padding: 0 6px;
+    white-space: nowrap;
+    border: none;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--muted);
+    font: 400 14px/1.2 var(--font);
+    cursor: pointer;
+  }
+  .where button.on {
+    background: var(--raised);
+    color: var(--text);
+    font-weight: 500;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  }
+  .foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
   }
   input {
-    flex: 1 1 auto;
+    width: 100%;
     min-width: 0;
     height: 44px;
     padding: 0 10px;
@@ -98,9 +156,6 @@
     font: 400 15px/1 var(--font);
     box-sizing: border-box;
   }
-  input[type='date'] {
-    flex: 1 1 130px;
-  }
   .b {
     height: 44px;
     padding: 0 16px;
@@ -108,12 +163,15 @@
     border: 1px solid var(--border);
     background: var(--raised);
     color: var(--text);
-    font: 400 14px/1 var(--font);
+    font: 500 14px/1 var(--font);
     cursor: pointer;
     white-space: nowrap;
   }
+  .b:disabled {
+    color: var(--faint);
+    cursor: default;
+  }
   .cancel {
-    align-self: flex-start;
     height: 40px;
     padding: 0 2px;
     border: none;

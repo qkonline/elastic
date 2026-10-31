@@ -131,6 +131,24 @@
   $effect(() => {
     document.documentElement.classList.toggle('docked', docked);
   });
+  // Docked, there's no scrim: a click on the page beside the panel closes it, as × does. Not a
+  // click on something to use (another task opens in its place, a tick just ticks), not the end
+  // of a drag or a hold, and not while something is typed in the panel (its Edit form, a
+  // subtask being added).
+  const USED =
+    'button, a, input, textarea, select, label, [role="button"], [role="switch"], [role="slider"], .panel, [role="dialog"]';
+  let press = { x: 0, y: 0, at: 0 };
+  function clickAway(e: MouseEvent) {
+    if (!docked || e.defaultPrevented || P.drag) return;
+    if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > 6 || Date.now() - press.at > 500) return;
+    const t = e.target as Element | null;
+    if (!t?.isConnected || t.closest(USED)) return;
+    const fields = document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+      '.panel.docked input:not([type="checkbox"], [type="radio"], [type="color"]), .panel.docked textarea',
+    );
+    if ([...fields].some((f) => f.value.trim())) return;
+    P.closeSheet();
+  }
 
   // Anything covering the page keeps keyboard and screen readers out of it.
   const covered = $derived(!P.signInFirst && ((!!P.sheet && !docked) || P.showWelcome || !!P.celebrate));
@@ -151,7 +169,11 @@
   } as const;
 </script>
 
-<svelte:window onkeydown={(e) => e.key === 'Escape' && P.sheet && P.closeSheet()} />
+<svelte:window
+  onkeydown={(e) => e.key === 'Escape' && P.sheet && P.closeSheet()}
+  onpointerdown={(e) => (press = { x: e.clientX, y: e.clientY, at: Date.now() })}
+  onclick={clickAway}
+/>
 
 {#if MOVED_TO}
   <Moving />
