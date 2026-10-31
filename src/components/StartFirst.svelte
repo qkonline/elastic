@@ -37,4 +37,11 @@
       0 12px 30px -10px rgba(15, 23, 42, 0.5),
       0 2px 6px rgba(15, 23, 42, 0.18);
   }
+  /* Centred under the plan, between the sidebar and a task open beside it. */
+  @media (min-width: 768px) {
+    .nudge {
+      left: calc(var(--side-w) + 16px);
+      right: calc(var(--dock-w) + 16px);
+    }
+  }
 </style>

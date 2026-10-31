@@ -44,6 +44,9 @@
   --header-h: 104px;
   /* The bar at the bottom: Today, Habits, Add task, Goals, Review. */
   --bar-h: 64px;
+  /* The sidebar's width (none on phones) and the docked task panel's (none unless one is open). */
+  --side-w: 0px;
+  --dock-w: 0px;
 
   /* Corners: cards, controls (buttons, chips, fields), small marks, colour bars. */
   --r-card: 10px;
@@ -109,6 +112,28 @@
     --ac: 96px;
     --px: 28px;
     --btn: 40px;
+    /* iPads and computers: no bottom bar, a sidebar instead (SideNav). */
+    --bar-h: 0px;
+    --side-w: 88px;
+  }
+}
+@media (min-width: 1240px) {
+  :root {
+    --side-w: 208px;
+  }
+}
+@media (min-width: 1440px) {
+  :root {
+    --side-w: 232px;
+  }
+}
+/* A task open beside the plan (see Sheet's docked panel) takes this much of the right side. */
+html.docked {
+  --dock-w: 400px;
+}
+@media (min-width: 1440px) {
+  html.docked {
+    --dock-w: 440px;
   }
 }
 

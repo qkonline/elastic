@@ -598,10 +598,15 @@
     color: var(--muted);
     text-wrap: pretty;
   }
+  /* Two to a row, so every label fits on one line (Start and Mark done first); an odd one out
+     at the end takes the whole row. */
   .acts {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
+  }
+  .acts > :last-child:nth-child(odd) {
+    grid-column: 1 / -1;
   }
   .acts .ctl {
     height: 46px;

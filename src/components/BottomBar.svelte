@@ -1,57 +1,19 @@
 <script lang="ts">
-  import { planner as P, type Screen } from '../lib/planner.svelte';
+  import { planner as P } from '../lib/planner.svelte';
+  import { addTask, go, TABS, type Tab } from '../lib/nav';
+  import NavIcon from './NavIcon.svelte';
 
-  // Today, Habits, Goals and Review are screens of their own; Add task sits raised in the middle.
-  // The screen you're on is an open tab joined to the page above. A dot on Review says a review
-  // is waiting. Tapping Today while on another day of the plan comes back to today.
-  type Tab = 'today' | 'habits' | 'goals' | 'review';
-  const LEFT: [Tab, string][] = [
-    ['today', 'Today'],
-    ['habits', 'Habits'],
-  ];
-  const RIGHT: [Tab, string][] = [
-    ['goals', 'Goals'],
-    ['review', 'Review'],
-  ];
+  // Phones: Today, Habits, Goals and Review are screens of their own; Add task sits raised in the
+  // middle. The screen you're on is an open tab joined to the page above. A dot on Review says a
+  // review is waiting. iPads and computers get the sidebar instead (SideNav).
+  const LEFT = TABS.slice(0, 2);
+  const RIGHT = TABS.slice(2);
   const on = (t: Tab) => P.screen.type === t;
-
-  function go(t: Tab) {
-    if (t === 'today' && P.screen.type === 'today') {
-      if (!P.isToday || P.view !== 'day') {
-        if (P.view !== 'day') P.setView('day');
-        P.backToToday();
-      }
-      return;
-    }
-    P.openScreen({ type: t } as Screen);
-  }
-  // From a screen without the plan in sight, a new task goes on Today, not a day last looked at.
-  const add = async () => {
-    if (P.screen.type !== 'today' && !P.isToday) await P.switchDay(P.today);
-    if (P.locked) P.sayLocked();
-    else P.openSheet({ type: 'add' });
-  };
 </script>
 
 {#snippet tab(t: Tab, label: string)}
   <button class="tab" class:on={on(t)} aria-current={on(t) ? 'page' : undefined} onclick={() => go(t)}>
-    <svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true">
-      {#if t === 'today'}
-        <rect x="3" y="4" width="16" height="15" rx="2" class="a" />
-        <path d="M3 9h16M8 2v4M14 2v4" class="a" />
-        <rect x="7" y="12" width="4" height="4" rx="1" class="fill" />
-      {:else if t === 'habits'}
-        <circle cx="11" cy="11" r="8" class="a soft" />
-        <circle cx="11" cy="11" r="8" class="b arc" />
-      {:else if t === 'goals'}
-        <circle cx="11" cy="11" r="8" class="a" />
-        <circle cx="11" cy="11" r="4" class="a" />
-        <circle cx="11" cy="11" r="1.8" class="fill" />
-      {:else}
-        <path d="M5 18V11M17 18v-9" class="a thick" />
-        <path d="M11 18V5" class="b thick" />
-      {/if}
-    </svg>
+    <NavIcon {t} />
     <span>{label}</span>
     {#if t === 'review' && P.dueReview}<i class="due" aria-label="A review is waiting"></i>{/if}
   </button>
@@ -59,7 +21,7 @@
 
 <nav class="bar" aria-label="Main">
   {#each LEFT as [t, l] (t)}{@render tab(t, l)}{/each}
-  <button class="add" aria-label="Add task" onclick={add}>
+  <button class="add" aria-label="Add task" onclick={addTask}>
     <svg viewBox="0 0 22 22" width="22" height="22" aria-hidden="true"><path d="M11 4v14M4 11h14" /></svg>
   </button>
   {#each RIGHT as [t, l] (t)}{@render tab(t, l)}{/each}
@@ -119,34 +81,6 @@
     outline: 2px solid var(--text);
     outline-offset: -2px;
   }
-  svg {
-    fill: none;
-    stroke-width: 1.8;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-  .a {
-    stroke: var(--accent);
-  }
-  .b {
-    stroke: var(--now);
-  }
-  .fill {
-    fill: var(--now);
-    stroke: none;
-  }
-  .soft {
-    stroke-opacity: 0.35;
-  }
-  .arc {
-    stroke-width: 2.4;
-    stroke-dasharray: 34 50.3;
-    transform: rotate(-90deg);
-    transform-origin: 11px 11px;
-  }
-  .thick {
-    stroke-width: 2;
-  }
   .due {
     position: absolute;
     top: 6px;
@@ -180,18 +114,14 @@
     box-shadow: 0 8px 16px -6px rgba(0, 0, 0, 0.4);
   }
   .add svg {
+    fill: none;
     stroke: currentColor;
     stroke-width: 2;
+    stroke-linecap: round;
   }
   @media (min-width: 768px) {
     .bar {
-      left: 50%;
-      right: auto;
-      width: min(780px, 100%);
-      translate: -50% 0;
-      border-left: 1px solid var(--border);
-      border-right: 1px solid var(--border);
-      border-radius: 14px 14px 0 0;
+      display: none;
     }
   }
 </style>

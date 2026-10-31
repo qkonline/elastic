@@ -58,4 +58,9 @@
       rotate: 360deg;
     }
   }
+  @media (min-width: 768px) {
+    .pull {
+      left: calc((100vw + var(--side-w) - var(--dock-w)) / 2);
+    }
+  }
 </style>

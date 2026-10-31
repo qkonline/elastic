@@ -6,13 +6,20 @@
   import { desktop, reducedMotion } from '../lib/ui.svelte';
 
   /**
-   * full: bottom sheet (88%) on phone, 440px right side panel on desktop.
+   * full: bottom sheet (88%) on phone, 440px right side panel on desktop. Docked (where there's
+   * room beside the plan, see App): the side panel sits beside the plan with no scrim, so the plan
+   * stays in use while it's open, and Tab isn't kept inside it.
    * form: bottom sheet sized to content on phone, centred 480px dialog on desktop.
    * small: centred 360px dialog everywhere.
    * A form whose fields come and go as choices change (New habit) can ask for a fixed height
    * through the 'sheet' context, so the sheet doesn't jump with them.
    */
-  let { variant, label, children }: { variant: 'full' | 'form' | 'small'; label: string; children: Snippet } = $props();
+  let {
+    variant,
+    label,
+    docked = false,
+    children,
+  }: { variant: 'full' | 'form' | 'small'; label: string; docked?: boolean; children: Snippet } = $props();
 
   let tall = $state(false);
   setContext('sheet', {
@@ -25,15 +32,17 @@
   const shape = $derived(
     variant === 'small'
       ? 'dialog small'
-      : desktop.current
-        ? variant === 'form'
-          ? tall
-            ? 'dialog tall'
-            : 'dialog'
-          : 'side'
-        : variant === 'form' && !tall
-          ? 'bottom'
-          : 'bottom tall',
+      : docked
+        ? 'side docked'
+        : desktop.current
+          ? variant === 'form'
+            ? tall
+              ? 'dialog tall'
+              : 'dialog'
+            : 'side'
+          : variant === 'form' && !tall
+            ? 'bottom'
+            : 'bottom tall',
   );
 
   // Bottom sheets slide up from the bottom of the screen, the side panel in from the right, and
@@ -42,7 +51,10 @@
   const IN_MS = 300;
   const OUT_MS = 220;
   function motion(node: Element, { leaving = false } = {}) {
-    const duration = reducedMotion.current ? 0 : leaving ? OUT_MS : IN_MS;
+    // Docked, one task's panel takes the other's place without sliding (a panel leaving while
+    // another is up, or arriving while one is still on its way out).
+    const swap = node.classList.contains('docked') && document.querySelectorAll('.panel.docked').length > 1;
+    const duration = reducedMotion.current || swap ? 0 : leaving ? OUT_MS : IN_MS;
     const bottom = node.classList.contains('bottom');
     const side = node.classList.contains('side');
     // Closed by a swipe: carry on down from where the finger let go.
@@ -148,22 +160,24 @@
   }
 </script>
 
-<div
-  class="scrim"
-  onclick={() => P.closeSheet()}
-  aria-hidden="true"
-  style:opacity={dragY && panel ? Math.max(0, 1 - dragY / panel.offsetHeight) : undefined}
-  in:scrimFade|global
-  out:scrimFade|global={{ leaving: true }}
-></div>
+{#if !docked}
+  <div
+    class="scrim"
+    onclick={() => P.closeSheet()}
+    aria-hidden="true"
+    style:opacity={dragY && panel ? Math.max(0, 1 - dragY / panel.offsetHeight) : undefined}
+    in:scrimFade|global
+    out:scrimFade|global={{ leaving: true }}
+  ></div>
+{/if}
 <div
   class="panel {shape}"
   role="dialog"
-  aria-modal="true"
+  aria-modal={!docked}
   aria-label={label}
   tabindex="-1"
   bind:this={panel}
-  onkeydown={trap}
+  onkeydown={(e) => !docked && trap(e)}
   class:settling={!dragging}
   style:transform={dragY ? `translateY(${dragY}px)` : undefined}
   {@attach swipeToClose}
@@ -235,6 +249,18 @@
     width: 440px;
     border-left: 1px solid var(--border);
     box-shadow: -16px 0 48px rgba(0, 0, 0, 0.16);
+  }
+  /* Beside the plan: part of the page, so no shadow. Fixed widths (not --dock-w), so it keeps
+     its width while it slides away after the page has already taken the room back. */
+  .side.docked {
+    width: 400px;
+    box-shadow: none;
+    z-index: 4;
+  }
+  @media (min-width: 1440px) {
+    .side.docked {
+      width: 440px;
+    }
   }
   .handle {
     display: flex;

@@ -34,6 +34,7 @@
   import WeekStrip from './components/WeekStrip.svelte';
   import Welcome from './components/Welcome.svelte';
   import BottomBar from './components/BottomBar.svelte';
+  import SideNav from './components/SideNav.svelte';
   import Goals from './components/Goals.svelte';
   import HabitsScreen from './components/HabitsScreen.svelte';
   import Review from './components/Review.svelte';
@@ -45,7 +46,7 @@
   import { dayGestures, gestures } from './lib/gestures.svelte';
   import { planner as P, type Sheet as SheetState } from './lib/planner.svelte';
   import { untimed } from './lib/types';
-  import { prefersDark, reducedMotion } from './lib/ui.svelte';
+  import { dockable, prefersDark, reducedMotion } from './lib/ui.svelte';
 
   // Changing day is a slideshow: the day on screen slides out one way while the next slides in
   // right behind it, edge to edge. A later day comes in from the right, an earlier one from the
@@ -116,8 +117,23 @@
     }
   });
 
+  // Bottom sheet on a phone, side panel or dialog on a larger screen (see Sheet).
+  const variantOf = (s: SheetState) =>
+    s.type === 'add' || s.type === 'card'
+      ? 'form'
+      : s.type === 'hours' || s.type === 'install' || s.type === 'wrapup' || s.type === 'reorder'
+        ? 'small'
+        : 'full';
+  // Where there's room, a task (or the account) opens beside the plan rather than over it: the
+  // plan makes room (html.docked sets --dock-w) and stays in use.
+  const docked = $derived(dockable.current && !!P.sheet && variantOf(P.sheet) === 'full');
+  const shownDocked = $derived(dockable.current && !!shownSheet && variantOf(shownSheet) === 'full');
+  $effect(() => {
+    document.documentElement.classList.toggle('docked', docked);
+  });
+
   // Anything covering the page keeps keyboard and screen readers out of it.
-  const covered = $derived(!P.signInFirst && (!!P.sheet || P.showWelcome || !!P.celebrate));
+  const covered = $derived(!P.signInFirst && ((!!P.sheet && !docked) || P.showWelcome || !!P.celebrate));
   $effect(() => {
     document.body.classList.toggle('locked', covered);
   });
@@ -154,84 +170,77 @@
   <!-- Anything that fails while drawing shows a way out, rather than leaving the screen frozen. -->
   <svelte:boundary onerror={(e) => console.error('Elastic', e)}>
     <!-- inert: while a sheet or the welcome is open, keyboard and screen readers stay inside it. -->
-    <div class="page" inert={covered} {@attach dayGestures(P)}>
-      {#if P.screen.type === 'habits'}
-        <HabitsScreen />
-      {:else if P.screen.type === 'goals'}
-        {#key P.screen.quarter}<Goals start={P.screen.quarter} />{/key}
-      {:else if P.screen.type === 'review'}
-        {#key P.screen.id}<Review id={P.screen.id} />{/key}
-      {:else if P.screen.type === 'settings'}
-        <Settings />
-      {:else}
-        <Header />
-        {#if P.view === 'day'}
-          <WeekStrip />
-          <StartDay />
-        {/if}
-        <SaveError />
-        <RunningElsewhere />
-        <ComingUp />
-        <NotifyPrompt />
-        <BoardoOffer />
-        <ReviewDue />
-        <main
-          class:settling={!gestures.dragging}
-          style:transform={gestures.pull ? `translateY(${gestures.pull * 0.6}px)` : undefined}
-        >
-          {#key shownAt}
-            <div
-              class="day"
-              class:settling={!gestures.dragging}
-              style:transform={gestures.dx ? `translateX(${gestures.dx}px)` : undefined}
-              in:dayIn
-              out:dayOut
-            >
-              {#if P.view === 'week'}
-                <WeekView />
-              {:else if P.view === 'month'}
-                <MonthView />
-              {:else if P.day.items.length === 0}
-                <Projects />
-                <EmptyState />
-              {:else}
-                <!-- Before Start my day the plan is dimmed, but stays editable. -->
-                <div class="plan" class:waiting={P.startPending}>
-                  <DayTimes />
-                  {#if P.settings.habitsPlace === 'separate'}
-                    <Checklist mode="habits" />
-                    <Checklist mode="checks" />
-                  {:else}
-                    <Checklist mode="both" />
-                  {/if}
+    <!-- The shell leaves room for the sidebar and a task open beside the plan (iPad, computer). -->
+    <div class="shell">
+      <div class="page" inert={covered} {@attach dayGestures(P)}>
+        {#if P.screen.type === 'habits'}
+          <HabitsScreen />
+        {:else if P.screen.type === 'goals'}
+          {#key P.screen.quarter}<Goals start={P.screen.quarter} />{/key}
+        {:else if P.screen.type === 'review'}
+          {#key P.screen.id}<Review id={P.screen.id} />{/key}
+        {:else if P.screen.type === 'settings'}
+          <Settings />
+        {:else}
+          <Header />
+          {#if P.view === 'day'}
+            <WeekStrip />
+            <StartDay />
+          {/if}
+          <SaveError />
+          <RunningElsewhere />
+          <ComingUp />
+          <NotifyPrompt />
+          <BoardoOffer />
+          <ReviewDue />
+          <main
+            class:settling={!gestures.dragging}
+            style:transform={gestures.pull ? `translateY(${gestures.pull * 0.6}px)` : undefined}
+          >
+            {#key shownAt}
+              <div
+                class="day"
+                class:settling={!gestures.dragging}
+                style:transform={gestures.dx ? `translateX(${gestures.dx}px)` : undefined}
+                in:dayIn
+                out:dayOut
+              >
+                {#if P.view === 'week'}
+                  <WeekView />
+                {:else if P.view === 'month'}
+                  <MonthView />
+                {:else if P.day.items.length === 0}
                   <Projects />
-                  {#if timed}<Timeline />{/if}
-                </div>
-              {/if}
-              {#if P.view === 'day'}<DayFooter />{/if}
-            </div>
-          {/key}
-        </main>
-      {/if}
+                  <EmptyState />
+                {:else}
+                  <!-- Before Start my day the plan is dimmed, but stays editable. -->
+                  <div class="plan" class:waiting={P.startPending}>
+                    <DayTimes />
+                    {#if P.settings.habitsPlace === 'separate'}
+                      <Checklist mode="habits" />
+                      <Checklist mode="checks" />
+                    {:else}
+                      <Checklist mode="both" />
+                    {/if}
+                    <Projects />
+                    {#if timed}<Timeline />{/if}
+                  </div>
+                {/if}
+                {#if P.view === 'day'}<DayFooter />{/if}
+              </div>
+            {/key}
+          </main>
+        {/if}
+      </div>
     </div>
     <PullIndicator />
     <StartFirst />
 
-    <div inert={covered}><BottomBar /></div>
+    <div inert={covered}><BottomBar /><SideNav /></div>
 
     {#if P.sheet && shownSheet}
       {#key shownSheet.type === 'task' ? 'task-' + shownSheet.id : shownSheet.type}
-        <Sheet
-          variant={shownSheet.type === 'add' || shownSheet.type === 'card'
-            ? 'form'
-            : shownSheet.type === 'hours' ||
-                shownSheet.type === 'install' ||
-                shownSheet.type === 'wrapup' ||
-                shownSheet.type === 'reorder'
-              ? 'small'
-              : 'full'}
-          label={LABELS[shownSheet.type]}
-        >
+        <Sheet variant={variantOf(shownSheet)} docked={shownDocked} label={LABELS[shownSheet.type]}>
           {#if shownSheet.type === 'card'}
             <ProjectCard id={shownSheet.id} />
           {:else if shownSheet.type === 'task' && P.item(shownSheet.id)?.kind === 'habit'}
@@ -301,8 +310,17 @@
     box-sizing: border-box;
   }
   @media (min-width: 768px) {
+    .shell {
+      padding: 0 var(--dock-w) 0 var(--side-w);
+      transition: padding-right 300ms cubic-bezier(0.215, 0.61, 0.355, 1);
+    }
     .page {
       max-width: 780px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .shell {
+      transition: none;
     }
   }
   /* Before Start my day the plan stays readable: only what waits for the start (the Start

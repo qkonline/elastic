@@ -7,8 +7,9 @@
   import SaveError from './SaveError.svelte';
 
   // The top of every screen: a small line (the date, or a count) with the theme switch and
-  // Settings beside it, then the screen's title with its own controls (Day / Week / Month on
-  // the plan, the quarter on Goals). Settings shows a back arrow instead of the two buttons.
+  // Settings beside it (on phones; an iPad or computer has them in the sidebar), then the
+  // screen's title with its own controls (Day / Week / Month on the plan, the quarter on Goals).
+  // Settings shows a back arrow instead of the two buttons.
   let {
     small,
     title,
@@ -115,6 +116,12 @@
   .icons {
     display: flex;
     margin-right: -6px;
+  }
+  /* iPads and computers have the theme switch and Settings in the sidebar. */
+  @media (min-width: 768px) {
+    .icons {
+      display: none;
+    }
   }
   .icon {
     width: 34px;
