@@ -15,23 +15,43 @@
   import KindChips from './KindChips.svelte';
   import SwitchRow from './SwitchRow.svelte';
 
-  // The name, type and colour are always shown. Timing and repeating are optional, each behind
-  // a switch that opens its choices in place. Timing starts off: without it, a task is a check,
-  // ticked off on the checklist instead of timed.
+  // The name, type, length and colour are always shown; repeating is behind a switch that opens
+  // its choices in place. A task's length starts as Settings says (No time by default): with no
+  // time, it's a check, ticked off on the checklist instead of timed.
   // Added from the week grid at a time: a fixed time at that time.
   // Added from the Habits screen: a habit to start with.
   let { at, kind: startKind }: { at?: number; kind?: Kind } = $props();
   let title = $state('');
   let kind = $state<Kind>(untrack(() => startKind ?? (at != null ? 'fixed' : 'task')));
   let hue = $state<Hue | null>(null);
-  // Buffers and fixed times always take time. For a task it's the Timed switch, so trying
-  // Buffer and going back to Task leaves the switch as it was.
-  let timedTask = $state(false);
-  const timed = $derived(kind === 'buffer' || kind === 'fixed' || (kind === 'task' && timedTask));
+  // Buffers and fixed times always take time, so they start at 30 minutes when No time was
+  // picked; going back to Task brings No time back, so trying a type costs nothing.
+  const startMin = untrack(() => P.settings.defLength);
+  const startsTimed = untrack(() => kind === 'buffer' || kind === 'fixed');
+  let wasNone = startsTimed && startMin === 0;
+  let min = $state(wasNone ? 30 : startMin);
+  const timed = $derived(kind === 'buffer' || kind === 'fixed' || (kind === 'task' && min > 0));
+  function pickKind(k: Kind) {
+    if ((k === 'buffer' || k === 'fixed') && min === 0) ((min = 30), (wasNone = true));
+    else if (k === 'task' && wasNone && min === 30) ((min = 0), (wasNone = false));
+    kind = k;
+  }
+  function pickMin(m: number) {
+    min = m;
+    wasNone = false;
+  }
+  const lengthNote = $derived(
+    kind === 'buffer'
+      ? 'How much time it keeps free.'
+      : kind === 'fixed'
+        ? 'How long it takes, from its time.'
+        : min === 0
+          ? 'A check: a box to tick, with no timer. Pick a length to plan it on the timeline.'
+          : 'On the timeline, with a timer to start, pause and finish.',
+  );
   // A habit: what it asks for and on which days (it always repeats).
   let habit = $state<Habit>(habitDefaults('check'));
   let habitRepeat = $state('Every day');
-  let min = $state(30);
   let repeats = $state(false);
   let repeat = $state('Every day');
   const repeatOpts = $derived(['Every day', 'Weekdays', 'Every ' + weekdayLong(keyDate(P.viewKey))]);
@@ -62,11 +82,6 @@
   });
   const unfold = () => ({ duration: reducedMotion.current ? 0 : 220, easing: cubicOut });
 
-  // Turning timing off makes it a plain task.
-  function setTimed(on: boolean) {
-    timedTask = on;
-    if (!on) kind = 'task';
-  }
   const fixedAtPicked = $derived(fixedStr ? clockToDay(hm(fixedStr), late) : defaultFixed);
 
   function add() {
@@ -104,7 +119,7 @@
   />
 
   <div class="group">
-    <KindChips {kind} {hue} habit onpick={(k) => (kind = k)} />
+    <KindChips {kind} {hue} habit onpick={pickKind} />
     {#if kind === 'fixed'}
       <label class="at" transition:slide={unfold()}>
         <span>At</span>
@@ -112,6 +127,13 @@
       </label>
     {/if}
   </div>
+
+  {#if kind !== 'habit'}
+    <div class="group" transition:slide={unfold()}>
+      <Fields field="duration" label="Length" none={kind === 'task'} {min} onMin={pickMin} />
+      <p class="lnote">{lengthNote}</p>
+    </div>
+  {/if}
 
   {#if kind !== 'buffer'}
     <div transition:slide={unfold()}>
@@ -132,18 +154,6 @@
     </div>
   {:else}
     <div class="props">
-      <SwitchRow
-        label="Timed"
-        note={!timed
-          ? 'No timer, just a box to tick'
-          : kind === 'buffer'
-            ? 'How much time it keeps free'
-            : 'Start, pause and finish it with a timer'}
-        on={timed}
-        ontoggle={() => setTimed(!timed)}
-      >
-        <Fields field="duration" {min} showLabel={false} onMin={(m) => (min = m)} />
-      </SwitchRow>
       <SwitchRow
         label="Repeats"
         note={repeats ? 'Also added to the matching days after this one' : 'Just this once'}
@@ -268,6 +278,12 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+  }
+  .lnote {
+    margin: 0;
+    font: 400 13px/1.4 var(--font);
+    color: var(--muted);
+    text-wrap: pretty;
   }
   .row {
     display: flex;

@@ -17,6 +17,8 @@
     field,
     min = 0,
     showLabel = true,
+    label = 'How long',
+    none = false,
     onMin,
     hue,
     onHue,
@@ -24,8 +26,10 @@
   }: {
     field: 'duration' | 'colour';
     min?: number;
-    /** The New task sheet labels its duration itself (the Timed switch). */
     showLabel?: boolean;
+    label?: string;
+    /** Offer "No time" first (min 0): a check, with no timer. */
+    none?: boolean;
     onMin?: (m: number) => void;
     hue?: Hue;
     onHue?: (h: Hue) => void;
@@ -55,8 +59,18 @@
 
 {#if field === 'duration'}
   <div class="group">
-    {#if showLabel}<span class="label">How long</span>{/if}
-    <div class="picks">
+    {#if showLabel}<span class="label">{label}</span>{/if}
+    <div class="picks" role="group" aria-label={label}>
+      {#if none}
+        <button
+          class="chip"
+          aria-pressed={min === 0 && !customOpen}
+          onclick={() => {
+            customOpen = false;
+            onMin?.(0);
+          }}>No time</button
+        >
+      {/if}
       {#each PICKS as m (m)}
         <button
           class="chip"

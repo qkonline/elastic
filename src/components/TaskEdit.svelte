@@ -22,9 +22,20 @@
 
   let title = $state(it.title);
   let kind = $state<Kind>(it.kind === 'check' ? 'task' : it.kind);
-  let timedTask = $state(it.kind !== 'check');
-  const timed = $derived(kind === 'buffer' || kind === 'fixed' || (kind === 'task' && timedTask));
-  let min = $state(it.min > 0 ? it.min : 30);
+  // No time (0) makes a check. Buffers and fixed times always take time: picking one with No time
+  // gives it 30 minutes, and going back to Task brings No time back.
+  let min = $state(it.kind === 'check' ? 0 : it.min > 0 ? it.min : 30);
+  let wasNone = false;
+  const timed = $derived(kind === 'buffer' || kind === 'fixed' || (kind === 'task' && min > 0));
+  function pickKind(k: Kind) {
+    if ((k === 'buffer' || k === 'fixed') && min === 0) ((min = 30), (wasNone = true));
+    else if (k === 'task' && wasNone && min === 30) ((min = 0), (wasNone = false));
+    kind = k;
+  }
+  function pickMin(m: number) {
+    min = m;
+    wasNone = false;
+  }
   let hue = $state(it.hue);
   const late = Math.max(P.day.wrap, P.isToday ? P.n : 0);
   let fixedStr = $state(hhmm(it.fixedAt ?? Math.ceil((P.nowToday() + 30) / 15) * 15));
@@ -51,11 +62,17 @@
     P.series.filter((s) => s.kind === 'habit' && s.habit?.type === 'time' && (s.until == null || s.until >= P.viewKey)),
   );
   const unfold = () => ({ duration: reducedMotion.current ? 0 : 220, easing: cubicOut });
-
-  function setTimed(on: boolean) {
-    timedTask = on;
-    if (!on) kind = 'task';
-  }
+  const lengthNote = $derived(
+    kind === 'buffer'
+      ? 'How much time it keeps free.'
+      : kind === 'fixed'
+        ? 'How long it takes, from its time.'
+        : min === 0
+          ? 'A check: a box to tick, with no timer. Pick a length to plan it on the timeline.'
+          : running
+            ? 'On the timeline. Stop the timer to make it a check.'
+            : 'On the timeline, with a timer to start, pause and finish.',
+  );
   function addStep() {
     if (!newStep.trim()) return;
     steps.push({ id: uid(), t: newStep.trim(), d: false });
@@ -139,13 +156,18 @@
   <input class="name large-text" bind:value={title} onkeydown={enter} placeholder="Task name" aria-label="Task name" />
 
   <div class="group">
-    <KindChips {kind} {hue} onpick={(k) => (kind = k)} />
+    <KindChips {kind} {hue} onpick={pickKind} />
     {#if kind === 'fixed'}
       <label class="at" transition:slide={unfold()}>
         <span>At</span>
         <input class="time" type="time" aria-label="Fixed time" bind:value={fixedStr} />
       </label>
     {/if}
+  </div>
+
+  <div class="group">
+    <Fields field="duration" label="Length" none={kind === 'task' && !running} {min} onMin={pickMin} />
+    <p class="lnote">{lengthNote}</p>
   </div>
 
   {#if kind !== 'buffer'}
@@ -161,21 +183,6 @@
   {/if}
 
   <div class="props">
-    <SwitchRow
-      label="Timed"
-      note={running
-        ? 'Stop the timer to change this'
-        : !timed
-          ? 'No timer, just a box to tick'
-          : kind === 'buffer'
-            ? 'How much time it keeps free'
-            : 'Start, pause and finish it with a timer'}
-      on={timed}
-      disabled={running}
-      ontoggle={() => setTimed(!timed)}
-    >
-      <Fields field="duration" {min} showLabel={false} onMin={(m) => (min = m)} />
-    </SwitchRow>
     <SwitchRow
       label="Repeats"
       note={repeats ? "Also changes the other days you haven't started yet" : 'Just this once'}
@@ -299,6 +306,12 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+  }
+  .lnote {
+    margin: 0;
+    font: 400 13px/1.4 var(--font);
+    color: var(--muted);
+    text-wrap: pretty;
   }
   .row {
     display: flex;

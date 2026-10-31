@@ -16,6 +16,7 @@
   import AccountYou from './AccountYou.svelte';
   import DayShape, { describe, type Shape } from './DayShape.svelte';
   import DisarmBar from './DisarmBar.svelte';
+  import { PICKS } from './Fields.svelte';
   import ScreenHeader from './ScreenHeader.svelte';
 
   let fileEl: HTMLInputElement | null = $state(null);
@@ -23,8 +24,10 @@
   // Nothing here applies as it's tapped: every choice is a draft until Save changes, in one save
   // bar whichever tab it's in. Display and Alerts choices are `prefs` (shown in place of the saved
   // ones), notifications `notifyDraft` (turning them on asks the browser, from the Save tap).
-  type Pref = 'themePref' | 'clock24' | 'showTimes' | 'checklistLayout' | 'habitsPlace' | 'alertOn' | 'fixedLead';
+  type Pref =
+    'themePref' | 'clock24' | 'showTimes' | 'checklistLayout' | 'habitsPlace' | 'alertOn' | 'fixedLead' | 'defLength';
   const DISPLAY: Pref[] = ['themePref', 'clock24', 'showTimes', 'checklistLayout', 'habitsPlace'];
+  const DAY: Pref[] = ['defLength'];
   let prefs = $state<Partial<Pick<Settings, Pref>>>({});
   const V = $derived({ ...S, ...prefs });
   const pick = <K extends Pref>(k: K, v: Settings[K]) => {
@@ -126,9 +129,9 @@
 
   const unsaved = $derived([
     ...(changed.some((k) => DISPLAY.includes(k)) ? ['Display'] : []),
-    ...(shapeChanged ? ['Your day'] : []),
+    ...(shapeChanged || changed.some((k) => DAY.includes(k)) ? ['Your day'] : []),
     ...(reviewChanged ? ['Weekly review'] : []),
-    ...(notifyChanged || changed.some((k) => !DISPLAY.includes(k)) ? ['Alerts'] : []),
+    ...(notifyChanged || changed.some((k) => !DISPLAY.includes(k) && !DAY.includes(k)) ? ['Alerts'] : []),
   ]);
   function saveAll() {
     if (changed.length) P.setSettings(Object.fromEntries(changed.map((k) => [k, prefs[k]])));
@@ -279,6 +282,21 @@
             </div>
           {/key}
           <span class="muted">Your day: {describe(shape, S.clock24, fT, dL)}</span>
+        </section>
+
+        <span class="gl">New tasks</span>
+        <section class="card g12" aria-label="New tasks">
+          <span class="ol">Length to start with</span>
+          <div class="row" role="group" aria-label="Length to start with">
+            {#each [0, ...PICKS] as m (m)}
+              <button class="chip" aria-pressed={V.defLength === m} onclick={() => pick('defLength', m)}
+                >{m ? dL(m) : 'No time'}</button
+              >
+            {/each}
+          </div>
+          <span class="muted"
+            >New task opens with this length picked. No time makes a check: a box to tick, with no timer.</span
+          >
         </section>
 
         <span class="gl">Weekly review</span>

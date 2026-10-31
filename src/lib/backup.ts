@@ -213,6 +213,7 @@ export function normalizeSettings(raw: unknown): Settings {
     onboarded: true,
     habitsPlace: r.habitsPlace === 'separate' ? 'separate' : 'checklist',
     checklistLayout: r.checklistLayout === 'row' ? 'row' : 'list',
+    defLength: Math.min(720, Math.max(0, Math.round(num(r.defLength, d.defLength)!))),
     reviewDay:
       Number.isInteger(r.reviewDay) && (r.reviewDay as number) >= 0 && (r.reviewDay as number) <= 6
         ? (r.reviewDay as number)

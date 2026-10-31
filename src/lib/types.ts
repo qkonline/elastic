@@ -140,6 +140,8 @@ export interface Settings {
   /** When the weekly review comes up: a weekday (0 = Sunday) and minutes into that day. */
   reviewDay: number;
   reviewAt: number;
+  /** The length New task starts with, in minutes (0 = No time, which makes a check). */
+  defLength: number;
 }
 
 /** Template for a repeating item. Day items point at it through `seriesId`. */
@@ -276,6 +278,7 @@ export const SHARED_SETTINGS = [
   'flexStart',
   'reviewDay',
   'reviewAt',
+  'defLength',
 ] as const;
 
 /** The shared part of the settings. */
@@ -300,6 +303,7 @@ export const DEFAULT_SETTINGS: Settings = {
   checklistLayout: 'list',
   reviewDay: 0,
   reviewAt: 18 * 60,
+  defLength: 0,
 };
 
 /** A colour's name, as people see it ('orange' is shown as Rose). */

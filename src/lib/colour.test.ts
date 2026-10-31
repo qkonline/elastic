@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeItem } from './backup';
-import { hueColor, inkOn, isHue } from './types';
+import { normalizeItem, normalizeSettings } from './backup';
+import { DEFAULT_SETTINGS, hueColor, inkOn, isHue, sharedSettings } from './types';
 
 describe('task colours', () => {
   it('accepts the five named colours and custom #rrggbb ones', () => {
@@ -24,5 +24,15 @@ describe('task colours', () => {
   it('keeps a custom colour through import, and replaces anything else', () => {
     expect(normalizeItem({ title: 'A', min: 30, hue: '#f472b6' }).hue).toBe('#f472b6');
     expect(normalizeItem({ title: 'B', min: 30, hue: 'url(x)' }).hue).toBe('cyan');
+  });
+});
+
+describe('the length new tasks start with', () => {
+  it('is No time unless set, and a backup keeps a sensible one', () => {
+    expect(normalizeSettings({}).defLength).toBe(0);
+    expect(normalizeSettings({ defLength: 45 }).defLength).toBe(45);
+    expect(normalizeSettings({ defLength: -5 }).defLength).toBe(0);
+    expect(normalizeSettings({ defLength: 'x' }).defLength).toBe(0);
+    expect(sharedSettings({ ...DEFAULT_SETTINGS, defLength: 30 })).toMatchObject({ defLength: 30 });
   });
 });
