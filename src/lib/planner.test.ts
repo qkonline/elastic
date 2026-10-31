@@ -402,6 +402,47 @@ describe('Planner', () => {
     expect(byTitle(p, 'Changed')).toBeTruthy();
   });
 
+  it('ends the day moving only what was picked, and can set the running task aside', async () => {
+    const p = await boot();
+    add(p, 'Write', 60);
+    add(p, 'Emails');
+    add(p, 'Invoices');
+    p.startDay(); // 10:00, Write starts
+    vi.setSystemTime(new Date(2026, 8, 25, 10, 20));
+    p.tick();
+    await p.endDay([byTitle(p, 'Invoices').id], false);
+    expect(byTitle(p, 'Write')).toMatchObject({ status: 'postponed', endedAt: 620 });
+    expect(byTitle(p, 'Emails').status).toBe('todo');
+    expect(byTitle(p, 'Invoices').status).toBe('postponed');
+    await p.flush();
+    const next = await db.getDay(TOMORROW);
+    expect(next?.items.map((i) => i.title)).toEqual(['Invoices']);
+  });
+
+  it('moves the rest of a running task set aside at the end of the day', async () => {
+    const p = await boot();
+    add(p, 'Write', 60);
+    p.startDay();
+    vi.setSystemTime(new Date(2026, 8, 25, 10, 20));
+    p.tick();
+    await p.endDay([byTitle(p, 'Write').id], false);
+    expect(byTitle(p, 'Write')).toMatchObject({ status: 'postponed', endedAt: 620 });
+    await p.flush();
+    const next = await db.getDay(TOMORROW);
+    expect(next?.items.map((i) => [i.title, i.min, i.continued])).toEqual([['Write', 40, true]]);
+  });
+
+  it('still marks the running task done when asked to', async () => {
+    const p = await boot();
+    add(p, 'Write', 60);
+    p.startDay();
+    vi.setSystemTime(new Date(2026, 8, 25, 10, 20));
+    p.tick();
+    await p.endDay([], true);
+    expect(byTitle(p, 'Write')).toMatchObject({ status: 'done', endedAt: 620 });
+    expect(p.locked).toBe(true);
+  });
+
   it('keeps a late night on the day it started, until the day is ended', async () => {
     vi.setSystemTime(new Date(2026, 8, 25, 22, 0));
     const p = await boot();

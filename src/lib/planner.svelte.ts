@@ -199,6 +199,9 @@ function stored(s: Partial<Settings>): Settings {
   return out;
 }
 
+/** Unfinished at the end of the day and not coming back by itself: one-off tasks and checks. */
+export const leftAtEnd = (i: Item): boolean => i.status === 'todo' && i.kind !== 'buffer' && i.repeat === 'Once';
+
 export class Planner {
   ready = $state(false);
   failed = $state<string | null>(null);
@@ -1432,18 +1435,33 @@ export class Planner {
     if (first) this.offerNotifications('timer');
   }
 
-  /** "End my day", optionally moving what's left (one-off tasks and checks) to the next day. */
-  async endDay(moveRest: boolean): Promise<void> {
-    if (this.whenCurrent('Today', this.dayTimers, () => void this.endDay(moveRest))) return;
+  /**
+   * "End my day". `move` is what to take to the next day: the unfinished one-off tasks and checks
+   * picked in the wrap-up (true: all of them, false: none). The running task is finished, or with
+   * `finish` false set aside with its time kept, and if it's among `move` what's left of it moves
+   * on too. A Boardo card's is always set aside.
+   */
+  async endDay(move: boolean | string[], finish = true): Promise<void> {
+    if (this.whenCurrent('Today', this.dayTimers, () => void this.endDay(move, finish))) return;
     const key = this.viewKey,
+      next = addDays(key, 1),
       n = this.n;
-    let d = A.endDay(this.day, n);
-    const left = moveRest
-      ? d.items.filter((i) => i.status === 'todo' && i.kind !== 'buffer' && i.repeat === 'Once')
-      : [];
+    let d = this.day;
+    const ids = move === true ? d.items.filter((i) => leftAtEnd(i)).map((i) => i.id) : move || [];
     const copies: Item[] = [];
-    for (const it of left) {
-      const res = A.moveOut(d, it.id, addDays(key, 1), n);
+    const act = A.activeItem(d);
+    if (act && !finish && !act.card) {
+      const res = ids.includes(act.id) ? A.moveOut(d, act.id, next, n) : null;
+      if (res) {
+        d = res.day;
+        copies.push(res.copy);
+      } else d = { ...d, items: d.items.map((i) => (i.id === act.id ? A.setAside(i, n) : i)) };
+    }
+    d = A.endDay(d, n);
+    for (const id of ids) {
+      const it = d.items.find((i) => i.id === id);
+      if (!it || !leftAtEnd(it)) continue;
+      const res = A.moveOut(d, id, next, n);
       if (res) {
         d = res.day;
         copies.push(res.copy);
