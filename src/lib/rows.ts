@@ -1,6 +1,6 @@
 // Timeline view models: what each row of the day looks like at time `n`.
 
-import { isActive, isMissed, isPartial, pausedTotal, worked, type Row } from './schedule';
+import { countsAsTask, isActive, isMissed, isPartial, pausedTotal, worked, type Row } from './schedule';
 import { apOf, cd, dL, fT, fTs, keyDate, shortDate } from './time';
 import type { Day, Item, Status } from './types';
 import { hueColor, SOMEDAY, untimed } from './types';
@@ -286,15 +286,11 @@ export function dayDot(d: Day | undefined, key: string, today: string): string |
   if (!d) return null;
   // Habits come back every day: they don't make a day look planned or pending.
   const real = d.items.filter(
-    (i) =>
-      i.kind !== 'buffer' &&
-      i.kind !== 'habit' &&
-      i.status !== 'skipped' &&
-      !(i.status === 'postponed' && !isPartial(i)),
+    (i) => countsAsTask(i) || (i.kind === 'check' && i.status !== 'skipped' && i.status !== 'postponed'),
   );
   if (!real.length) return null;
   if (key > today) return 'var(--faint)';
-  const done = real.filter((i) => i.status === 'done' || isPartial(i)).length;
+  const done = real.filter((i) => i.status === 'done').length;
   const pending = real.length - done;
   if (key === today && done === 0) return 'var(--faint)';
   if (pending === 0) return '#84cc16';

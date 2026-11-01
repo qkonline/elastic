@@ -145,7 +145,8 @@ describe('what Elastic tells Boardo', () => {
     p.startCard(card());
     const it = p.day.items.find((i) => i.card)!;
     expect(it).toMatchObject({ min: 0, status: 'running', hue: 'cyan', card: { id: 'k1', board: 'b1' } });
-    expect(p.day.items.find((i) => i.title === 'Email')!.status).toBe('postponed');
+    // Email had run under a minute: it goes back to do rather than leave a record of no work.
+    expect(p.day.items.find((i) => i.title === 'Email')!.status).toBe('todo');
     expect(sent.map((o) => o.type)).toEqual(['start']);
     const first = sent[0].sessionId;
     vi.setSystemTime(new Date(2026, 9, 22, 10, 30));

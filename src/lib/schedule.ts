@@ -29,6 +29,17 @@ export const anchored = (it: Item) =>
 export const isPartial = (it: Item) => it.status === 'postponed' && it.startedAt != null;
 
 /**
+ * A task the day's numbers count: not a buffer, check or habit, not skipped or moved away, and
+ * not the part of one done before it was set aside with the rest later today (the rest counts
+ * instead, so a task counts once). It's done only once all of it is: a part done isn't.
+ */
+export const countsAsTask = (it: Item) =>
+  !untimed(it.kind) &&
+  it.kind !== 'buffer' &&
+  it.status !== 'skipped' &&
+  !(it.status === 'postponed' && (!isPartial(it) || it.laterCopy));
+
+/**
  * Minutes actually worked on an item at time `n`. Timestamps are wall-clock minutes, so a timer
  * running across a clock change (around 2 am, twice a year) is off by that hour; the floor at
  * zero keeps the fall-back case from going negative.
@@ -59,7 +70,7 @@ export function pausedTotal(it: Item, n: number): number {
  * and what overlaps it is flagged `runsInto`, since a meeting doesn't wait for whatever you've
  * just started.
  */
-export function schedule(day: Day, n: number): { rows: Row[]; finish: number; stacked: boolean } {
+export function schedule(day: Day, n: number, stack = true): { rows: Row[]; finish: number; stacked: boolean } {
   const started = day.dayStarted != null;
   // Once the day has started, until it's ended, tasks still to do follow the now line: none is
   // planned before now, so the time since the last one finished shows as idle and a task is only
@@ -141,10 +152,12 @@ export function schedule(day: Day, n: number): { rows: Row[]; finish: number; st
 
   // When what's left no longer fits before the wrap-up (`stacked`), tasks stop following the now
   // line: each starts no later than leaves room, before the wrap-up, for what comes after it (the
-  // tasks, and fixed items at their times; a buffer's time is spare, so it can be taken). So they
-  // stack up against it, and one is missed once the now line has passed its end. Until then, a
-  // task that doesn't fit before a fixed item or buffer goes after it (actions.letThrough()).
-  const over = follow && rows.some((r) => follows(r.it) && !untimed(r.it.kind) && r.end > day.wrap + 0.5);
+  // tasks, and fixed items at their times). So they stack up against it, and one is missed once
+  // the now line has passed its end. A buffer keeps its time even then (the user's call, 1 Nov
+  // 2026): what's after it goes after it, past the wrap-up if need be, and what's before it isn't
+  // squeezed for it. A task that doesn't fit before a fixed item or buffer goes after it
+  // (actions.letThrough(), which looks at the day without stacking, `stack` false, for buffers).
+  const over = stack && follow && rows.some((r) => follows(r.it) && !untimed(r.it.kind) && r.end > day.wrap + 0.5);
   if (over) {
     let limit = day.wrap;
     for (let i = rows.length - 1; i >= 0; i--) {
@@ -159,6 +172,8 @@ export function schedule(day: Day, n: number): { rows: Row[]; finish: number; st
         }
         limit = r.start;
       } else if (anchored(r.it) && r.it.kind === 'fixed') limit = Math.min(limit, r.start);
+      // What's before a buffer only has to end by its time: what's after it can't use that time.
+      else if (anchored(r.it)) limit = r.start;
     }
     // Never before the end of the task or fixed item listed above it, so the list stays in the
     // order of the day; a day too full for that runs past the wrap-up.
@@ -171,7 +186,7 @@ export function schedule(day: Day, n: number): { rows: Row[]; finish: number; st
           r.start = prev;
         }
         prev = r.end;
-      } else if (anchored(r.it) && r.it.kind === 'fixed') prev = Math.max(prev, r.end);
+      } else if (anchored(r.it)) prev = Math.max(prev, r.end);
       // Nor over time already taken: the task under way, or one done or worked on part-way.
       else if (
         r.it.kind !== 'buffer' &&
@@ -213,11 +228,11 @@ export interface DayStats {
 /** What a day adds up to. Skipped items and ones moved to another day don't count. */
 export function dayStats(day: Day, n: number): DayStats {
   const counts = (i: Item) => i.status !== 'skipped' && !(i.status === 'postponed' && !isPartial(i));
-  const tasks = day.items.filter((i) => !untimed(i.kind) && i.kind !== 'buffer' && counts(i));
+  const tasks = day.items.filter(countsAsTask);
   const checks = day.items.filter((i) => i.kind === 'check' && counts(i));
   return {
     tasks: tasks.length,
-    tasksDone: tasks.filter((i) => i.status === 'done' || isPartial(i)).length,
+    tasksDone: tasks.filter((i) => i.status === 'done').length,
     logged: day.items.reduce((sum, i) => sum + worked(i, n), 0),
     checks: checks.length,
     checksDone: checks.filter((i) => i.status === 'done').length,

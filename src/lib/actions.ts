@@ -95,6 +95,7 @@ export function startItem(day: Day, id: string, n: number): Day {
       .map((r) => r.it.id),
   );
   let rest: Item | null = null;
+  let back: Item | null = null;
   const items = day.items.map((i): Item => {
     if (i.id === id)
       return { ...i, status: 'running', startedAt: n, endedAt: null, pausedAt: null, pausedFor: 0, marked: false };
@@ -106,13 +107,19 @@ export function startItem(day: Day, id: string, n: number): Day {
       // up its time gets as long as a reopened task.
       const end = i.status === 'paused' ? i.pausedAt! : n;
       const w = end - i.startedAt! - i.pausedFor;
+      // Under a minute isn't work to keep a record of: it goes back to do, after the one started.
+      if (w < 1) {
+        back = { ...i, status: 'todo', startedAt: null, endedAt: null, pausedAt: null, pausedFor: 0 };
+        return i;
+      }
       rest = restOf(i, w, w >= i.min ? REOPEN_MIN : remainder(i, w));
       return { ...i, status: 'postponed', endedAt: end, pausedAt: null, laterCopy: true };
     }
     return i;
   });
-  const ordered = toCurrentPoint(items, id, missed);
-  if (rest) ordered.splice(ordered.findIndex((x) => x.id === id) + 1, 0, rest);
+  const ordered = toCurrentPoint(back ? items.filter((x) => x.id !== back!.id) : items, id, missed);
+  const after = back ?? rest;
+  if (after) ordered.splice(ordered.findIndex((x) => x.id === id) + 1, 0, after);
   // Starting something on a day already ended reopens it.
   return { ...day, dayStarted: day.dayStarted ?? n, dayEnded: null, items: ordered };
 }
@@ -411,11 +418,14 @@ export function letThrough(day: Day, n: number): Day {
   }
   for (let guard = 0; guard < d.items.length; guard++) {
     const { rows, stacked } = schedule(d, n);
+    // A full day squeezes tasks to fit before the wrap-up, never before a buffer: whether a task
+    // still fits before one is judged from the now line, as on a day with time to spare.
+    const plain = stacked ? schedule(d, n, false).rows : rows;
     let move: [string, number] | null = null;
     for (const a of rows) {
-      // A day too full for what's left takes a buffer's time instead (schedule()).
-      if (!anchored(a.it) || untimed(a.it.kind) || (stacked && a.it.kind === 'buffer')) continue;
-      const late = rows.find((r) => r.idx < a.idx && follows(r.it) && r.end > a.start + 0.5);
+      if (!anchored(a.it) || untimed(a.it.kind)) continue;
+      const by = a.it.kind === 'buffer' ? plain : rows;
+      const late = by.find((r) => r.idx < a.idx && follows(r.it) && r.end > a.start + 0.5);
       if (late) {
         move = [a.it.id, late.idx];
         break;

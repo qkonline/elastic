@@ -202,6 +202,23 @@ describe('dayStats', () => {
     ]);
     expect(dayStats(d, 600)).toEqual({ tasks: 2, tasksDone: 1, logged: 50, checks: 2, checksDone: 1 });
   });
+
+  it('counts a task set aside once, and done only once what was left of it is done', () => {
+    // "a" ran 9:00 to 9:15 and was set aside for "b"; its rest is still to do.
+    let d = A.startItem(day([t('a', 30, { id: 'a' }), t('b', 30, { id: 'b' })], { dayStarted: 540 }), 'a', 540);
+    d = A.startItem(d, 'b', 555);
+    expect(dayStats(d, 560)).toMatchObject({ tasks: 2, tasksDone: 0, logged: 20 });
+    d = A.finish(d, 'b', 585);
+    const rest = d.items.find((i) => i.continued)!;
+    d = A.startItem(d, rest.id, 585);
+    d = A.finish(d, rest.id, 600);
+    expect(dayStats(d, 600)).toMatchObject({ tasks: 2, tasksDone: 2, logged: 60 });
+  });
+
+  it("doesn't count a part done whose rest went to another day as done", () => {
+    const d = day([t('a', 60, { status: 'postponed', startedAt: 540, endedAt: 570, movedKey: '2026-09-26' })]);
+    expect(dayStats(d, 600)).toMatchObject({ tasks: 1, tasksDone: 0, logged: 30 });
+  });
 });
 
 describe('following the now line', () => {
@@ -276,17 +293,32 @@ describe('following the now line', () => {
     expect(schedule(d, 900).rows.some((r) => r.pastEnd)).toBe(false);
   });
 
-  it("takes a buffer's time when the day is too full for what's left", () => {
+  it("keeps a buffer's time when the day is too full, and pushes what's after it past the wrap-up", () => {
     // 3:30 pm: three hours of tasks, a buffer held at 4:30, two and a half hours to the 6 pm wrap-up.
     const d = day([t('a', 60), t('b', 60), t('pause', 30, { kind: 'buffer', heldAt: 990 }), t('c', 60)], {
       dayStarted: 600,
       wrap: 1080,
     });
-    const s = schedule(d, 930);
-    expect(s.stacked).toBe(true);
-    expect(at(d, 930)).toEqual(['a 900-960', 'b 960-1020', 'pause 990-1020', 'c 1020-1080']);
-    // ...and doesn't move the buffer up in front of the tasks, as it would with time to spare.
-    expect(A.letThrough(d, 930)).toBe(d);
+    expect(schedule(d, 930).stacked).toBe(true);
+    // b no longer fits before the buffer, so the buffer goes in front of it, as with time to spare...
+    const moved = A.letThrough(d, 930);
+    expect(moved.items.map((i) => i.title)).toEqual(['a', 'pause', 'b', 'c']);
+    // ...and the times stay in order: nothing is squeezed into the buffer's time.
+    expect(at(moved, 930)).toEqual(['a 930-990', 'pause 990-1020', 'b 1020-1080', 'c 1080-1140']);
+    const rows = schedule(moved, 930).rows;
+    expect(rows.some((r) => isMissed(r, 930))).toBe(false);
+    expect(rows.find((r) => r.it.title === 'c')!.pastEnd).toBe(true);
+  });
+
+  it('never puts a task after a buffer before the buffer on a full day', () => {
+    const d = day([t('a', 30), t('pause', 30, { kind: 'buffer', heldAt: 960 }), t('b', 60), t('c', 60)], {
+      dayStarted: 600,
+      wrap: 1080,
+    });
+    const rows = schedule(d, 930).rows;
+    const starts = rows.map((r) => r.start);
+    expect([...starts].sort((x, y) => x - y)).toEqual(starts);
+    expect(rows[2].start).toBeGreaterThanOrEqual(990);
   });
 
   it('never stacks a task over the one under way or one done', () => {

@@ -5,7 +5,7 @@
 import { habitMet, isHabit } from './habits';
 import type { DayAt } from './habits';
 import { MONTHS, quarterOf, quarterRange, addQuarters } from './goals';
-import { isPartial, worked } from './schedule';
+import { countsAsTask, isPartial, worked } from './schedule';
 import { addDays, dayDiff, keyDate, mondayOf } from './time';
 import type { Hue, Review, ReviewNumbers } from './types';
 import { untimed } from './types';
@@ -85,9 +85,9 @@ export function reviewNumbers(dayAt: DayAt, from: string, to: string, today: str
       }
       weeks.set(mondayOf(k), (weeks.get(mondayOf(k)) ?? 0) + w);
       if (it.endedAt != null) lastEnd = Math.max(lastEnd, it.endedAt);
-      if (it.kind === 'buffer') continue;
+      if (!countsAsTask(it)) continue;
       out.tasks++;
-      if (it.status === 'done' || isPartial(it)) out.tasksDone++;
+      if (it.status === 'done') out.tasksDone++;
     }
     const end = d.dayEnded ?? lastEnd;
     if (d.dayStarted != null && end > d.wrap + 15) out.longDays++;

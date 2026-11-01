@@ -55,6 +55,14 @@ describe('timer actions', () => {
     expect(d.items[2]).toMatchObject({ min: A.REOPEN_MIN, continued: true });
   });
 
+  it('puts one that ran under a minute back to do, after the one started, with no record', () => {
+    let d = A.startItem(day([t('a', 30), t('b', 30), t('c', 30)]), 'a', 540);
+    d = A.startItem(d, 'c', 540.5);
+    expect(st(d)).toEqual(['c:running', 'a:todo', 'b:todo']);
+    expect(d.items[1]).toMatchObject({ startedAt: null, endedAt: null, pausedFor: 0 });
+    expect(d.items.some((i) => i.continued)).toBe(false);
+  });
+
   it('never starts a buffer', () => {
     const d = day([t('buf', 15, { kind: 'buffer' })]);
     expect(A.startItem(d, 'buf', 540)).toBe(d);
