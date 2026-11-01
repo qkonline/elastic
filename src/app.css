@@ -128,16 +128,20 @@
   }
 }
 /* A task open beside the plan (see Sheet's docked panel), or the Someday column under it while
-   none is, takes this much of the right side. */
-html.docked,
-html.side-col {
-  --dock-w: 400px;
+   none is, takes this much of the right side (--col-w, from 1100px). */
+@media (min-width: 1100px) {
+  :root {
+    --col-w: 400px;
+  }
 }
 @media (min-width: 1440px) {
-  html.docked,
-  html.side-col {
-    --dock-w: 440px;
+  :root {
+    --col-w: 440px;
   }
+}
+html.docked,
+html.side-col {
+  --dock-w: var(--col-w);
 }
 
 html,

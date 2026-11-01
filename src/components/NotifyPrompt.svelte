@@ -3,9 +3,9 @@
   import { needsInstallForNotifications } from '../lib/platform';
   import { pushConfigured } from '../lib/push';
 
-  // Offered right after a timer starts or a task gets a fixed time. "Not now" asks again
-  // tomorrow; "Don't ask again" turns the suggestion off for good (notifications can still be
-  // switched on in Settings).
+  // Offered right after a timer starts, on Today's plan only. "Not now" asks again tomorrow;
+  // "Don't ask again" turns the suggestion off for good (notifications can still be switched on
+  // in Settings).
   const install = needsInstallForNotifications();
   const reach = pushConfigured()
     ? 'even when Elastic is closed or your phone is locked'
@@ -23,9 +23,7 @@
         <button class="plain" onclick={() => (P.notifyPrompt = null)}>OK</button>
       </div>
     {:else}
-      <p class="title">
-        {P.notifyPrompt === 'fixed' ? 'Get a notification before fixed times?' : "Get a notification when time's up?"}
-      </p>
+      <p class="title">Get a notification when time's up, and before fixed times?</p>
       <p class="body">
         {#if install}
           On iPhone and iPad, notifications work once Elastic is on your Home Screen.

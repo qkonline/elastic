@@ -207,7 +207,12 @@
     <!-- inert: while a sheet or the welcome is open, keyboard and screen readers stay inside it. -->
     <!-- The shell leaves room for the sidebar and a task open beside the plan (iPad, computer). -->
     <div class="shell">
-      <div class="page" inert={covered} {@attach dayGestures(P)}>
+      <div
+        class="page"
+        class:cal={P.screen.type === 'today' && P.view !== 'day'}
+        inert={covered}
+        {@attach dayGestures(P)}
+      >
         {#if P.screen.type === 'habits'}
           <HabitsScreen />
         {:else if P.screen.type === 'goals'}
@@ -225,7 +230,7 @@
           <SaveError />
           <RunningElsewhere />
           <ComingUp />
-          <NotifyPrompt />
+          {#if P.view === 'day' && P.isToday}<NotifyPrompt />{/if}
           <BoardoOffer />
           <ReviewDue />
           <main
@@ -367,6 +372,17 @@
     }
     .page {
       max-width: 780px;
+    }
+    /* The week and month use the room there is. */
+    .page.cal {
+      max-width: none;
+    }
+  }
+  /* A screen with nothing beside it (Habits, Goals, Review, Settings) starts where Today's plan
+     does, so switching screens doesn't move the page sideways. */
+  @media (min-width: 1100px) {
+    :global(html:not(.docked):not(.side-col)) .page {
+      margin-left: max(0px, calc((100% - var(--col-w) - 780px) / 2));
     }
   }
   @media (prefers-reduced-motion: reduce) {

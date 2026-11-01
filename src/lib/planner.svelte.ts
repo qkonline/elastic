@@ -246,7 +246,7 @@ export class Planner {
   announce = $state('');
   importMsg = $state<{ err: boolean; t: string } | null>(null);
   /** The "get notified?" card, offered when a timer starts or a task gets a fixed time. */
-  notifyPrompt = $state<'timer' | 'fixed' | 'blocked' | null>(null);
+  notifyPrompt = $state<'ask' | 'blocked' | null>(null);
   /** Heads-ups closed from the banner. */
   private dismissedHeadsUps = $state.raw<string[]>([]);
   /** Signed in on this device: the plan syncs with the account. */
@@ -1488,7 +1488,7 @@ export class Planner {
       first ? `${first.title} started` : 'Day started',
     );
     this.celebrate = { kind: 'start', at: n, first: first?.title ?? null };
-    if (first) this.offerNotifications('timer');
+    if (first) this.offerNotifications();
   }
 
   /**
@@ -1628,7 +1628,7 @@ export class Planner {
       // with the day's hours set first, as Start my day does.
       return A.startItem({ ...this.planDay, ...this.opening(d, n) }, id, n);
     }, `${it.title} started`);
-    this.offerNotifications('timer');
+    this.offerNotifications();
   }
 
   /**
@@ -1919,7 +1919,6 @@ export class Planner {
     this.sheet = null;
     if (on && on !== this.viewKey && o.kind !== 'habit') return this.addOnDay(on, it, repeat, ends ?? null);
     this.update((d) => A.addItem(d, it, this.n), `Added ${it.title}`);
-    if (it.kind === 'fixed') this.offerNotifications('fixed');
     // A repeating task becomes a series straight away, like choosing a repeat in the task sheet.
     return repeat && repeat !== 'Once' ? this.setRepeat(it.id, repeat, ends ?? null) : Promise.resolve();
   }
@@ -1935,7 +1934,6 @@ export class Planner {
     this.put(A.addItem(d, it, minutesInto(key, this.clock)));
     this.say(`Added ${it.title} to ${this.dayWords(key)}`);
     if (repeat && repeat !== 'Once') await this.setRepeat(it.id, repeat, ends, key);
-    if (it.kind === 'fixed') this.offerNotifications('fixed');
   }
 
   /**
@@ -2005,14 +2003,12 @@ export class Planner {
     const series = it.seriesId ? this.series.find((x) => x.id === it.seriesId) : undefined;
     const endsChanged = f.repeat !== 'Once' && JSON.stringify(f.ends ?? null) !== JSON.stringify(endsOf(series));
     if (key !== SOMEDAY && (f.repeat !== it.repeat || endsChanged)) await this.setRepeat(id, f.repeat, f.ends ?? null);
-    if (f.kind === 'fixed' && it.kind !== 'fixed' && key !== SOMEDAY) this.offerNotifications('fixed');
   }
 
   setKind(id: string, k: Kind): void {
     const it = this.item(id);
     this.update((d) => A.placeFixed(A.setKind(d, id, k), id, this.n));
     if (it?.seriesId) this.queueSeriesSync(it.seriesId, this.viewKey);
-    if (k === 'fixed') this.offerNotifications('fixed');
   }
 
   move(id: string, dir: -1 | 1): void {
@@ -2646,7 +2642,7 @@ export class Planner {
     const { notify, ...rest } = came.settings;
     this.setSettings(rest);
     // Notifications are allowed address by address: offered again here.
-    if (notify) this.notifyPrompt = 'timer';
+    if (notify) this.notifyPrompt = 'ask';
     const code = came.code;
     if (!code) return;
     await this.accountAction(async () => {
@@ -2956,16 +2952,16 @@ export class Planner {
   // ---------- notifications ----------
 
   /**
-   * After a timer starts or a task gets a fixed time, suggest notifications unless they're on,
-   * refused, or snoozed.
+   * After a timer starts, suggest notifications unless they're on, refused, or snoozed. Only then:
+   * until 1 Nov 2026 giving a task a fixed time asked too, which put the card on Week, Month and
+   * other days before anything had started (the audit).
    */
-  private offerNotifications(why: 'timer' | 'fixed'): void {
+  private offerNotifications(): void {
     const s = this.settings;
     if (s.notify || s.notifyAsk === 'never' || (s.notifyAskAfter && this.today < s.notifyAskAfter)) return;
     if (!hasNotifications() && !needsInstallForNotifications()) return;
     if (hasNotifications() && Notification.permission === 'denied') return;
-    if (why === 'fixed' && !s.fixedLead) return;
-    this.notifyPrompt = why;
+    this.notifyPrompt = 'ask';
   }
 
   /** The three answers on the suggestion card. */

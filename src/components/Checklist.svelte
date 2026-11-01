@@ -3,6 +3,7 @@
   import { habitMet, habitValue, isHabit } from '../lib/habits';
   import { iconOf } from '../lib/icons';
   import { planner as P } from '../lib/planner.svelte';
+  import { dockable } from '../lib/ui.svelte';
   import { keyDate, shortDate } from '../lib/time';
   import { hueColor, inkOn, type Item } from '../lib/types';
   import Collapsible from './Collapsible.svelte';
@@ -170,6 +171,7 @@
     {icon}
     tally="{done}/{entries.length}"
     kind={mode === 'habits' ? 'habits' : 'checklist'}
+    bar={dockable.current && P.day.dayStarted != null}
     bind:list
   >
     {#snippet strip()}

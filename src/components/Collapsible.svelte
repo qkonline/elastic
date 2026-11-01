@@ -6,6 +6,8 @@
   // A list section on the day (Checklist, Habits, Projects) under its title bar. Past three
   // entries it's folded: the first three stay in view with the third fading out, above a Show all
   // button. It always opens folded; Show all opens it until the next time it's shown.
+  // With `bar` it shuts down to its title bar, which opens it (a started day on a computer, so
+  // the timeline comes up the screen; the user's pick, 1 Nov 2026).
   let {
     id,
     label,
@@ -16,6 +18,7 @@
     strip,
     list = $bindable(null),
     kind = '',
+    bar = false,
   }: {
     id: string;
     label: string;
@@ -30,7 +33,12 @@
     list?: HTMLUListElement | null;
     /** An extra class for the section (what's in it). */
     kind?: string;
+    /** Shut to the title bar until it's opened. */
+    bar?: boolean;
   } = $props();
+
+  let opened = $state(false);
+  const barShut = $derived(bar && !opened);
 
   const FOLD_AT = 3;
   let folded = $state(true);
@@ -57,30 +65,46 @@
   const uid = untrack(() => `sec-${id}`);
 </script>
 
-<section class="sec {kind}" aria-label={label}>
-  <SectionHead {icon} title={label} {tally} inset />
-  {#if strip}{@render strip()}{/if}
-  <div
-    class="clip"
-    class:shut
-    class:still={reducedMotion.current}
-    id={uid}
-    style:height={can && full ? `${shut ? short : full}px` : undefined}
-  >
-    <ul bind:this={list}>
-      {@render children(shut)}
-    </ul>
-  </div>
-  {#if can}
-    <button class="more hit" aria-expanded={!shut} aria-controls={uid} onclick={() => (folded = !folded)}
-      >{shut ? `Show all ${count}` : 'Show fewer'}<svg
-        viewBox="0 0 12 12"
-        width="11"
-        height="11"
-        aria-hidden="true"
-        class:up={!shut}><path d="M3 4.5l3 3 3-3" /></svg
-      ></button
-    >
+<section class="sec {kind}" class:barred={barShut} aria-label={label}>
+  {#if bar}
+    <SectionHead
+      {icon}
+      title={label}
+      {tally}
+      inset
+      open={opened}
+      ontoggle={() => (opened = !opened)}
+      controls="{uid}-all"
+    />
+  {:else}
+    <SectionHead {icon} title={label} {tally} inset />
+  {/if}
+  {#if !barShut}
+    <div class="all" id="{uid}-all">
+      {#if strip}{@render strip()}{/if}
+      <div
+        class="clip"
+        class:shut
+        class:still={reducedMotion.current}
+        id={uid}
+        style:height={can && full ? `${shut ? short : full}px` : undefined}
+      >
+        <ul bind:this={list}>
+          {@render children(shut)}
+        </ul>
+      </div>
+      {#if can}
+        <button class="more hit" aria-expanded={!shut} aria-controls={uid} onclick={() => (folded = !folded)}
+          >{shut ? `Show all ${count}` : 'Show fewer'}<svg
+            viewBox="0 0 12 12"
+            width="11"
+            height="11"
+            aria-hidden="true"
+            class:up={!shut}><path d="M3 4.5l3 3 3-3" /></svg
+          ></button
+        >
+      {/if}
+    </div>
   {/if}
 </section>
 
@@ -92,6 +116,13 @@
     padding-bottom: 6px;
     border-radius: var(--r-card);
     background: var(--raised);
+  }
+  .sec.barred {
+    padding-bottom: 0;
+  }
+  .all {
+    display: flex;
+    flex-direction: column;
   }
   .clip {
     overflow: hidden;
