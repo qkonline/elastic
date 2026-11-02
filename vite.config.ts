@@ -9,7 +9,7 @@ const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
 /**
  * Emit dist/sw.js with this build's files to precache and a cache name derived from their
- * contents, so any change to the app, an icon or the manifest ships a new service worker.
+ * contents, so any change to the app, an icon, the manifest or the headers ships a new service worker.
  * The same version goes into index.html (`<meta name="build">`) and dist/version.json, which
  * the app checks to notice that a newer build is out (src/lib/update.ts).
  */
@@ -35,6 +35,9 @@ function serviceWorker(api: string): Plugin {
         hash.update(name).update(readFileSync(here(`./public/${name}`)));
         files.push(name);
       }
+      // The stored page keeps the headers it was served with (its security policy too), so a
+      // change to them needs a new build as well.
+      hash.update(readFileSync(here('./public/_headers')));
       const version = hash.digest('hex').slice(0, 12);
       const source = readFileSync(here('./src/sw.js'), 'utf8')
         .replace('__VERSION__', version)

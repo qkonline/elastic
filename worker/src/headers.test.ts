@@ -13,7 +13,8 @@ describe('_headers', () => {
     const scripts = [...read('../../index.html').matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
     expect(scripts).toHaveLength(1);
     const hash = createHash('sha256').update(scripts[0]).digest('base64');
-    const csp = /Content-Security-Policy-Report-Only: (.*)/.exec(headers)![1];
+    const csp = /Content-Security-Policy: (.*)/.exec(headers)![1];
+    expect(headers).not.toContain('Report-Only');
     const scriptSrc = /script-src ([^;]*)/.exec(csp)![1];
     expect(scriptSrc).toContain(`'sha256-${hash}'`);
     expect(scriptSrc).not.toContain('unsafe-inline');
