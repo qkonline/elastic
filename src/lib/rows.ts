@@ -75,7 +75,12 @@ export interface PauseRow {
   then: string;
 }
 
-export type TimelineRow = ItemVM | { type: 'gap'; key: string; gap: string } | PauseRow | { type: 'now'; key: string };
+export type TimelineRow =
+  | ItemVM
+  | { type: 'gap'; key: string; gap: string }
+  | PauseRow
+  | { type: 'now'; key: string }
+  | { type: 'wrap'; key: string; at: string };
 
 export interface Ctx {
   day: Day;
@@ -154,7 +159,6 @@ export function itemVM(r: Row, c: Ctx): ItemVM {
   const flags: Flag[] = [];
   if (missed) flags.push({ t: 'Missed', tone: 'y' });
   if (r.runsInto) flags.push({ t: 'runs into a fixed event', tone: 'y' });
-  if (r.pastEnd) flags.push({ t: 'past wrap-up', tone: 'r' });
 
   const badges: string[] = [];
   if (it.repeat !== 'Once') {
@@ -239,6 +243,17 @@ export function timelineRows(c: Ctx): TimelineRow[] {
     out.push(v);
     const pause = pauseRow(v, r.it, c);
     if (pause) out.push(pause);
+  }
+
+  // A day running late gets one line where the wrap-up falls (the rows past it are outlined),
+  // rather than a tag on each of them.
+  if (c.rows.some((r) => r.pastEnd)) {
+    const w = c.day.wrap;
+    let at = out.findIndex((x) => x.type === 'item' && x.s === 'todo' && x.start >= w - 0.5);
+    if (at > 0 && out[at - 1].type === 'gap') at--;
+    const line: TimelineRow = { type: 'wrap', key: 'wrap', at: fT(w, c.clock24) };
+    if (at < 0) out.push(line);
+    else out.splice(at, 0, line);
   }
 
   if (c.isToday && c.rows.length) {

@@ -337,7 +337,7 @@
     color: var(--faint);
   }
   .ap {
-    font: 400 10px/1 var(--font);
+    font: 400 12px/1 var(--font);
     color: var(--muted);
     letter-spacing: 0.04em;
   }
@@ -414,7 +414,7 @@
     text-decoration-color: var(--faint);
   }
   .fixed {
-    font: 400 11px/1 var(--font);
+    font: 400 12px/1 var(--font);
     padding: 4px 8px;
     border-radius: var(--r-sm);
     background: var(--sunk);

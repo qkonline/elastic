@@ -160,7 +160,7 @@
     stroke: var(--muted);
   }
   text {
-    font: 400 11px/1 var(--font);
+    font: 400 12px/1 var(--font);
     fill: var(--muted);
   }
   .now {

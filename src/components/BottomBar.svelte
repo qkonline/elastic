@@ -59,7 +59,7 @@
     align-items: center;
     justify-content: center;
     gap: 3px;
-    font: 400 11px/1 var(--font);
+    font: 400 12px/1 var(--font);
     cursor: pointer;
   }
   /* The screen you're on: an open tab, joined to the page above it. */

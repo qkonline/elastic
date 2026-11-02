@@ -23,7 +23,7 @@
     border-radius: 4px;
     background: var(--bg);
     color: var(--nowT);
-    font: 600 10.5px/1 var(--font);
+    font: 600 12px/1 var(--font);
     letter-spacing: -0.01em;
     white-space: nowrap;
   }

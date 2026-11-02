@@ -280,7 +280,7 @@
   }
   .in-ring {
     position: absolute;
-    font: 600 11px/1 var(--font);
+    font: 600 12px/1 var(--font);
     color: var(--text);
     font-variant-numeric: tabular-nums;
   }

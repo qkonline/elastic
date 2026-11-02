@@ -58,14 +58,14 @@
   // the longest day fits.
   let picked = $state<string | null>(null);
   const sel = $derived(picked && keys.includes(picked) ? picked : P.viewKey);
+  // The strips are as tall as the busiest day needs, up to STRIP_H (a quiet week isn't a tall
+  // empty card), with eight hours as the scale's least.
   const STRIP_H = 280;
-  const perMin = $derived(
-    STRIP_H /
-      Math.max(
-        480,
-        ...cols.map((c) => c.rows.reduce((s, r) => s + Math.max(0, r.end - r.start), 0) + c.rows.length * 2),
-      ),
+  const busiest = $derived(
+    Math.max(0, ...cols.map((c) => c.rows.reduce((s, r) => s + Math.max(0, r.end - r.start), 0) + c.rows.length * 2)),
   );
+  const perMin = $derived(STRIP_H / Math.max(480, busiest));
+  const stripH = $derived(Math.max(96, Math.ceil(busiest * perMin)));
   const total = (c: (typeof cols)[number]) => {
     const day = P.days[c.k];
     if (!day) return '';
@@ -195,7 +195,7 @@
 
   {#if layout === 'strips'}
     <div class="strips">
-      <div class="scols" style:--sh="{STRIP_H}px">
+      <div class="scols" style:--sh="{stripH}px">
         {#each cols as c (c.k)}
           <button
             class="scol"
@@ -242,7 +242,9 @@
             <span class="wd">{weekdayShort(c.d)}</span>
             <span class="dn">{c.d.getDate()}</span>
             {#if c.counts && (c.counts.checks || c.counts.habits)}
-              <span class="mini">{c.counts.checksDone + c.counts.habitsMet}/{c.counts.checks + c.counts.habits}</span>
+              <span class="mini" title="Checks and habits ticked off"
+                >{c.counts.checksDone + c.counts.habitsMet}/{c.counts.checks + c.counts.habits} ticked</span
+              >
             {/if}
           </button>
         {/each}
@@ -367,7 +369,7 @@
   }
   .tot {
     min-height: 13px;
-    font: 400 11px/1.2 var(--font);
+    font: 400 12px/1.2 var(--font);
     color: var(--muted);
     white-space: nowrap;
   }
@@ -390,7 +392,7 @@
     color: var(--bg);
   }
   .dchip .wd {
-    font: 400 11px/1 var(--font);
+    font: 400 12px/1 var(--font);
     opacity: 0.75;
   }
   .dchip .dn {
@@ -495,7 +497,7 @@
     color: var(--bg);
   }
   .mini {
-    font: 400 11px/1 var(--font);
+    font: 400 12px/1 var(--font);
     color: var(--faint);
   }
   .grid {
@@ -508,7 +510,7 @@
     position: absolute;
     right: 8px;
     transform: translateY(-50%);
-    font: 400 11px/1 var(--font);
+    font: 400 12px/1 var(--font);
     color: var(--faint);
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
@@ -562,7 +564,7 @@
     -webkit-box-orient: vertical;
   }
   .bm {
-    font: 400 11px/1.2 var(--font);
+    font: 400 12px/1.2 var(--font);
     opacity: 0.8;
   }
   /* Too short for two lines: the title on one, cut off with an ellipsis (the full title and its
@@ -610,7 +612,7 @@
     left: 2px;
     right: 2px;
     border-top: 2px solid var(--now);
-    font: 400 10px/1 var(--font);
+    font: 400 12px/1 var(--font);
     color: var(--nowT);
     padding-top: 2px;
     pointer-events: none;

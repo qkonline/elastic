@@ -366,7 +366,7 @@
   }
   .moreN {
     padding: 0 4px;
-    font: 400 11px/1.3 var(--font);
+    font: 400 12px/1.3 var(--font);
     color: var(--muted);
   }
   .picked {

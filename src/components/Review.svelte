@@ -3,7 +3,7 @@
   import { addQuarters, quarterLabel, suggestStatus } from '../lib/goals';
   import { weekSpan } from '../lib/review';
   import { planner as P } from '../lib/planner.svelte';
-  import { dL, fT } from '../lib/time';
+  import { addDays, dL, fT, keyDate, weekdayShort } from '../lib/time';
   import type { Goal, Review } from '../lib/types';
   import GoalCard from './GoalCard.svelte';
   import ReviewNumbers from './ReviewNumbers.svelte';
@@ -30,6 +30,21 @@
     void P.minute;
     return untrack(() => (due ? P.numbersFor(due.from, due.to) : P.numbersFor(...P.thisWeek())));
   });
+  // Between reviews, the week so far day by day: time logged and tasks done each day.
+  const byDay = $derived.by(() => {
+    void P.minute;
+    if (due) return [];
+    const [from] = untrack(() => P.thisWeek());
+    return Array.from({ length: 7 }, (_, i) => {
+      const key = addDays(from, i);
+      const x = key > P.today ? null : untrack(() => P.numbersFor(key, key));
+      return { key, logged: x?.logged ?? 0, done: x?.tasksDone ?? 0, tasks: x?.tasks ?? 0, ahead: key > P.today };
+    });
+  });
+  const dayMax = $derived(Math.max(1, ...byDay.map((d) => d.logged)));
+  const longest = $derived(
+    byDay.reduce((a, b) => (b.logged > (a?.logged ?? 0) ? b : a), null as (typeof byDay)[0] | null),
+  );
   const goals = $derived(due ? P.goalsFor(due) : []);
   const history = $derived(
     P.reviews
@@ -167,6 +182,30 @@
       <section class="card">
         <span class="kind">This week so far</span>
         <ReviewNumbers numbers={live} />
+        <div class="days">
+          <span class="lbl">Day by day</span>
+          <div class="dbars">
+            {#each byDay as d (d.key)}
+              <div
+                class="dbar"
+                class:ahead={d.ahead}
+                title={d.ahead ? '' : `${dL(d.logged) || '0m'} logged, ${d.done} of ${d.tasks} tasks done`}
+              >
+                <span class="fill"><i style:height="{d.ahead ? 0 : Math.max(3, (d.logged / dayMax) * 100)}%"></i></span>
+                <span class="dn" class:today={d.key === P.today}>{weekdayShort(keyDate(d.key)).slice(0, 1)}</span>
+              </div>
+            {/each}
+          </div>
+          <p class="muted">
+            {#if longest}
+              Most time on {keyDate(longest.key).toLocaleDateString('en-GB', { weekday: 'long' })}, {dL(
+                longest.logged,
+              )}.
+            {:else}
+              Nothing logged yet this week. Time from your timers adds up here as the week goes.
+            {/if}
+          </p>
+        </div>
       </section>
       <p class="muted">
         Your weekly review comes up on {WEEKDAYS[P.settings.reviewDay]}s at {fT(
@@ -314,6 +353,49 @@
   }
   .st.missed {
     color: var(--redT);
+  }
+  .days {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 4px;
+  }
+  .dbars {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .dbar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .fill {
+    display: flex;
+    align-items: flex-end;
+    width: 100%;
+    height: 56px;
+    border-radius: var(--r-bar);
+    background: var(--sunk);
+    overflow: hidden;
+  }
+  .fill i {
+    width: 100%;
+    background: var(--accent);
+    border-radius: var(--r-bar);
+  }
+  .dbar.ahead .fill {
+    background: none;
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+  .dn {
+    font: 400 12px/1 var(--font);
+    color: var(--muted);
+  }
+  .dn.today {
+    color: var(--text);
+    font-weight: 600;
   }
   .hist {
     list-style: none;

@@ -10,7 +10,7 @@
   import ScreenHeader from './ScreenHeader.svelte';
 
   // Every habit at a glance: this week kept, then each habit with today's control (the same ring
-  // as in the Checklist), how often it's due, its streak and the last seven days. The name
+  // as in the Checklist), how often it's due, its streak and this week. The name
   // opens the habit's sheet, with its full record and its settings.
   onMount(() => {
     // The rings act on today, so the plan behind follows today too.
@@ -22,7 +22,9 @@
       .sort((a, b) => a.order - b.order),
   );
   const n = $derived(minutesInto(P.today, P.minute));
-  const days = $derived(Array.from({ length: 7 }, (_, i) => addDays(P.today, i - 6)));
+  // This week, Monday to Sunday, like the bars above (until 1 Nov 2026 the last seven days, so
+  // the two ran in different orders); days still to come are blank.
+  const days = $derived(Array.from({ length: 7 }, (_, i) => addDays(mondayOf(P.today), i)));
   const todays = $derived(P.isToday ? (P.day.items.filter((i) => isHabit(i)) as (Item & { habit: Habit })[]) : []);
   const itemOf = (s: Series) => todays.find((i) => i.seriesId === s.id && i.status !== 'skipped');
 
@@ -121,11 +123,7 @@
         <div class="bars" aria-hidden="true">
           {#each week.days as d (d.key)}
             <span class="bar">
-              <i
-                style:height="{d.share == null ? 3 : Math.max(3, d.share * 40)}px"
-                class:today={d.key === P.today}
-                class:empty={d.share == null}
-              ></i>
+              <i style:height="{d.share == null ? 3 : Math.max(3, d.share * 40)}px" class:empty={!d.share}></i>
               <span class="dl" class:today={d.key === P.today}>{weekdayShort(keyDate(d.key)).slice(0, 1)}</span>
             </span>
           {/each}
@@ -252,14 +250,11 @@
     border-radius: var(--r-bar);
     background: #84cc16;
   }
-  .bar i.today {
-    background: color-mix(in oklab, #84cc16 45%, var(--raised));
-  }
   .bar i.empty {
     background: var(--sunk);
   }
   .dl {
-    font: 400 10px/1 var(--font);
+    font: 400 12px/1 var(--font);
     color: var(--faint);
   }
   .dl.today {
@@ -276,7 +271,7 @@
     gap: 3px;
     justify-content: end;
     padding: 10px 14px 4px;
-    font: 400 10px/1 var(--font);
+    font: 400 12px/1 var(--font);
     color: var(--faint);
     text-align: center;
   }

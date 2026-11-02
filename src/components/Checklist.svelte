@@ -368,7 +368,7 @@
     width: 18px;
     height: 18px;
     border-radius: 4px;
-    font-size: 11px;
+    font-size: 12px;
   }
   .chips .title {
     flex: none;

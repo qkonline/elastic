@@ -62,8 +62,10 @@
       <span class="small">{runLabel}</span>
     </div>
     <div class="stat">
-      <span class="big">{rate == null ? '–' : `${Math.round(rate * 100)}%`}</span>
-      <span class="small">{h.per === 'day' ? 'of the last 30 days' : `of ${h.per}s lately`}</span>
+      <span class="big">{rate == null ? 'New' : `${Math.round(rate * 100)}%`}</span>
+      <span class="small"
+        >{rate == null ? 'nothing to count yet' : h.per === 'day' ? 'of the last 30 days' : `of ${h.per}s lately`}</span
+      >
     </div>
   </div>
 
@@ -145,7 +147,7 @@
     justify-items: center;
   }
   .wd {
-    font: 400 11px/20px var(--font);
+    font: 400 12px/20px var(--font);
     color: var(--faint);
   }
   .cell {

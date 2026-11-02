@@ -85,7 +85,7 @@
     color: var(--bg);
   }
   .l {
-    font: 400 11px/1 var(--font);
+    font: 400 12px/1 var(--font);
     opacity: 0.7;
   }
   .n {

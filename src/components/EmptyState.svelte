@@ -1,7 +1,10 @@
 <script lang="ts">
   import { planner as P } from '../lib/planner.svelte';
+  import { keyDate, shortDate } from '../lib/time';
 
-  // A day with nothing in it: say how planning works, and start it (or try a sample day).
+  // A day with nothing in it: say how planning works, and start it (or try a sample day). A day
+  // gone by that was never planned says so, with no sample day.
+  const past = $derived(P.viewKey < P.today);
   function add() {
     if (P.locked) P.sayLocked();
     else P.openSheet({ type: 'add' });
@@ -10,16 +13,21 @@
 
 <div class="empty">
   <span class="cap" aria-hidden="true"></span>
-  <div class="h">Nothing planned yet.</div>
-  <div class="p">
-    Add what you want to do and how long it takes. The order is the plan, and the times work themselves out.
-  </div>
+  {#if past}
+    <div class="h">Nothing was planned for {shortDate(keyDate(P.viewKey))}.</div>
+    <div class="p">You can still add what you did, to keep a record of it.</div>
+  {:else}
+    <div class="h">Nothing planned yet.</div>
+    <div class="p">
+      Add what you want to do and how long it takes. The order is the plan, and the times work themselves out.
+    </div>
+  {/if}
   <button class="btn-add" onclick={add}
     ><span class="plus" aria-hidden="true"
       ><svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 2.5v9M2.5 7h9" /></svg></span
-    >Add a task</button
+    >{past ? 'Add what you did' : 'Add a task'}</button
   >
-  <button class="btn-plain sample" onclick={() => P.loadSample()}>Try a sample day</button>
+  {#if !past}<button class="btn-plain sample" onclick={() => P.loadSample()}>Try a sample day</button>{/if}
 </div>
 
 <style>

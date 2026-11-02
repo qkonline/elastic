@@ -70,3 +70,47 @@ describe('a long pause', () => {
     expect(at(A.finish(A.startDay(day(), 840), 'a', 900), 900)).toEqual(['a', 'b']);
   });
 });
+
+describe('a day running late', () => {
+  it('gets one wrap-up line in front of the first task past it, and no tag on each row', () => {
+    // Not started, 9 am to 11 am, with three hours of tasks.
+    const t = (id: string, min: number) => A.newItem({ id, title: id, min });
+    const d: Day = {
+      key: '2026-09-27',
+      dayStart: 540,
+      wrap: 660,
+      dayStarted: null,
+      items: [t('a', 60), t('b', 60), t('c', 60)],
+    };
+    const out = timelineRows({
+      day: d,
+      rows: schedule(d, 500).rows,
+      n: 500,
+      isToday: true,
+      showTimes: true,
+      clock24: false,
+    });
+    expect(out.map((r) => (r.type === 'item' ? r.id : r.type))).toEqual(['now', 'a', 'b', 'wrap', 'c']);
+    expect(out.find((r) => r.type === 'wrap')).toMatchObject({ at: '11:00 am' });
+    expect(out.some((r) => r.type === 'item' && r.flags.some((f) => /wrap-up/.test(f.t)))).toBe(false);
+  });
+
+  it('has no wrap-up line when everything fits', () => {
+    const d: Day = {
+      key: '2026-09-27',
+      dayStart: 540,
+      wrap: 1020,
+      dayStarted: null,
+      items: [A.newItem({ title: 'a', min: 60 })],
+    };
+    const out = timelineRows({
+      day: d,
+      rows: schedule(d, 500).rows,
+      n: 500,
+      isToday: true,
+      showTimes: true,
+      clock24: false,
+    });
+    expect(out.some((r) => r.type === 'wrap')).toBe(false);
+  });
+});

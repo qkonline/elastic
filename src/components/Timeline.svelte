@@ -64,6 +64,12 @@
         <span class="pbar" style:--bar={r.bar} style:opacity={r.op}><span></span></span>
         <span class="ptext">{r.then}</span>
       </li>
+    {:else if r.type === 'wrap'}
+      <li class="wrap" style:transform={moved(r.key)}>
+        <span></span>
+        <span class="wline"></span>
+        <span class="wtext">Wrap-up at {r.at}</span>
+      </li>
     {:else}
       <li class="now" aria-label="Now" style:transform={moved(r.key)}><NowLine /></li>
     {/if}
@@ -157,6 +163,40 @@
   /* Rows glide out of the way while a task is dragged (the lifted row follows the finger). */
   .sorting > :global(li:not(.lifted)) {
     transition: transform 180ms ease;
+  }
+  /* Where the wrap-up falls on a day running late: a dashed red rule across the plan. */
+  .wrap {
+    position: relative;
+    display: grid;
+    grid-template-columns: var(--tc) var(--sc) minmax(0, 1fr);
+    align-items: center;
+    min-height: 30px;
+  }
+  .wrap::before {
+    content: '';
+    position: absolute;
+    left: var(--tc);
+    right: 0;
+    top: 50%;
+    border-top: 1.5px dashed #f87171;
+  }
+  .wline {
+    position: relative;
+    z-index: 2;
+    justify-self: center;
+    width: 8px;
+    height: 8px;
+    border-radius: var(--r-bar);
+    background: #f87171;
+  }
+  .wtext {
+    position: relative;
+    justify-self: start;
+    margin-left: 10px;
+    padding: 0 8px 0 0;
+    background: var(--bg);
+    font: 500 13px/1.2 var(--font);
+    color: var(--redT);
   }
   .now {
     display: grid;

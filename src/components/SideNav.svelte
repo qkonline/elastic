@@ -249,7 +249,7 @@
     .tab.small {
       height: 52px;
       gap: 5px;
-      font-size: 11px;
+      font-size: 12px;
     }
     .line {
       fill: none;

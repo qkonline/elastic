@@ -66,7 +66,7 @@
         {#if it.kind === 'check'}<span class="box"></span>{:else}<KindMark kind={it.kind} hue={it.hue} size={16} />{/if}
       </span>
       <div class="ht">
-        <span class="kind">{kindName}, someday</span>
+        <span class="kind">{kindName} on Someday</span>
         <h2 class="title">{it.title}</h2>
       </div>
       <button class="close-x" aria-label="Close" onclick={() => P.closeSheet()}>×</button>

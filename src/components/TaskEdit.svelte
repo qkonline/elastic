@@ -396,7 +396,7 @@
     border-radius: var(--r-sm);
     background: var(--sunk);
     color: var(--muted);
-    font: 500 11px/1 var(--font);
+    font: 500 12px/1 var(--font);
     font-variant-numeric: tabular-nums;
   }
   .n.add {
