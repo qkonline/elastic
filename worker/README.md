@@ -44,7 +44,7 @@ When an alert is due, every device of the account with a push address gets an em
 
 ## Boardo
 
-The account's link to [Boardo](https://kaiserkhan.com/boardo/), the shared project boards app (`src/boardo.ts`, D1 table `boardo_links`). It's one link per account, so every device signed in to it shows the cards assigned to the person there. This Worker talks to Boardo's over a service binding (`BOARDO`, Boardo's `ElasticLink` entrypoint), and devices never hold Boardo's token. All of these need an account that's set up:
+The account's link to [Boardo](https://boardo.kaiserkhan.com/), the shared project boards app (`src/boardo.ts`, D1 table `boardo_links`). It's one link per account, so every device signed in to it shows the cards assigned to the person there. This Worker talks to Boardo's over a service binding (`BOARDO`, Boardo's `ElasticLink` entrypoint), and devices never hold Boardo's token. All of these need an account that's set up:
 
 - `POST /boardo`: linked (as which Boardo account), or `match`, the Boardo account with this account's email, and whether the person said no to it (`declined`).
 - `POST /boardo/link`: link to the Boardo account with this account's email.
