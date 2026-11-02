@@ -3,6 +3,7 @@
 # secret: `npx wrangler secret put VAPID_PRIVATE_KEY`. Database changes go in migrations/ and are
 # applied with `npx wrangler d1 migrations apply elastic-day --remote`.
 name = "elastic-day-push"
+account_id = "6e9ae8440fa497c90ad8dc45d4d9d3a1"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
 # The app lives at elastic.kaiserkhan.com, served by this Worker with its API under /api (since
@@ -63,7 +64,7 @@ crons = ["17 3 * * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "elastic-day"
-database_id = "a972726d-b3bb-4f2b-98ed-ac33fdf859ad"
+database_id = "f764b2b8-1556-4fc0-b189-39834bde5582"
 migrations_dir = "migrations"
 
 # Email (sign-in codes) goes through Resend, like Boardo's, from the kaiserkhan.com domain verified
