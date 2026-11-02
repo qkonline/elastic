@@ -49,7 +49,6 @@ import {
 } from './boardo';
 import { bookableTimes, isPushEndpoint, network, timerName } from './checks';
 import { devMail, devOutbox, mailOn } from './mail';
-import { migrateRoute } from './migrate';
 import { sendPush } from './push';
 import type { VapidKeys } from './vapid';
 
@@ -64,10 +63,6 @@ export interface Env extends VapidKeys, AuthEnv, BoardoEnv {
   LIMITER?: RateLimit;
   /** The app's files (absent in tests). */
   ASSETS?: Fetcher;
-  /** Set only while moving Cloudflare accounts: opens /__migrate/* (migrate.ts). */
-  MIGRATE_KEY?: string;
-  /** "1" while moving accounts: the app still loads, but nothing syncs or saves until it's off. */
-  FROZEN?: string;
 }
 
 /** Routes that need no sign-in, so each network (an IPv6 /64 counts as one) may only call them so often. */
@@ -110,15 +105,6 @@ export default {
       });
 
     if (req.method === 'OPTIONS') return reply(allowed ? 204 : 403);
-    // Moving Cloudflare accounts (migrate.ts): called with curl, so before the origin check.
-    const moved = await migrateRoute(
-      req,
-      new URL(req.url).pathname,
-      env.MIGRATE_KEY,
-      async () => (await env.DB.prepare('SELECT id FROM users').all<{ id: string }>()).results.map((r) => r.id),
-      (id) => env.ACCOUNTS.get(env.ACCOUNTS.idFromName(id)),
-    );
-    if (moved) return moved;
     // An address on the app's host that isn't one of its files (an old /planner/ link, say): the app.
     const path = new URL(req.url).pathname;
     if (!origin && req.method === 'GET' && env.ASSETS && !/^\/(api\/|sync$|dev\/)/.test(path))
@@ -129,12 +115,6 @@ export default {
     // before 23 Oct 2026 call, it's at the root.
     let { pathname } = new URL(req.url);
     if (pathname.startsWith('/api/')) pathname = pathname.slice(4);
-    // While moving accounts nothing may change here: devices keep their changes and send them later.
-    if (env.FROZEN === '1' && (pathname === '/sync' || req.method !== 'GET'))
-      return new Response(JSON.stringify({ error: 'Elastic is moving. Your changes are safe on this device.' }), {
-        status: 503,
-        headers: { ...cors, 'content-type': 'application/json', 'retry-after': '300' },
-      });
 
     if (pathname === '/sync') return connect(req, env);
     // Local development only: the codes that would have been emailed.

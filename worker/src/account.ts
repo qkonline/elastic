@@ -18,7 +18,6 @@ import { DurableObject } from 'cloudflare:workers';
 import { fromPaths, merge, newer, type Paths, toPaths, ZERO } from '../../shared/lww';
 import { liveSessions } from './auth';
 import { type AlertGroup, alertGroups, isPushEndpoint, patches, type RecordKind } from './checks';
-import { type Dump, dumpStorage, loadStorage } from './migrate';
 import { sendPush } from './push';
 import type { VapidKeys } from './vapid';
 
@@ -125,18 +124,6 @@ export class Account extends DurableObject<AccountEnv> {
         .some((c) => c.name === 'paths')
     )
       this.sql.exec('ALTER TABLE records ADD COLUMN paths TEXT');
-  }
-
-  // ---------- moving accounts (migrate.ts) ----------
-
-  /** Everything this object stores, with its alarm, for the move to another Cloudflare account. */
-  async migrateDump(): Promise<Dump> {
-    return dumpStorage(this.ctx.storage);
-  }
-
-  /** Writes a dump from the old account into this (empty) object; its alarm comes with it. */
-  async migrateLoad(dump: Dump): Promise<number> {
-    return loadStorage(this.ctx.storage, dump);
   }
 
   // ---------- connections ----------
