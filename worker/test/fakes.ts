@@ -97,6 +97,7 @@ export function fakeState() {
         kv.clear();
       },
       get: async (k: string) => kv.get(k),
+      list: async (o?: { limit?: number }) => new Map([...kv].slice(0, o?.limit ?? Infinity)),
       put: async (k: string | Record<string, unknown>, v?: unknown) => {
         if (typeof k === 'string') kv.set(k, v);
         else for (const [a, b] of Object.entries(k)) kv.set(a, b);
