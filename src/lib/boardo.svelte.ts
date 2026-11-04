@@ -144,6 +144,29 @@ export function cardsFor(dayKey: string, cards: BoardoCard[], today: string, clo
   );
 }
 
+export interface BoardRows {
+  id: string;
+  name: string;
+  hue: string;
+  rows: CardRow[];
+  done: number;
+  overdue: number;
+}
+
+/** A day's cards board by board, by name so a board keeps its place. Cards keep their order. */
+export function byBoard(rows: CardRow[]): BoardRows[] {
+  const boards = new Map<string, BoardRows>();
+  for (const r of rows) {
+    const { id, name, hue } = r.card.board;
+    const b = boards.get(id) ?? { id, name, hue, rows: [], done: 0, overdue: 0 };
+    b.rows.push(r);
+    if (r.ticked) b.done++;
+    if (r.overdue) b.overdue++;
+    boards.set(id, b);
+  }
+  return [...boards.values()].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+}
+
 /** A card's deadline as seen from `dayKey`. */
 export function deadlineLabel(end: string, dayKey: string, clock24 = false): string {
   const key = dayOfValue(end);
@@ -428,7 +451,7 @@ export class Boardo {
       }
       this.connected = true;
       this.account = res.linked;
-      this.cards = res.cards ?? [];
+      this.cards = this.withMarks(res.cards ?? []);
       this.boards = res.boards ?? 0;
       this.fetchedAt = Date.now();
       this.error = null;
@@ -445,11 +468,27 @@ export class Boardo {
     return this.ops.some((o) => o.cardId === cardId);
   }
 
+  /** Cards with the done marks still on their way: a tick doesn't wait for Boardo, or go back. */
+  private withMarks(cards: BoardoCard[]): BoardoCard[] {
+    for (const o of this.ops) {
+      if (o.type !== 'done' && o.type !== 'undone') continue;
+      cards = cards.map((c) => {
+        if (c.id !== o.cardId) return c;
+        return o.type === 'done'
+          ? { ...c, myDone: c.myDone ?? o.at }
+          : { ...c, myDone: null, completed: false, completedAt: null };
+      });
+    }
+    return cards;
+  }
+
   /** Queue marks for Boardo and send them when there's a connection. */
   async send(ops: Omit<BoardoOp, 'id'>[]): Promise<void> {
     if (!this.connected || !ops.length) return;
     this.ops = [...this.ops, ...ops.map((o) => ({ ...o, id: randomId(12) }))];
+    this.cards = this.withMarks(this.cards);
     await this.store.putMeta('boardoOps', this.ops);
+    await this.save();
     void this.flush().then(() => this.refresh());
   }
 

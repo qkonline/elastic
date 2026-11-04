@@ -4,7 +4,7 @@
   import { hueColor, isHue } from '../lib/types';
 
   // A project card from Boardo, read-only (R8.11): what it is and when it's due, with a way to
-  // start it and to open it in Boardo, where it can be changed.
+  // start it, to mark it done and to open it in Boardo, where it can be changed.
   let { id }: { id: string } = $props();
   const c = $derived(P.boardo.cards.find((x) => x.id === id));
   const colour = (h: string) => (h === 'rose' ? '#f43f5e' : isHue(h) ? hueColor(h) : '#22d3ee');
@@ -47,6 +47,7 @@
     <div class="acts">
       {#if !c.myDone && !c.completed && P.isToday && !P.locked}
         <button class="ctl primary" onclick={() => (P.closeSheet(), P.startCard(c))}>Start</button>
+        <button class="ctl mark" onclick={() => (P.closeSheet(), P.markCardDone(c))}>Mark done</button>
       {/if}
       {#if cardLink(c.url)}<a class="ctl" href={cardLink(c.url)} target="_blank" rel="noopener">Open in Boardo</a>{/if}
     </div>
@@ -101,6 +102,7 @@
   }
   .acts {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
   }
   .acts a {

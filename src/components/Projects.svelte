@@ -1,18 +1,45 @@
 <script lang="ts">
-  import { cardsFor } from '../lib/boardo.svelte';
+  import { slide } from 'svelte/transition';
+  import { type BoardRows, byBoard, cardsFor } from '../lib/boardo.svelte';
   import { planner as P } from '../lib/planner.svelte';
   import { isActive, worked } from '../lib/schedule';
   import { dL } from '../lib/time';
   import { hueColor, isHue } from '../lib/types';
+  import { reducedMotion } from '../lib/ui.svelte';
   import Collapsible from './Collapsible.svelte';
 
   // Project cards from Boardo for the day on screen (R8.6 to R8.11): the ones assigned to me
   // whose dates cover it, ones overdue and not done yet, and ones finished today (ticked).
-  // They're never dragged into the plan: Start puts a timer for one at the current point.
-  // Only shown when connected and in at least one board.
+  // They're never dragged into the plan: Start puts a timer for one at the current point, and
+  // Mark done finishes my part with no timer. They're listed board by board, and the section and
+  // each board fold. Only shown when connected and in at least one board.
   const B = P.boardo;
   const rows = $derived(B.connected && B.boards > 0 ? cardsFor(P.viewKey, B.cards, P.today, P.settings.clock24) : []);
   const done = $derived(rows.filter((r) => r.ticked).length);
+  const boards = $derived(byBoard(rows));
+
+  // What's shut stays shut on this device (days and screens rebuild this section). A board starts
+  // shut, so many cards read as a short list of boards, unless it's the only one.
+  const FOLDS = 'elastic-day:projects-fold';
+  type Folds = { shut: boolean; boards: Record<string, boolean> };
+  function readFolds(): Folds {
+    try {
+      const f = JSON.parse(localStorage.getItem(FOLDS) ?? 'null');
+      return { shut: f?.shut === true, boards: f?.boards ?? {} };
+    } catch {
+      return { shut: false, boards: {} };
+    }
+  }
+  let folds = $state.raw(readFolds());
+  function setFolds(f: Folds) {
+    folds = f;
+    try {
+      localStorage.setItem(FOLDS, JSON.stringify(f));
+    } catch {
+      /* it just won't be remembered */
+    }
+  }
+  const isOpen = (b: BoardRows) => folds.boards[b.id] ?? boards.length === 1;
   // The card item running or paused on the day on screen, by card id.
   const going = $derived(new Map(P.day.items.filter((i) => i.card && isActive(i)).map((i) => [i.card!.id, i])));
   // Time worked on each card that day, over every time it was started (its rows in the timeline).
@@ -22,7 +49,6 @@
     return m;
   });
   const colour = (h: string) => (h === 'rose' ? '#f43f5e' : isHue(h) ? hueColor(h) : '#22d3ee');
-  let list: HTMLUListElement | null = $state(null);
   // The last fetch failed: these are the cards as they were then, which may be out of date.
   const asOf = $derived.by(() => {
     if (!B.error || !B.fetchedAt) return null;
@@ -40,49 +66,84 @@
     label="Projects"
     icon="projects"
     tally={rows.length ? `${done}/${rows.length}` : ''}
-    count={rows.length}
+    count={boards.length}
     kind="projects"
-    bind:list
+    fold={false}
+    bar
+    bind:opened={() => !folds.shut, (v) => setFolds({ ...folds, shut: !v })}
   >
-    {#snippet children(shut)}
+    {#snippet children()}
       {#if asOf}
         <li class="none stale">Boardo can't be reached. These are as of {asOf}.</li>
       {/if}
       {#if !rows.length}
         <li class="none">No project cards on this day.</li>
       {/if}
-      {#each rows as r, i (r.card.board.id + r.card.id)}
-        {@const g = going.get(r.card.id)}
-        <li class:done={r.ticked} inert={shut && i >= 3}>
-          <span class="bar" style:background={colour(r.card.board.hue)}></span>
-          <button class="title" onclick={() => P.openSheet({ type: 'card', id: r.card.id })}>
-            <span class="t">{r.card.title}</span>
-            <span class="meta">
-              <span class="proj" style:color={colour(r.card.board.hue)}>{r.card.board.name}</span>
-              {#if r.card.status.label}<span class="st">{r.card.status.label}</span>{/if}
-              {#if r.deadline}<span class:late={r.overdue}>{r.deadline}</span>{/if}
-              {#if (spent.get(r.card.id) ?? 0) >= 1}<span>Worked {dL(spent.get(r.card.id)!)}</span>{/if}
-              <!-- A Completed card's status already says so; "your part" only means something while
-                   others still have theirs to do (a card for one person is Completed with it). -->
-              {#if r.ticked && !r.card.completed}<span>Your part is done</span>
-              {:else if r.ticked && !r.card.status.label}<span>Completed</span>{/if}
-            </span>
-          </button>
-          {#if !r.ticked && P.isToday && !P.locked}
-            {#if g}
-              <button class="start on" onclick={() => P.startCard(r.card)}
-                >{g.status === 'paused' ? 'Resume' : 'Running'}</button
-              >
-            {:else}
-              <button
-                class="start"
-                aria-label="Start {r.card.title}"
-                aria-disabled={P.waiting}
-                onclick={() => P.startCard(r.card)}
-                ><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M5 3.5v9l7-4.5z" /></svg
-                >Start</button
-              >
-            {/if}
+      {#each boards as b (b.id)}
+        {@const open = isOpen(b)}
+        <li class="board">
+          <h3>
+            <button
+              class="bhead"
+              class:open
+              aria-expanded={open}
+              aria-controls="board-{b.id}"
+              onclick={() => setFolds({ ...folds, boards: { ...folds.boards, [b.id]: !open } })}
+            >
+              <span class="swatch" style:background={colour(b.hue)}></span>
+              <span class="name">{b.name}</span>
+              {#if b.overdue}<span class="late">{b.overdue} overdue</span>{/if}
+              <span class="tally">{b.done}/{b.rows.length}</span>
+              <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M3 4.5l3 3 3-3" /></svg>
+            </button>
+          </h3>
+          {#if open}
+            <ul id="board-{b.id}" transition:slide={{ duration: reducedMotion.current ? 0 : 200 }}>
+              {#each b.rows as r (r.card.id)}
+                {@const g = going.get(r.card.id)}
+                <li class="card" class:done={r.ticked}>
+                  <span class="bar" style:background={colour(b.hue)}></span>
+                  <button class="title" onclick={() => P.openSheet({ type: 'card', id: r.card.id })}>
+                    <span class="t">{r.card.title}</span>
+                    <span class="meta">
+                      {#if r.card.status.label}<span class="st">{r.card.status.label}</span>{/if}
+                      {#if r.deadline}<span class:late={r.overdue}>{r.deadline}</span>{/if}
+                      {#if (spent.get(r.card.id) ?? 0) >= 1}<span>Worked {dL(spent.get(r.card.id)!)}</span>{/if}
+                      <!-- A Completed card's status already says so; "your part" only means something while
+                           others still have theirs to do (a card for one person is Completed with it). -->
+                      {#if r.ticked && !r.card.completed}<span>Your part is done</span>
+                      {:else if r.ticked && !r.card.status.label}<span>Completed</span>{/if}
+                    </span>
+                  </button>
+                  {#if !r.ticked && P.isToday && !P.locked}
+                    {#if g}
+                      <button class="start on" onclick={() => P.startCard(r.card)}
+                        >{g.status === 'paused' ? 'Resume' : 'Running'}</button
+                      >
+                    {:else}
+                      <button
+                        class="start mark"
+                        aria-label="Mark {r.card.title} done"
+                        aria-disabled={P.waiting}
+                        onclick={() => P.markCardDone(r.card)}
+                        ><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"
+                          ><path d="M3 8.5l3.2 3.2L13 4.8" /></svg
+                        ><span class="word">Mark done</span></button
+                      >
+                      <button
+                        class="start"
+                        aria-label="Start {r.card.title}"
+                        aria-disabled={P.waiting}
+                        onclick={() => P.startCard(r.card)}
+                        ><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"
+                          ><path d="M5 3.5v9l7-4.5z" /></svg
+                        >Start</button
+                      >
+                    {/if}
+                  {/if}
+                </li>
+              {/each}
+            </ul>
           {/if}
         </li>
       {/each}
@@ -91,7 +152,72 @@
 {/if}
 
 <style>
-  li {
+  .board + .board {
+    border-top: 1px solid var(--border);
+  }
+  h3 {
+    margin: 0;
+    font: inherit;
+  }
+  /* A board's title: lighter than the section's bar, with the same tally and arrow. */
+  .bhead {
+    all: unset;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 44px;
+    cursor: pointer;
+  }
+  .bhead:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: -2px;
+    border-radius: var(--r-sm);
+  }
+  .swatch {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: var(--r-bar);
+  }
+  .name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font: 500 14px/1.3 var(--font);
+    color: var(--text);
+  }
+  .bhead .late {
+    flex: none;
+    font: 500 12px/1 var(--font);
+  }
+  .tally {
+    flex: none;
+    font: 500 13px/1 var(--font);
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+  }
+  .bhead svg {
+    flex: none;
+    fill: none;
+    stroke: var(--muted);
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 200ms ease;
+  }
+  .bhead.open svg {
+    transform: rotate(180deg);
+  }
+  .board ul {
+    list-style: none;
+    margin: 0;
+    padding: 0 0 6px;
+  }
+  .card {
     display: flex;
     align-items: center;
     gap: 12px;
@@ -99,6 +225,8 @@
     background: var(--raised);
   }
   .none {
+    display: flex;
+    align-items: center;
     color: var(--muted);
     font-size: 14px;
     min-height: 40px;
@@ -145,10 +273,6 @@
     font: 400 12px/1.3 var(--font);
     color: var(--muted);
   }
-  .proj {
-    font-weight: 500;
-    filter: brightness(0.85);
-  }
   .st {
     padding: 2px 6px;
     border-radius: var(--r-sm);
@@ -175,11 +299,44 @@
   .start svg {
     fill: currentColor;
   }
+  .start.mark svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .start + .start {
+    margin-left: -4px;
+  }
   .start[aria-disabled='true'] {
     opacity: 0.45;
   }
   .start.on {
     border-color: var(--now);
     color: var(--nowT);
+  }
+  /* A phone keeps room for the title: Mark done is its tick, as big as a finger needs. */
+  @media (max-width: 767px) {
+    .start {
+      min-height: 44px;
+    }
+    .start.mark {
+      justify-content: center;
+      width: 44px;
+      padding: 0;
+    }
+    .word {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .bhead svg {
+      transition: none;
+    }
   }
 </style>

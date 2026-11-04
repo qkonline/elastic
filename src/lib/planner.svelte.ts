@@ -961,6 +961,43 @@ export class Planner {
     this.startItem(it.id);
   }
 
+  /**
+   * My part of a card is done, with no timer. It takes no place in the plan: the mark goes to
+   * Boardo, and Projects ticks it. A card going here is finished as usual, and one set aside
+   * today is finished so its row in the timeline agrees. Undo takes the mark back.
+   */
+  markCardDone(c: BoardoCard): void {
+    if (!this.isToday) return;
+    if (this.locked) return this.sayLocked();
+    if (this.waiting) return this.askToStartDay('check');
+    const mine = () => this.day.items.filter((i) => i.card?.id === c.id);
+    const work = () => mine().map(timerOf).join();
+    if (this.whenCurrent(c.title, work, () => this.markCardDone(c))) return;
+    const going = mine().find(isActive);
+    if (going) return this.done(going.id);
+    const setAside = mine()
+      .filter((i) => i.status === 'postponed')
+      .at(-1);
+    const mark = (type: 'done' | 'undone') =>
+      void this.boardo.send([{ type, board: c.board.id, cardId: c.id, sessionId: 'done', at: Date.now() }]);
+    const status = (id: string, s: Item['status']) => this.update((d) => A.patchItem(d, id, { status: s }));
+    if (setAside) status(setAside.id, 'done');
+    else mark('done');
+    const text = `${c.title} marked done`;
+    this.say(text);
+    this.nudge = {
+      text,
+      at: Date.now(),
+      quiet: true,
+      undo: () => {
+        this.nudge = null;
+        if (setAside) status(setAside.id, 'postponed');
+        else mark('undone');
+        this.say(`${c.title}: undone`);
+      },
+    };
+  }
+
   /** Stop work on a card without finishing it: Postpone, for a card. */
   setAside(id: string): void {
     const it = this.item(id);

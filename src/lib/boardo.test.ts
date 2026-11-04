@@ -5,7 +5,7 @@
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as A from './actions';
-import { type BoardoCard, type BoardoOp, cardsFor, deadlineLabel } from './boardo.svelte';
+import { Boardo, type BoardoCard, type BoardoOp, byBoard, cardsFor, deadlineLabel } from './boardo.svelte';
 import * as db from './db';
 import { Planner } from './planner.svelte';
 
@@ -71,6 +71,56 @@ describe('which cards show on a day', () => {
     });
     expect(shown('2026-10-24', c)[0].ticked).toBe(true);
     expect(shown('2026-10-23', c)).toHaveLength(0);
+  });
+});
+
+describe('cards board by board', () => {
+  const on = (id: string, name: string, o: Partial<BoardoCard> = {}) =>
+    card({ id: id + name, board: { id: name, name, hue: 'cyan' }, ...o });
+
+  it('groups them by name, keeps their order, and counts done and overdue', () => {
+    const rows = cardsFor(
+      '2026-10-22',
+      [
+        on('a', 'Zebra', { end: '2026-10-21' }),
+        on('b', 'Apple', { end: '2026-10-25', start: '2026-10-22' }),
+        on('c', 'Apple', { end: '2026-10-21' }),
+        on('d', 'Apple', { myDone: new Date(2026, 9, 22, 9).getTime() }),
+      ],
+      '2026-10-22',
+    );
+    const boards = byBoard(rows);
+    expect(boards.map((b) => [b.name, b.rows.length, b.done, b.overdue])).toEqual([
+      ['Apple', 3, 1, 1],
+      ['Zebra', 1, 0, 1],
+    ]);
+    expect(boards[0].rows[0].card.id).toBe('cApple');
+  });
+});
+
+describe('a done mark on its way', () => {
+  const metas = new Map<string, unknown>();
+  const store = {
+    getMeta: async <T>(k: string) => metas.get(k) as T | undefined,
+    putMeta: async (k: string, v: unknown) => void metas.set(k, v),
+    deleteMeta: async (k: string) => void metas.delete(k),
+  };
+  const mark = (type: 'done' | 'undone') => ({ type, board: 'b1', cardId: 'k1', sessionId: 'done', at: 5 });
+
+  it('ticks the card at once, and a fetch that has not caught up does not untick it', async () => {
+    const b = new Boardo(
+      store,
+      () => {},
+      () => null,
+    );
+    b.connected = true;
+    b.cards = [card()];
+    void b.send([mark('done')]);
+    expect(b.cards[0].myDone).toBe(5);
+    const fetched = (b as unknown as { withMarks(c: BoardoCard[]): BoardoCard[] }).withMarks([card()]);
+    expect(fetched[0].myDone).toBe(5);
+    void b.send([mark('undone')]);
+    expect(b.cards[0]).toMatchObject({ myDone: null, completed: false });
   });
 });
 
@@ -213,6 +263,54 @@ describe('what Elastic tells Boardo', () => {
     p.boardo.cards = [card({ status: prog })];
     follow(Date.now() - 1000);
     expect(p.item(id)!.status).toBe('done');
+  });
+
+  it('Mark done sends only the mark, and adds nothing to the plan', async () => {
+    const p = await boot();
+    const items = p.day.items.length;
+    p.markCardDone(card());
+    expect(sent.map((o) => o.type)).toEqual(['done']);
+    expect(sent[0]).toMatchObject({ board: 'b1', cardId: 'k1', sessionId: 'done' });
+    expect(p.day.items).toHaveLength(items);
+    p.nudge!.undo!();
+    expect(sent.map((o) => o.type)).toEqual(['done', 'undone']);
+  });
+
+  it('Mark done waits for Start my day', async () => {
+    const p = new Planner();
+    live.push(p);
+    await p.init();
+    p.boardo.connected = true;
+    p.boardo.send = async (ops) => void sent.push(...ops);
+    p.addTask({ title: 'Email', min: 30, kind: 'task', hue: 'cyan', fixedAt: null });
+    p.markCardDone(card());
+    expect(sent).toEqual([]);
+    expect(p.nudge?.text).toMatch(/then mark it done/);
+  });
+
+  it('Mark done finishes a card going here', async () => {
+    const p = await boot();
+    p.startCard(card());
+    p.markCardDone(card());
+    expect(sent.map((o) => o.type)).toEqual(['start', 'stop', 'done']);
+    expect(p.day.items.find((i) => i.card)!.status).toBe('done');
+  });
+
+  it('Mark done on a card set aside today finishes its row, and Undo puts it back', async () => {
+    const p = await boot();
+    p.startCard(card());
+    vi.setSystemTime(new Date(2026, 9, 22, 10, 30));
+    p.clock = Date.now();
+    const id = p.day.items.find((i) => i.card)!.id;
+    p.setAside(id);
+    sent = [];
+    p.markCardDone(card());
+    expect(p.item(id)!.status).toBe('done');
+    expect(sent.map((o) => o.type)).toEqual(['done']);
+    p.boardo.cards = [card({ myDone: Date.now() })];
+    p.nudge!.undo!();
+    expect(p.item(id)!.status).toBe('postponed');
+    expect(sent.map((o) => o.type)).toEqual(['done', 'undone']);
   });
 
   it('counts up with no time is up alert', async () => {

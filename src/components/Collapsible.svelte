@@ -7,7 +7,8 @@
   // entries it's folded: the first three stay in view with the third fading out, above a Show all
   // button. It always opens folded; Show all opens it until the next time it's shown.
   // With `bar` it shuts down to its title bar, which opens it (a started day on a computer, so
-  // the timeline comes up the screen; the user's pick, 1 Nov 2026).
+  // the timeline comes up the screen; the user's pick, 1 Nov 2026). `opened` says whether it is.
+  // With `fold` false the list is never folded to three (Projects, whose boards fold instead).
   let {
     id,
     label,
@@ -19,6 +20,8 @@
     list = $bindable(null),
     kind = '',
     bar = false,
+    opened = $bindable(false),
+    fold = true,
   }: {
     id: string;
     label: string;
@@ -35,14 +38,15 @@
     kind?: string;
     /** Shut to the title bar until it's opened. */
     bar?: boolean;
+    opened?: boolean;
+    fold?: boolean;
   } = $props();
 
-  let opened = $state(false);
   const barShut = $derived(bar && !opened);
 
   const FOLD_AT = 3;
   let folded = $state(true);
-  const can = $derived(count > FOLD_AT);
+  const can = $derived(fold && count > FOLD_AT);
   const shut = $derived(can && folded);
 
   // The folded height ends partway down the third entry; the open height fits them all.
