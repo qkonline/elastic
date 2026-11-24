@@ -11,6 +11,8 @@ interface TurnstileApi {
 
 const SCRIPT = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 const WAIT_MS = 90_000;
+/** Tokens last five minutes: one prepared is used within four. */
+const KEEP_MS = 4 * 60_000;
 let loading: Promise<TurnstileApi> | null = null;
 
 function load(): Promise<TurnstileApi> {
@@ -35,8 +37,18 @@ export class HumanCheck {
   private id: string | null = null;
   private waiting: { resolve: (t: string) => void; reject: (e: Error) => void } | null = null;
   private ready: Promise<TurnstileApi>;
+  /** A token asked for ahead of time (prepare()), and when. */
+  private held: { at: number; token: Promise<string> } | null = null;
+  /** A box is showing to tick, and whether a code is waiting on it. */
+  private box = false;
+  private wanted = false;
 
-  constructor(el: HTMLElement, siteKey: string) {
+  /** `onBox`: there's a box to tick (true), or it's been answered. */
+  constructor(
+    private el: HTMLElement,
+    siteKey: string,
+    private onBox: (showing: boolean) => void = () => {},
+  ) {
     this.ready = load().then((t) => {
       this.id = t.render(el, {
         sitekey: siteKey,
@@ -47,11 +59,18 @@ export class HumanCheck {
         'expired-callback': () => this.settle(null),
         'timeout-callback': () => this.settle(null),
         'unsupported-callback': () => this.settle(null),
-        // A box to tick: bring it into view (it's below the form).
-        'before-interactive-callback': () => el.scrollIntoView({ block: 'center' }),
+        'before-interactive-callback': () => this.showBox(true),
+        'after-interactive-callback': () => this.showBox(false),
       });
       return t;
     });
+  }
+
+  private showBox(on: boolean): void {
+    this.box = on;
+    this.onBox(on);
+    // It's below the form: brought into view once a code waits on it, not while typing.
+    if (on && this.wanted) this.el.scrollIntoView({ block: 'center' });
   }
 
   private settle(token: string | null): void {
@@ -62,8 +81,30 @@ export class HumanCheck {
     else w.reject(new Error("We couldn't check you're a person. Try again."));
   }
 
-  /** A fresh token (each one works once). */
+  /** Start the check now, so its answer is there by the time a code is asked for. */
+  prepare(): void {
+    if (this.held && Date.now() - this.held.at < KEEP_MS) return;
+    const held = { at: Date.now(), token: this.fresh() };
+    this.held = held;
+    held.token.catch(() => this.held === held && (this.held = null));
+  }
+
+  /** A token for one code: the one prepared, or a new one. */
   async token(): Promise<string> {
+    this.wanted = true;
+    try {
+      this.prepare();
+      const { at, token } = this.held!;
+      this.held = null;
+      if (this.box) this.showBox(true);
+      // One prepared a while ago may have given up waiting (a box nobody ticked): ask again, once.
+      return await (Date.now() - at > 1000 ? token.catch(() => this.fresh()) : token);
+    } finally {
+      this.wanted = false;
+    }
+  }
+
+  private async fresh(): Promise<string> {
     const t = await this.ready.catch(() => {
       throw new Error("The check that you're a person didn't load. Check your connection and try again.");
     });

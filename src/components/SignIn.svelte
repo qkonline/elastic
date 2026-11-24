@@ -10,6 +10,7 @@
   import { onMount, tick } from 'svelte';
   import { accountsAvailable, authConfig, passkeysAvailable } from '../lib/account';
   import { planner as P } from '../lib/planner.svelte';
+  import Stretch from './Stretch.svelte';
   import { HumanCheck } from '../lib/turnstile';
 
   // Elastic starts here until there's an account on this device: an email confirmed with a
@@ -40,10 +41,35 @@
   /** Turnstile, where the worker asks for it before sending a code (off unless it's set up there). */
   let siteKey = $state<string | null>(null);
   let humanBox = $state<HTMLElement>();
-  let check: HumanCheck | null = null;
+  let check = $state.raw<HumanCheck | null>(null);
+  // What's under way, said on the button that started it; `slow` once it has taken a while.
+  let doing = $state<'check' | 'send' | 'code' | 'passkey' | null>(null);
+  let box = $state(false);
+  let slow = $state(false);
+  $effect(() => {
+    slow = false;
+    if (!doing) return;
+    const t = setTimeout(() => (slow = true), 6000);
+    return () => clearTimeout(t);
+  });
+  // The check that you're a person starts while the email is being typed, not when it's sent.
+  $effect(() => {
+    const c = check;
+    if (!c || S || step !== 'email' || !okEmail) return;
+    const t = setTimeout(() => c.prepare(), 300);
+    return () => clearTimeout(t);
+  });
+  async function under(what: NonNullable<typeof doing>, run: () => Promise<boolean>): Promise<boolean> {
+    doing = what;
+    try {
+      return await run();
+    } finally {
+      doing = null;
+    }
+  }
   $effect(() => {
     if (!siteKey || !humanBox) return;
-    const c = new HumanCheck(humanBox, siteKey);
+    const c = new HumanCheck(humanBox, siteKey, (on) => (box = on));
     check = c;
     return () => {
       c.destroy();
@@ -59,7 +85,9 @@
   const human = () => async () => {
     await askConfig();
     await tick(); // its box is drawn once there's a key
-    return check?.token();
+    const token = await check?.token();
+    doing = 'send';
+    return token;
   };
 
   onMount(() => {
@@ -84,8 +112,10 @@
     name = S?.user.name ?? '';
   });
 
+  const sendCode = () => under('check', () => P.sendSignInCode(email.trim(), human()));
+
   async function send() {
-    if (await P.sendSignInCode(email.trim(), human())) {
+    if (await sendCode()) {
       had = false;
       resent = false;
       step = 'code';
@@ -105,10 +135,10 @@
 
   async function sendAgain() {
     resent = false;
-    if (await P.sendSignInCode(email.trim(), human())) resent = true;
+    if (await sendCode()) resent = true;
   }
 
-  const signIn = () => P.signInWithCode(email.trim(), code);
+  const signIn = () => under('code', () => P.signInWithCode(email.trim(), code));
 
   // Six digits typed or pasted: check them straight away, once (a wrong code waits for a change).
   let tried = '';
@@ -131,6 +161,7 @@
     if (await P.confirmEmail(email.trim(), code, name.trim())) confirming = false;
   }
 
+  const sends = $derived(doing === 'check' || doing === 'send');
   const digits = $derived(code.replace(/\D/g, '').length);
 </script>
 
@@ -138,6 +169,19 @@
   <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"
     ><rect x="2.5" y="4.5" width="15" height="11" rx="2" /><path d="M3 5.5l7 5.5 7-5.5" /></svg
   >
+{/snippet}
+
+{#snippet busy(text: string)}
+  <Stretch />{text}
+{/snippet}
+
+<!-- What's happening with a code being sent. -->
+{#snippet sending()}
+  {@render busy(doing === 'send' ? 'Sending your code…' : box ? 'Tick the box below' : "Checking you're a person…")}
+{/snippet}
+
+{#snippet slowly()}
+  {#if slow && !box}<p class="note" role="status">Still working. This can take a few seconds.</p>{/if}
 {/snippet}
 
 {#snippet codeStep(onsubmit: () => void, label: string)}
@@ -160,7 +204,10 @@
       bind:value={code}
       {@attach (el) => el.focus()}
     />
-    <button class="key ink" disabled={P.accountBusy || digits !== 6}>{label}</button>
+    <button class="key ink" class:busy={doing === 'code'} disabled={P.accountBusy || digits !== 6}
+      >{#if doing === 'code'}{@render busy('Signing in…')}{:else}{label}{/if}</button
+    >
+    {#if doing === 'code'}{@render slowly()}{/if}
   </form>
 {/snippet}
 
@@ -244,7 +291,9 @@
         <button class="quiet" onclick={() => ((step = 'email'), (resent = false), (P.accountMsg = null))}
           >Use another email</button
         >
-        <button class="quiet" disabled={P.accountBusy} onclick={sendAgain}>Send a new code</button>
+        <button class="quiet" disabled={P.accountBusy} onclick={sendAgain}
+          >{#if sends}{@render sending()}{:else}Send a new code{/if}</button
+        >
       </div>
       {#if resent}<p class="ok" role="status">A new code is on its way.</p>{/if}
     {:else}
@@ -265,7 +314,10 @@
           bind:this={emailField}
           bind:value={email}
         />
-        <button class="key ink" disabled={P.accountBusy || !okEmail}>{@render mail()} Send me a code</button>
+        <button class="key ink" class:busy={sends} disabled={P.accountBusy || !okEmail}
+          >{#if sends}{@render sending()}{:else}{@render mail()} Send me a code{/if}</button
+        >
+        {#if sends}{@render slowly()}{/if}
         <p class="note">New or returning, it's the same: we email you a six-digit code. No password.</p>
         <button type="button" class="quiet mid" disabled={P.accountBusy} onclick={haveCode}
           >I already have a code</button
@@ -273,10 +325,18 @@
       </form>
       {#if keys}
         <div class="or"><span>or</span></div>
-        <button class="key" disabled={P.accountBusy} onclick={() => P.signIn()}
-          ><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"
-            ><rect x="4" y="9" width="12" height="8.5" rx="2" /><path d="M7 9V6.5a3 3 0 0 1 6 0V9" /></svg
-          > Sign in with a passkey</button
+        <button
+          class="key"
+          class:busy={doing === 'passkey'}
+          disabled={P.accountBusy}
+          onclick={() => under('passkey', () => P.signIn())}
+          >{#if doing === 'passkey'}{@render busy('Signing in…')}{:else}<svg
+              viewBox="0 0 20 20"
+              width="18"
+              height="18"
+              aria-hidden="true"
+              ><rect x="4" y="9" width="12" height="8.5" rx="2" /><path d="M7 9V6.5a3 3 0 0 1 6 0V9" /></svg
+            > Sign in with a passkey{/if}</button
         >
         <p class="note">Face ID, Touch ID or your device's screen lock, once you've added a passkey to your account.</p>
       {/if}
@@ -431,6 +491,17 @@
   }
   .key:not(.ink) svg path {
     stroke: var(--now);
+  }
+  /* Under way: it says so, so it isn't dimmed. */
+  .key.busy:disabled,
+  .quiet:disabled:has(:global(.st)) {
+    opacity: 1;
+    cursor: progress;
+  }
+  .quiet:has(:global(.st)) {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
   }
   button:disabled {
     opacity: 0.5;
