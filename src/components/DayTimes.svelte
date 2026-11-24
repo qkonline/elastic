@@ -1,6 +1,6 @@
 <script lang="ts">
   import { planner as P } from '../lib/planner.svelte';
-  import { isActive, isMissed, isPartial, worked, type Row } from '../lib/schedule';
+  import { likelyBy, isActive, isMissed, isPartial, worked, type Row } from '../lib/schedule';
   import { dL, fNZ } from '../lib/time';
   import { hueColor, untimed } from '../lib/types';
 
@@ -24,7 +24,7 @@
   const open = $derived(rows.some((r) => (r.it.status === 'todo' || isActive(r.it)) && r.it.kind !== 'buffer'));
   const from = $derived(rows.length ? Math.min(rows[0].start, d.dayStarted ?? 1e9) : d.dayStart);
   const to = $derived(rows.length ? Math.max(P.sch.finish, ...rows.map((r) => r.end)) : d.wrap);
-  const likely = $derived(Math.ceil(P.sch.finish / 5) * 5);
+  const likely = $derived(likelyBy(P.sch.finish));
   const lastEnd = $derived.by(() => {
     const ends = d.items.map((i) => i.endedAt).filter((x): x is number => x != null);
     return ends.length ? Math.max(...ends) : null;

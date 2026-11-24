@@ -39,16 +39,20 @@ export const countsAsTask = (it: Item) =>
   it.status !== 'skipped' &&
   !(it.status === 'postponed' && (!isPartial(it) || it.laterCopy));
 
+/** "Now" for counting up a past day: after everything on it. */
+export const DAY_OVER = 1e6;
+
 /**
  * Minutes actually worked on an item at time `n`. Timestamps are wall-clock minutes, so a timer
  * running across a clock change (around 2 am, twice a year) is off by that hour; the floor at
- * zero keeps the fall-back case from going negative.
+ * zero keeps the fall-back case from going negative. A timer nobody stopped on a day that's over
+ * (`DAY_OVER`) counts up to when its time was up.
  */
 export function worked(it: Item, n: number): number {
   if (untimed(it.kind)) return 0; // ticked off, never timed
   const s = it.status;
   let w = 0;
-  if (s === 'running') w = n - it.startedAt! - it.pausedFor;
+  if (s === 'running') w = n >= DAY_OVER ? it.min : n - it.startedAt! - it.pausedFor;
   else if (s === 'paused') w = it.pausedAt! - it.startedAt! - it.pausedFor;
   else if (s === 'done' || isPartial(it)) w = (it.endedAt ?? it.startedAt!) - it.startedAt! - it.pausedFor;
   return Math.max(0, w);
@@ -121,6 +125,8 @@ export function schedule(day: Day, n: number, stack = true): { rows: Row[]; fini
       timing = true;
     } else if (follow && it.kind === 'buffer' && it.heldAt != null) {
       start = it.heldAt;
+      // Once its time has come, the time before it since the last thing ended was idle.
+      if (start <= n) gap = idle(start);
       end = start + it.min;
       cur = Math.max(cur, end);
       plan = Math.max(plan, end);
@@ -208,10 +214,14 @@ export function schedule(day: Day, n: number, stack = true): { rows: Row[]; fini
     if (open && r.end > day.wrap + 0.5) r.pastEnd = true;
   });
 
-  const live = rows.filter((r) => r.it.status !== 'skipped');
+  // Checks and habits take no room, and stay where the first pass left them on a full day.
+  const live = rows.filter((r) => r.it.status !== 'skipped' && !untimed(r.it.kind));
   const finish = live.length ? Math.max(...live.map((r) => r.end)) : started ? n : day.dayStart;
   return { rows, finish, stacked: over };
 }
+
+/** The finish as shown: to the minute, then up to the next five (not up five for a few seconds). */
+export const likelyBy = (finish: number) => Math.ceil(Math.round(finish) / 5) * 5;
 
 /** A todo item whose planned end has passed (today only). Checks are never missed. */
 export const isMissed = (r: Row, n: number) => !untimed(r.it.kind) && r.it.status === 'todo' && r.end <= n + 1e-6;

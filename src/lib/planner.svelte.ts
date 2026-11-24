@@ -466,6 +466,8 @@ export class Planner {
       this.remindFrom = this.updateCheckedAt = Date.now();
       // The sign-in before the app shows, or a signed-in device would show the sign-in page first.
       this.session = (await db.getMeta<Session>('account').catch(() => undefined)) ?? null;
+      // Once the sign-in is known, so that what it changes is sent.
+      for (const k of [...this.stored]) await this.settleTimers(k);
       this.ready = true;
     } catch (e) {
       this.failed = e instanceof Error ? e.message : String(e);
@@ -816,14 +818,13 @@ export class Planner {
   /** A day as last known: loaded, or from the stored past. */
   dayAt = (key: string): Day | undefined => this.days[key] ?? this.past[key];
 
-  private put(day: Day): void {
-    day = this.runs(this.days[day.key], this.cardOps(this.days[day.key], day));
+  private put(day: Day, was: Day | undefined = this.days[day.key]): void {
+    day = this.runs(was, this.cardOps(was, day));
     // What was done, as changes: against the day as it was, stamped with now. Changes come from
     // here, never from storage, so nothing the app does to storage by itself is ever sent. A day
     // built from repeating tasks and never saved goes whole, but as built it counts as older
     // than anything done anywhere (ZERO): another device's edits to that day win over it, and
     // only what was done here is new.
-    const was = this.days[day.key];
     let change = stamp(diff('day', was ?? null, day), this.hlc.now());
     if (!this.stored.has(day.key)) change = merge(toPaths('day', was ?? null), change);
     this.unsent.set(day.key, merge(this.unsent.get(day.key) ?? {}, change));
@@ -1127,6 +1128,37 @@ export class Planner {
     }
   }
 
+  /**
+   * Two devices each started a timer on this day before hearing of the other. normalizeDay() shows
+   * one, but only shows it: left unsaved, the other would be running again as soon as that one
+   * was done. So it's set aside for good, as a start on one device does it (A.settleTimers),
+   * and it says so. Every device that sees it makes the same change.
+   */
+  private async settleTimers(key: string): Promise<void> {
+    const replica = merge(await db.getReplica('day', key), this.unsent.get(key) ?? {});
+    const raw = fromPaths('day', key, replica) as { items?: unknown[] } | null;
+    const active = ((raw?.items ?? []) as Item[]).filter(isActive);
+    const shown = this.days[key];
+    if (active.length < 2 || !shown) return;
+    const going = new Map(active.map((i) => [i.id, i]));
+    // As it was before one gave way: what's set aside here is a change from that.
+    const was: Day = {
+      ...shown,
+      items: shown.items.map((i) => {
+        const r = going.get(i.id);
+        return r && !isActive(i) ? { ...i, status: r.status, endedAt: r.endedAt, pausedAt: r.pausedAt } : i;
+      }),
+    };
+    const next = A.settleTimers(was, shown);
+    this.put(next, was);
+    const winner = A.activeItem(next);
+    const lost = was.items.find((i) => isActive(i) && i.id !== winner?.id);
+    if (!winner || !lost || key !== this.today) return;
+    const text = `${lost.title} was paused: ${winner.title} was started on another device.`;
+    this.nudge = { text, at: Date.now(), quiet: true };
+    this.say(text);
+  }
+
   /** Records changed from the account: reload them here and in this device's other tabs. */
   private fromAccount(ids: string[]): void {
     const keys = ids.filter((id) => id.startsWith('day:')).map((id) => id.slice(4));
@@ -1142,6 +1174,7 @@ export class Planner {
         this.post(m);
         await this.onMessage(m);
       }
+      for (const k of keys) if (k in this.days) await this.settleTimers(k);
     });
   }
 
@@ -1652,6 +1685,9 @@ export class Planner {
   startItem(id: string): void {
     const it = this.item(id);
     if (!it || it.kind === 'buffer' || untimed(it.kind)) return;
+    // Already under way: there's nothing to start again (that would wipe its time).
+    if (it.status === 'paused') return this.resume(id);
+    if (it.status !== 'todo') return;
     unlockAudio();
     if (this.whenTaskCurrent(id, () => this.startItem(id))) return;
     this.alerted.delete(id);
@@ -1730,28 +1766,46 @@ export class Planner {
   }
 
   /**
-   * The Done button. Well over time, the task may have been finished a while ago and Done tapped
-   * late, so ask: when time was up, or just now (see finishAt).
+   * The Done button: the timer stops there and then. Well over time, the task may have been
+   * finished a while ago and Done tapped late, so it also asks when; the answer only corrects the
+   * finish (see finishAt), and leaving it unanswered keeps "just now".
    */
   done(id: string): void {
     if (this.whenTaskCurrent(id, () => this.done(id))) return;
     const it = this.item(id);
-    if (it && !it.card && isActive(it) && worked(it, this.n) - it.min >= ASK_FINISH_OVER) this.arm('finish', id);
-    else this.finish(id);
+    const ask = !!it && !it.card && isActive(it) && worked(it, this.n) - it.min >= ASK_FINISH_OVER;
+    this.finish(id);
+    if (ask && this.item(id)?.status === 'done') this.arm('finish', id);
   }
 
   /** When an over-time task's time was up: where it would have ended without running over. */
   timeUpAt(id: string): number | null {
     const it = this.item(id);
-    return it && isActive(it) ? it.startedAt! + it.pausedFor + it.min : null;
+    return it && it.startedAt != null && (isActive(it) || it.status === 'done')
+      ? it.startedAt + it.pausedFor + it.min
+      : null;
   }
 
-  /** Done, logged as finished at `at` (no later than now). */
+  /** Done was tapped by mistake: the timer goes on as if it hadn't been. */
+  stillGoing(id: string): void {
+    this.confirm = null;
+    if (A.activeItem(this.day) || this.item(id)?.status !== 'done') return;
+    if (this.whenTaskCurrent(id, () => this.stillGoing(id))) return;
+    this.alerted.add(id);
+    this.update(
+      (d) => A.patchItem(d, id, { status: 'running', endedAt: null, pausedAt: null }),
+      `${this.item(id)?.title} still going`,
+    );
+  }
+
+  /** Done just now, but finished at `at`: the recorded finish moves back to it. */
   finishAt(id: string, at: number): void {
     this.confirm = null;
     if (this.whenTaskCurrent(id, () => this.finishAt(id, at))) return;
-    const end = Math.min(at, this.n);
-    this.update((d) => A.finish(d, id, end), `${this.item(id)?.title} done at ${fT(end, this.settings.clock24)}`);
+    this.update(
+      (d) => A.retime(d, id, { end: at }, this.n, this.n),
+      `${this.item(id)?.title} done at ${fT(at, this.settings.clock24)}`,
+    );
   }
 
   // ---------- correcting recorded times ----------

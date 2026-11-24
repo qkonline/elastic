@@ -4,7 +4,7 @@
 // days that aren't loaded for the day screen.
 
 import { seriesApplies } from './repeat';
-import { worked } from './schedule';
+import { DAY_OVER, worked } from './schedule';
 import { addDays, dayDiff, keyDate, mondayOf } from './time';
 import type { Day, Habit, Item, Series } from './types';
 
@@ -96,7 +96,7 @@ const itemOn = (day: Day | undefined, sid: string) => day?.items.find((i) => i.s
 const startOf = (s: Series) => (s.habit?.since && s.habit.since > s.from ? s.habit.since : s.from);
 
 /** Minutes into `key` at `now` (ms): past days count as over. */
-const nOf = (key: string, today: string, n: number) => (key === today ? n : key < today ? 1e6 : 0);
+const nOf = (key: string, today: string, n: number) => (key === today ? n : key < today ? DAY_OVER : 0);
 
 /** Days in `key`'s week or month, up to `upTo`, on which the habit was met. */
 export function periodCount(dayAt: DayAt, s: Series, key: string, today: string, n: number, upTo = today): number {

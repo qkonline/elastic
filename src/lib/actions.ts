@@ -88,6 +88,8 @@ function toCurrentPoint(items: Item[], id: string, missed: Set<string>): Item[] 
 export function startItem(day: Day, id: string, n: number): Day {
   const target = find(day, id);
   if (!target || target.kind === 'buffer' || untimed(target.kind)) return day;
+  // Starting it again would wipe its time.
+  if (isActive(target) || target.status === 'done') return day;
   // Missed as the day will be once this starts it: tasks still to do follow the now line then.
   const missed = new Set(
     schedule({ ...day, dayStarted: day.dayStarted ?? n }, n)
@@ -122,6 +124,36 @@ export function startItem(day: Day, id: string, n: number): Day {
   if (after) ordered.splice(ordered.findIndex((x) => x.id === id) + 1, 0, after);
   // Starting something on a day already ended reopens it.
   return { ...day, dayStarted: day.dayStarted ?? n, dayEnded: null, items: ordered };
+}
+
+/**
+ * Two devices started different timers: `was` has both going, `shown` the one that stays. The
+ * others are set aside as startItem() would have, when that one started: the time put in stays,
+ * and what's left comes straight after it. The copy's id comes from the task's, so every device
+ * makes the same one.
+ */
+export function settleTimers(was: Day, shown: Day): Day {
+  const winner = activeItem(shown);
+  let next = shown;
+  for (const i of was.items) {
+    if (!winner || !isActive(i) || i.id === winner.id || i.card) continue;
+    const end = i.status === 'paused' ? i.pausedAt! : Math.max(i.startedAt! + i.pausedFor, winner.startedAt!);
+    const w = end - i.startedAt! - i.pausedFor;
+    if (w < 1) {
+      next = patchItem(next, i.id, { status: 'todo', startedAt: null, endedAt: null, pausedAt: null, pausedFor: 0 });
+      continue;
+    }
+    next = patchItem(next, i.id, { status: 'postponed', endedAt: end, pausedAt: null, laterCopy: true });
+    const id = `${i.id}~rest`;
+    if (find(next, id)) continue;
+    const items = [...next.items];
+    items.splice(items.findIndex((x) => x.id === winner.id) + 1, 0, {
+      ...restOf(i, w, w >= i.min ? REOPEN_MIN : remainder(i, w)),
+      id,
+    });
+    next = { ...next, items };
+  }
+  return next;
 }
 
 /**

@@ -5,7 +5,7 @@
 import { habitMet, isHabit } from './habits';
 import type { DayAt } from './habits';
 import { MONTHS, quarterOf, quarterRange, addQuarters } from './goals';
-import { countsAsTask, isPartial, worked } from './schedule';
+import { countsAsTask, DAY_OVER, isPartial, worked } from './schedule';
 import { addDays, dayDiff, keyDate, mondayOf } from './time';
 import type { Hue, Review, ReviewNumbers } from './types';
 import { untimed } from './types';
@@ -57,7 +57,7 @@ export function reviewNumbers(dayAt: DayAt, from: string, to: string, today: str
     out.days++;
     const d = dayAt(k);
     if (!d) continue;
-    const at = k === today ? n : 1e6;
+    const at = k === today ? n : DAY_OVER;
     if (d.dayStarted != null) out.daysStarted++;
     let lastEnd = 0;
     for (const it of d.items) {

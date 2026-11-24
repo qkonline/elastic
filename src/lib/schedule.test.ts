@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as A from './actions';
 import { newItem } from './actions';
-import { dayStats, isMissed, schedule, worked } from './schedule';
+import { DAY_OVER, dayStats, isMissed, likelyBy, schedule, worked } from './schedule';
 import { clockToDay, minutesInto } from './time';
 import type { Day, Item } from './types';
 
@@ -343,5 +343,30 @@ describe('following the now line', () => {
     // the 6 pm wrap-up at all, so it runs past it rather than into the meeting.
     expect(at(d, 990)).toEqual(['a 990-1050', 'meet 1050-1080', 'b 1080-1110']);
     expect(schedule(d, 990).rows[2].pastEnd).toBe(true);
+  });
+
+  it('says the same finish whether or not there is a check on a full day', () => {
+    const items = [t('a', 60), t('b', 60), t('c', 60)];
+    const d = { ...day(items), dayStarted: 540, wrap: 1080 };
+    const check = { ...t('k', 0), kind: 'check' as const };
+    for (const n of [900, 990, 1100])
+      expect(schedule({ ...d, items: [...items, check] }, n).finish).toBe(schedule(d, n).finish);
+  });
+
+  it('rounds the finish to the minute before the five', () => {
+    expect(likelyBy(1185.2)).toBe(1185);
+    expect(likelyBy(1186)).toBe(1190);
+  });
+
+  it('shows the time gone before a buffer whose time has come', () => {
+    const buf = { ...t('b', 15), kind: 'buffer' as const, heldAt: 660 };
+    const d = { ...day([buf, t('a', 30)]), dayStarted: 540, wrap: 1080 };
+    expect(schedule(d, 700).rows.map((r) => Math.round(r.gap))).toEqual([120, 25]);
+    expect(schedule(d, 600).rows[0].gap).toBe(0);
+  });
+
+  it('counts a timer left running on a past day up to its time, not until now', () => {
+    const it_ = { ...t('a', 45), status: 'running' as const, startedAt: 600 };
+    expect(worked(it_, DAY_OVER)).toBe(45);
   });
 });

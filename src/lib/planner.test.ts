@@ -424,10 +424,39 @@ describe('Planner', () => {
     p.tick();
     p.done(id);
     expect(p.armed('finish', id)).toBe(true);
-    expect(byTitle(p, 'Write').status).toBe('running');
+    // Stopped at the tap, whatever the answer.
+    expect(byTitle(p, 'Write')).toMatchObject({ status: 'done' });
+    expect(byTitle(p, 'Write').endedAt).toBeCloseTo(665, 0);
+    p.stillGoing(id);
+    expect(byTitle(p, 'Write')).toMatchObject({ status: 'running', startedAt: 600, endedAt: null });
+    p.done(id);
     p.finishAt(id, p.timeUpAt(id)!);
     expect(byTitle(p, 'Write')).toMatchObject({ status: 'done' });
     expect(byTitle(p, 'Write').endedAt).toBeCloseTo(630, 0);
+  });
+
+  it('keeps Done when the next task is started without saying when it was finished', async () => {
+    const p = await boot();
+    add(p, 'Write', 30);
+    add(p, 'Call', 30);
+    p.startDay();
+    vi.setSystemTime(new Date(2026, 8, 25, 11, 5));
+    p.tick();
+    p.done(byTitle(p, 'Write').id);
+    vi.setSystemTime(new Date(2026, 8, 25, 11, 45));
+    p.tick();
+    p.startItem(byTitle(p, 'Call').id);
+    expect(p.day.items.map((i) => [i.title, i.status])).toEqual([
+      ['Write', 'done'],
+      ['Call', 'running'],
+    ]);
+    expect(byTitle(p, 'Write').endedAt).toBeCloseTo(665, 0);
+    // Start on what's already going changes nothing.
+    const was = byTitle(p, 'Call');
+    vi.setSystemTime(new Date(2026, 8, 25, 12, 0));
+    p.tick();
+    p.startItem(was.id);
+    expect(byTitle(p, 'Call')).toEqual(was);
   });
 
   it('corrects when a task and the day started', async () => {

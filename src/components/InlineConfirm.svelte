@@ -8,7 +8,13 @@
     on: () => void;
     kind?: 'pri' | 'danger';
   }
-  let { q, d = '', opts, large = false }: { q: string; d?: string; opts: Opt[]; large?: boolean } = $props();
+  let {
+    q,
+    d = '',
+    opts,
+    cancel = { l: 'Cancel', on: () => planner.disarm() },
+    large = false,
+  }: { q: string; d?: string; opts: Opt[]; cancel?: Opt; large?: boolean } = $props();
 
   // The button that opened this confirm is gone now, so move focus to the first choice.
   const focusFirst = (el: HTMLElement) => el.focus({ preventScroll: true });
@@ -26,7 +32,7 @@
       <button class="opt {o.kind ?? ''}" onclick={o.on}>{o.l}</button>
     {/if}
   {/each}
-  <button class="opt" onclick={() => planner.disarm()}>Cancel</button>
+  <button class="opt" onclick={cancel.on}>{cancel.l}</button>
   {#if !planner.confirm || !UNTIMED_CONFIRMS.includes(planner.confirm.type)}<DisarmBar />{/if}
 </div>
 

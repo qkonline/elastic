@@ -137,7 +137,8 @@ export function normalizeDay(raw: unknown): Day | null {
   const items = all.filter((it) => !ids.has(it.id) && !!ids.add(it.id));
   // At most one timer per day (two devices can each start one before hearing of the other): the
   // one started last keeps going, and the others are set aside from that moment, as starting a
-  // task does (never marked done: nobody said they were).
+  // task does (never marked done: nobody said they were). This is only how it's read: what gave
+  // way is saved as set aside, with its rest, by the planner (settleTimers).
   const active = items.filter((i) => i.status === 'running' || i.status === 'paused');
   if (active.length > 1) {
     const later = (a: Item, b: Item) =>

@@ -95,7 +95,7 @@
   class:active={v.active}
   class:hovered={hovered && !v.active}
   class:lifted
-  style:opacity={lifted ? 1 : v.op}
+  style:opacity={lifted || finishArmed ? 1 : v.op}
   style:transform={lifted ? `translateY(${P.drag!.dy}px) scale(1.02)` : shift ? `translateY(${shift}px)` : undefined}
   style:min-height="{v.h + 8}px"
   style:--box-ring={boxRing}

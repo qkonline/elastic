@@ -4,6 +4,7 @@
   import InlineConfirm from './InlineConfirm.svelte';
 
   // Done on a task well over time: it may have been finished a while ago and Done tapped late.
+  // It's already done as of that tap: this only moves the finish back.
   let {
     id,
     title,
@@ -21,7 +22,8 @@
     d="It ran {dL(worked - min)} over."
     opts={[
       { l: `When time was up, ${fT(upAt, P.settings.clock24)}`, kind: 'pri', on: () => P.finishAt(id, upAt) },
-      { l: 'Just now', on: () => P.finish(id) },
+      { l: 'Just now', on: () => P.disarm() },
     ]}
+    cancel={{ l: 'Still going', on: () => P.stillGoing(id) }}
   />
 {/if}

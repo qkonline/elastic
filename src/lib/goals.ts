@@ -3,7 +3,7 @@
 
 import { habitMet, isHabit } from './habits';
 import type { DayAt } from './habits';
-import { worked } from './schedule';
+import { DAY_OVER, worked } from './schedule';
 import { addDays, keyDate } from './time';
 import type { Goal, GoalSnapshot } from './types';
 import { untimed } from './types';
@@ -56,7 +56,7 @@ export function goalProgress(g: Goal, dayAt: DayAt, today: string, n: number): G
   for (let k = from; k <= to && k <= today; k = addDays(k, 1)) {
     const d = dayAt(k);
     if (!d) continue;
-    const at = k === today ? n : 1e6;
+    const at = k === today ? n : DAY_OVER;
     for (const it of d.items) {
       if (it.goalId !== g.id) continue;
       if (isHabit(it)) habitMet(d, it, at) && habitDays++;

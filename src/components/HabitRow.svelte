@@ -5,6 +5,7 @@
   import { habitMet, habitValue, oneOf, periodCount, progressText, streak } from '../lib/habits';
   import { planner as P } from '../lib/planner.svelte';
   import { hueColor, inkOn, type Habit, type Item } from '../lib/types';
+  import { DAY_OVER } from '../lib/schedule';
   import HabitRing from './HabitRing.svelte';
   import TaskIcon from './TaskIcon.svelte';
 
@@ -27,7 +28,7 @@
   // As of the day on screen; a day ahead has no streak yet.
   const asOf = $derived(P.viewKey < P.today ? P.viewKey : P.today);
   const run = $derived(
-    series && P.viewKey <= P.today ? streak(P.dayAt, series, asOf, P.viewKey === P.today ? n : 1e6) : 0,
+    series && P.viewKey <= P.today ? streak(P.dayAt, series, asOf, P.viewKey === P.today ? n : DAY_OVER) : 0,
   );
   const sofar = $derived(progressText(day, it, n));
   const period = $derived(

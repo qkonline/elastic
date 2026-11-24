@@ -143,8 +143,6 @@
             <!-- An ended day's timer was stopped; nothing to press. -->
           {:else if postponeArmed}
             <PostponeChooser {id} title={it.title} worked={v.w} large />
-          {:else if finishArmed}
-            <FinishChooser {id} title={it.title} worked={v.w} min={it.min} large />
           {:else}
             <div class="ctls">
               <!-- One button that flips, so keyboard focus stays on it. -->
@@ -206,6 +204,8 @@
 
           {#if postponeArmed}
             <PostponeChooser {id} title={it.title} large />
+          {:else if finishArmed && !P.locked}
+            <FinishChooser {id} title={it.title} worked={v.w} min={it.min} large />
           {:else if !P.locked}
             <div class="acts">
               {#if isCheck && v.s === 'todo' && P.waiting}

@@ -214,6 +214,40 @@ describe('sync', () => {
     ]);
   });
 
+  it('sets one of two clashing timers aside for good, with its rest, on both devices', async () => {
+    const a = await device({ fresh: true });
+    add(a.p, 'Alpha');
+    add(a.p, 'Bravo');
+    (a.p as any).update((d: object) => ({ ...d, dayStarted: a.p.n }));
+    await settle();
+    const b = await device();
+    const id = (d: Device, title: string) => d.p.day.items.find((i) => i.title === title)!.id;
+    server.held = [];
+    a.p.startItem(id(a, 'Alpha'));
+    await a.p.flush();
+    const [h, m] = [new Date().getHours(), new Date().getMinutes()];
+    at(h, m + 10);
+    b.p.startItem(id(b, 'Bravo'));
+    await settle();
+    const held = server.held;
+    server.held = null;
+    held.forEach((go) => go());
+    await settle();
+    const state = (d: Device) => d.p.day.items.map((i) => `${i.title} ${i.status}${i.continued ? ' rest' : ''}`);
+    const want = ['Bravo running', 'Alpha todo rest', 'Alpha postponed'];
+    for (const d of [a, b]) expect([...state(d)].sort()).toEqual([...want].sort());
+    expect(state(a)).toEqual(state(b));
+    // The one that stayed is finished: the other must not start running again.
+    at(h, m + 30);
+    b.p.done(id(b, 'Bravo'));
+    await settle();
+    for (const d of [a, b]) {
+      expect([...state(d)].sort()).toEqual(['Alpha postponed', 'Alpha todo rest', 'Bravo done'].sort());
+      await (d.p as any).reloadAll();
+      expect([...state(d)].sort()).toEqual(['Alpha postponed', 'Alpha todo rest', 'Bravo done'].sort());
+    }
+  });
+
   it('shares how days work, but not the theme', async () => {
     const a = await device({ fresh: true });
     const b = await device();
