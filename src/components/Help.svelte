@@ -76,7 +76,7 @@
   </p>
   <a class="btn-plain self" href={mail}>Write an email</a>
 </section>
-<p class="links"><a href="/privacy" target="_blank">Privacy</a></p>
+<p class="links"><a href="/privacy" target="_blank">Privacy</a><a href="/terms" target="_blank">Terms</a></p>
 
 <style>
   .card {

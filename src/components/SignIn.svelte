@@ -279,7 +279,8 @@
         {/each}
       </div>
       <p class="note">
-        How your data is kept: <a href="/privacy" target="_blank">privacy</a>. Stuck?
+        By signing in you agree to the <a href="/terms" target="_blank">terms</a>. How your data is kept:
+        <a href="/privacy" target="_blank">privacy</a>. Stuck?
         <a href="mailto:kaiser@kaiserkhan.com">Write to us</a>.
       </p>
     {/if}
