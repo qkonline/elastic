@@ -127,6 +127,18 @@ export function startItem(day: Day, id: string, n: number): Day {
 }
 
 /**
+ * Set aside when another task was started, but it was done: done as of then, and the rest of it
+ * (the copy right after the one started) goes.
+ */
+export function doneInstead(day: Day, id: string, restId: string): Day {
+  const it = find(day, id);
+  if (!it || it.status !== 'postponed' || !it.laterCopy) return day;
+  const rest = find(day, restId);
+  const d = rest?.status === 'todo' ? remove(day, restId) : day;
+  return mapItem(d, id, () => ({ status: 'done', laterCopy: false }));
+}
+
+/**
  * Two devices started different timers: `was` has both going, `shown` the one that stays. The
  * others are set aside as startItem() would have, when that one started: the time put in stays,
  * and what's left comes straight after it. The copy's id comes from the task's, so every device

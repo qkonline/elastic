@@ -36,6 +36,7 @@
   import ProjectCard from './components/ProjectCard.svelte';
   import Timeline from './components/Timeline.svelte';
   import WeekStrip from './components/WeekStrip.svelte';
+  import UnfinishedDay from './components/UnfinishedDay.svelte';
   import Welcome from './components/Welcome.svelte';
   import BottomBar from './components/BottomBar.svelte';
   import SideNav from './components/SideNav.svelte';
@@ -229,6 +230,7 @@
           {/if}
           <SaveError />
           <RunningElsewhere />
+          <UnfinishedDay />
           <ComingUp />
           {#if P.view === 'day' && P.isToday}<NotifyPrompt />{/if}
           <BoardoOffer />

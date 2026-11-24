@@ -22,7 +22,7 @@
     d="It ran {dL(worked - min)} over."
     opts={[
       { l: `When time was up, ${fT(upAt, P.settings.clock24)}`, kind: 'pri', on: () => P.finishAt(id, upAt) },
-      { l: 'Just now', on: () => P.disarm() },
+      { l: 'Just now', on: () => P.finishedNow(id) },
     ]}
     cancel={{ l: 'Still going', on: () => P.stillGoing(id) }}
   />

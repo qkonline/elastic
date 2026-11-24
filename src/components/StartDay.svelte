@@ -3,12 +3,15 @@
   import { cubicOut } from 'svelte/easing';
   import { slide } from 'svelte/transition';
   import { planner as P } from '../lib/planner.svelte';
+  import { fT } from '../lib/time';
   import { reducedMotion } from '../lib/ui.svelte';
 
   // Today's plan waits here until the day is started; the tasks' Start buttons and the
   // checklist stay off until then (so a day of only checks needs it too), and the plan below is
   // dimmed (still editable). Once pressed, the button folds away and the plan comes up to colour.
   const show = $derived(P.startPending);
+  // Opened late: the plan was for earlier, and starting plans it from now.
+  const late = $derived(!P.settings.flexStart && P.n >= P.day.dayStart + 15);
   const fold = () => ({ duration: reducedMotion.current ? 0 : 280, easing: cubicOut });
 
   // Tapping a check or a Start button too early (P.nudge) calls this button out: it comes into
@@ -57,6 +60,11 @@
         <span class="word">Start my day</span>
       </span>
     </button>
+    {#if late}
+      <p class="late">
+        Planned from {fT(P.day.dayStart, P.settings.clock24)}. Starting plans the rest of your day from now.
+      </p>
+    {/if}
   </div>
 {/if}
 
@@ -65,8 +73,17 @@
     /* Keeps the glow behind the button, not behind the page. */
     isolation: isolate;
     display: flex;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
     padding: 16px var(--px) 4px;
+  }
+  .late {
+    margin: 0;
+    font: 400 13px/1.45 var(--font);
+    color: var(--muted);
+    text-align: center;
+    text-wrap: balance;
   }
   /* A raised key: a solid edge under it that it presses down onto. */
   .start-day {

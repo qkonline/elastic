@@ -225,6 +225,7 @@ export function normalizeSettings(raw: unknown): Settings {
     flexStart: typeof r.flexStart === 'boolean' ? r.flexStart : d.flexStart,
     // A backup comes from someone who has used the app, so don't show them the welcome again.
     onboarded: true,
+    endRemind: r.endRemind === true,
     habitsPlace: r.habitsPlace === 'separate' ? 'separate' : 'checklist',
     checklistLayout: r.checklistLayout === 'row' ? 'row' : 'list',
     defLength: Math.min(720, Math.max(0, Math.round(num(r.defLength, d.defLength)!))),

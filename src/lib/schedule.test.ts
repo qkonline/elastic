@@ -365,6 +365,15 @@ describe('following the now line', () => {
     expect(schedule(d, 600).rows[0].gap).toBe(0);
   });
 
+  it('stays as planned once a day nobody ended is over', () => {
+    const d = day([t('a', 60, { status: 'running', startedAt: 600 }), t('b', 60)], { dayStarted: 540, wrap: 1080 });
+    const rows = schedule(d, 2200).rows;
+    expect(rows.map((r) => [r.start, r.end])).toEqual([
+      [600, 660],
+      [660, 720],
+    ]);
+  });
+
   it('counts a timer left running on a past day up to its time, not until now', () => {
     const it_ = { ...t('a', 45), status: 'running' as const, startedAt: 600 };
     expect(worked(it_, DAY_OVER)).toBe(45);

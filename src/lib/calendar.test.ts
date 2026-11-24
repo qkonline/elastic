@@ -32,7 +32,9 @@ describe('calendarRows', () => {
 
   it('marks what was missed', () => {
     const d = day([newItem({ title: 'Early', min: 30 })], { dayStarted: null });
-    expect(calendarRows(d, 700)[0].state).toBe('missed');
+    // Not before the day starts (Start my day plans it from then), unless the day has gone by.
+    expect(calendarRows(d, 700)[0].state).toBe('todo');
+    expect(calendarRows(d, 1500)[0].state).toBe('missed');
   });
 });
 

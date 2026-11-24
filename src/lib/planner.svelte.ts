@@ -45,7 +45,7 @@ import {
   withoutSeries,
 } from './repeat';
 import { sampleItems } from './sample';
-import { dayStats, type DayStats, isActive, isPartial, schedule, worked } from './schedule';
+import { dayStats, type DayStats, isActive, isPartial, schedule, worked, isOver } from './schedule';
 import {
   addDays,
   atMinutes,
@@ -218,6 +218,16 @@ function stored(s: Partial<Settings>): Settings {
 /** Unfinished at the end of the day and not coming back by itself: one-off tasks and checks. */
 export const leftAtEnd = (i: Item): boolean => i.status === 'todo' && i.kind !== 'buffer' && i.repeat === 'Once';
 
+/**
+ * When a timer being stopped now counts to: now, or on a day that's over, when its time was up (a
+ * Boardo card's has none: the day's planned end).
+ */
+export function stoppedBy(d: Day, it: Item, n: number): number {
+  if (!isOver(d, n)) return n;
+  const up = it.card ? Math.max(it.startedAt! + it.pausedFor, d.wrap) : it.startedAt! + it.pausedFor + it.min;
+  return Math.min(n, up);
+}
+
 export class Planner {
   ready = $state(false);
   failed = $state<string | null>(null);
@@ -327,7 +337,16 @@ export class Planner {
    * answers it). `quiet`: a message only, without calling out the Start my day button.
    */
   /** A short message above the bottom bar; `undo` adds an Undo button to it (a habit tap). */
-  nudge = $state<{ text: string; at: number; quiet?: boolean; undo?: () => void } | null>(null);
+  nudge = $state<{
+    text: string;
+    at: number;
+    quiet?: boolean;
+    undo?: () => void;
+    /** The button's word, when it isn't Undo. */
+    label?: string;
+    /** How long it stays, when not NUDGE_MS. */
+    ms?: number;
+  } | null>(null);
   /**
    * Signed in, and not caught up with the account since opening or coming back after a while:
    * the plan on screen may be out of date, so timer taps wait (whenCurrent()). On 25 Oct 2026 a
@@ -382,6 +401,18 @@ export class Planner {
     }
     return null;
   }
+  /**
+   * The last day started before Today, if nobody ended it and it has something to decide about:
+   * a timer left running, or tasks not done. Today asks about it (UnfinishedDay.svelte).
+   */
+  leftDay: Day | null = $derived.by(() => {
+    if (this.catchingUp) return null;
+    const last = Object.values(this.days)
+      .filter((d) => isDayKey(d.key) && d.key < this.today && d.dayStarted != null)
+      .sort((a, b) => (a.key < b.key ? 1 : -1))[0];
+    if (!last || last.dayEnded != null || dayDiff(last.key, this.today) > RECENT_DAYS) return null;
+    return last.items.some((i) => isActive(i) || leftAtEnd(i)) ? last : null;
+  });
   /** The fixed-time task whose heads-up is due, until it starts (Today or the day after). */
   comingUp: HeadsUp | null = $derived.by(() => {
     const now = this.clock;
@@ -629,7 +660,19 @@ export class Planner {
     for (const r of this.habitReminders()) if (r.at > now) out.push(r);
     const rv = this.reviewReminder();
     if (rv && rv.at > now) out.push(rv);
+    const end = this.endReminder();
+    if (end && end.at > now) out.push(end);
     return out;
+  }
+
+  /** At the wrap-up of a day under way, if asked for: end it. */
+  private endReminder(): { at: number; note: Note } | null {
+    const d = this.days[this.today];
+    if (!this.settings.endRemind || !d || d.dayStarted == null || d.dayEnded != null) return null;
+    return {
+      at: atMinutes(d.key, d.wrap),
+      note: { title: 'End your day?', body: 'See what got done and choose what moves', tag: 'end-' + d.key },
+    };
   }
 
   /** This week's review, at its day and time, if it hasn't been done. */
@@ -706,7 +749,7 @@ export class Planner {
     // Clearing a day waits for an answer; the other confirms give up after a while.
     if (this.confirm && !UNTIMED_CONFIRMS.includes(this.confirm.type) && Date.now() - this.confirm.at > CONFIRM_MS)
       this.confirm = null;
-    if (this.nudge && Date.now() - this.nudge.at > NUDGE_MS) this.nudge = null;
+    if (this.nudge && Date.now() - this.nudge.at > (this.nudge.ms ?? NUDGE_MS)) this.nudge = null;
     if (this.clock - this.followedAt >= 1000) this.followNow();
     if (Date.now() - this.updateCheckedAt > UPDATE_EVERY_MS) void this.checkForUpdate(false);
     if (this.accountAlerts && this.clock - this.alertsCheckedAt > ALERTS_EVERY_MS) {
@@ -750,7 +793,8 @@ export class Planner {
       if (this.settings.notify) notifyHidden(note.title, note.body, note.tag);
     }
     const rv = this.reviewReminder();
-    for (const r of [...this.habitReminders(), ...(rv ? [rv] : [])]) {
+    const end = this.endReminder();
+    for (const r of [...this.habitReminders(), ...(rv ? [rv] : []), ...(end ? [end] : [])]) {
       if (r.at <= from || r.at > this.clock) continue;
       this.say(`${r.note.title}: ${r.note.body}`);
       if (this.settings.alertOn) {
@@ -761,7 +805,7 @@ export class Planner {
     }
   }
 
-  /** Midnight passed with the app open. Follow it to the new day unless a timer is running. */
+  /** Midnight passed with the app open: follow it to the new day (a timer left running shows as elsewhere). */
   private rollover(tk: string): void {
     const old = this.today;
     this.today = tk;
@@ -769,7 +813,7 @@ export class Planner {
     void this.ensureDay(tk)
       .then(() => this.loadWeek())
       .then(() => this.ensureDay(addDays(tk, 1)));
-    if (this.viewKey === old && !this.days[old]?.items.some(isActive)) void this.switchDay(tk);
+    if (this.viewKey === old) void this.switchDay(tk);
   }
 
   // ---------- loading & saving ----------
@@ -1565,9 +1609,9 @@ export class Planner {
    * "End my day". `move` is what to take to the next day: the unfinished one-off tasks and checks
    * picked in the wrap-up (true: all of them, false: none). The running task is finished, or with
    * `finish` false set aside with its time kept, and if it's among `move` what's left of it moves
-   * on too. A Boardo card's is always set aside.
+   * on too; `finish` a time of day: finished then. A Boardo card's is always set aside.
    */
-  async endDay(move: boolean | string[], finish = true): Promise<void> {
+  async endDay(move: boolean | string[], finish: boolean | number = true): Promise<void> {
     if (this.whenCurrent('Today', this.dayTimers, () => void this.endDay(move, finish))) return;
     const key = this.viewKey,
       next = addDays(key, 1),
@@ -1576,13 +1620,14 @@ export class Planner {
     const ids = move === true ? d.items.filter((i) => leftAtEnd(i)).map((i) => i.id) : move || [];
     const copies: Item[] = [];
     const act = A.activeItem(d);
-    if (act && !finish && !act.card) {
+    if (act && finish === false && !act.card) {
       const res = ids.includes(act.id) ? A.moveOut(d, act.id, next, n) : null;
       if (res) {
         d = res.day;
         copies.push(res.copy);
       } else d = { ...d, items: d.items.map((i) => (i.id === act.id ? A.setAside(i, n) : i)) };
     }
+    if (act && typeof finish === 'number' && !act.card) d = A.finish(d, act.id, Math.min(finish, n));
     d = A.endDay(d, n);
     for (const id of ids) {
       const it = d.items.find((i) => i.id === id);
@@ -1602,6 +1647,53 @@ export class Planner {
     }
     this.say(copies.length ? `Day ended; ${copies.length} moved to tomorrow` : 'Day ended');
     this.tick(); // past midnight, Today moves on to the new date
+  }
+
+  /**
+   * The answer about a day nobody ended (leftDay): it ends at its last activity, what was left
+   * running finished when its time was up (or `finish` false, set aside then), and `ids` move to
+   * `to` (Today, or Someday).
+   */
+  async endLeftDay(key: string, ids: string[], to: string, finish = true): Promise<void> {
+    const timers = () => JSON.stringify(this.days[key]?.items.map(timerOf));
+    if (this.whenCurrent('That day', timers, () => void this.endLeftDay(key, ids, to, finish))) return;
+    let d = this.days[key];
+    if (!d || d.dayEnded != null) return;
+    if (this.days[to]?.dayEnded != null) return this.sayLocked();
+    const n = minutesInto(key, this.clock);
+    const copies: Item[] = [];
+    const act = A.activeItem(d);
+    if (act) {
+      const m = stoppedBy(d, act, n);
+      const res =
+        ids.includes(act.id) && !act.card
+          ? A.moveOut(d, act.id, to, act.status === 'paused' ? act.pausedAt! : m)
+          : null;
+      if (res) {
+        d = res.day;
+        copies.push(res.copy);
+      } else if (finish && !act.card && act.status === 'running') d = A.finish(d, act.id, m);
+      else d = A.patchItem(d, act.id, A.setAside(act, m));
+    }
+    for (const id of ids) {
+      const it = A.find(d, id);
+      const res = it && leftAtEnd(it) ? A.moveOut(d, id, to, n) : null;
+      if (!res) continue;
+      d = res.day;
+      copies.push(res.copy);
+    }
+    d = { ...d, dayEnded: Math.max(d.dayStarted!, ...d.items.map((i) => i.endedAt ?? 0)) };
+    this.put(d);
+    if (copies.length) {
+      const target = await this.ensureDay(to);
+      this.put(
+        to === SOMEDAY
+          ? { ...target, items: [...target.items, ...copies] }
+          : copies.reduce((day, c) => A.addItem(day, c, minutesInto(to, this.clock)), target),
+      );
+    }
+    const where = to === SOMEDAY ? 'Someday' : 'today';
+    this.say(copies.length ? `Day ended; ${copies.length} moved to ${where}` : 'Day ended');
   }
 
   /** The one change an ended day takes: opening it again. */
@@ -1695,12 +1787,28 @@ export class Planner {
     this.nudge = null;
     this.finishElsewhere();
     const n = this.n;
+    // What gives way to it having used up its time may well be done rather than paused.
+    const left = this.active && !this.active.card && worked(this.active, n) >= this.active.min ? this.active : null;
+    const had = new Set(this.day.items.map((i) => i.id));
     this.update((d) => {
       if (d.dayStarted != null) return A.startItem(d, id, n);
       // This starts the day (Reschedule → Start now before Start my day): from the plan as shown,
       // with the day's hours set first, as Start my day does.
       return A.startItem({ ...this.planDay, ...this.opening(d, n) }, id, n);
     }, `${it.title} started`);
+    const rest = this.day.items.find((i) => i.continued && !had.has(i.id));
+    if (left && rest)
+      this.nudge = {
+        text: `${left.title} was set aside.`,
+        at: Date.now(),
+        quiet: true,
+        ms: CONFIRM_MS,
+        label: 'It was done',
+        undo: () => {
+          this.nudge = null;
+          this.update((d) => A.doneInstead(d, left.id, rest.id), `${left.title} done`);
+        },
+      };
     this.offerNotifications();
   }
 
@@ -1737,8 +1845,8 @@ export class Planner {
   private finishElsewhere(): void {
     const e = this.elsewhere;
     if (!e) return;
-    const m = minutesInto(e.key, this.clock);
-    this.put(A.patchItem(this.days[e.key], e.it.id, A.setAside(e.it, m)));
+    const d = this.days[e.key];
+    this.put(A.patchItem(d, e.it.id, A.setAside(e.it, stoppedBy(d, e.it, minutesInto(e.key, this.clock)))));
   }
 
   pause(id: string): void {
@@ -1774,7 +1882,11 @@ export class Planner {
     if (this.whenTaskCurrent(id, () => this.done(id))) return;
     const it = this.item(id);
     const ask = !!it && !it.card && isActive(it) && worked(it, this.n) - it.min >= ASK_FINISH_OVER;
+    const up = this.timeUpAt(id);
+    // Left running on a day that's over: when its time was up is far likelier than now.
+    const stale = ask && up != null && isOver(this.day, this.n);
     this.finish(id);
+    if (stale) this.update((d) => A.retime(d, id, { end: up }, this.n, this.n));
     if (ask && this.item(id)?.status === 'done') this.arm('finish', id);
   }
 
@@ -1784,6 +1896,14 @@ export class Planner {
     return it && it.startedAt != null && (isActive(it) || it.status === 'done')
       ? it.startedAt + it.pausedFor + it.min
       : null;
+  }
+
+  /** "Just now": as of the Done tap, which is what's recorded unless the day was over by then. */
+  finishedNow(id: string): void {
+    const at = this.confirm ? minutesInto(this.viewKey, this.confirm.at) : this.n;
+    const it = this.item(id);
+    if (it?.endedAt != null && Math.abs(it.endedAt - at) >= 1) this.finishAt(id, at);
+    this.confirm = null;
   }
 
   /** Done was tapped by mistake: the timer goes on as if it hadn't been. */

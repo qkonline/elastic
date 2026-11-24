@@ -1,3 +1,4 @@
+import { dayCutoff } from './today';
 import type { Day, Item } from './types';
 import { untimed } from './types';
 
@@ -42,6 +43,12 @@ export const countsAsTask = (it: Item) =>
 /** "Now" for counting up a past day: after everything on it. */
 export const DAY_OVER = 1e6;
 
+/** A day that was started and never ended is over once it can't be Today any more. */
+export const isOver = (day: Day, n: number) => day.dayStarted != null && day.dayEnded == null && n >= dayCutoff(day);
+
+/** `n`, or DAY_OVER on a day that's over: a timer nobody stopped there counts up to its time. */
+export const countTo = (day: Day, n: number) => (isOver(day, n) ? DAY_OVER : n);
+
 /**
  * Minutes actually worked on an item at time `n`. Timestamps are wall-clock minutes, so a timer
  * running across a clock change (around 2 am, twice a year) is off by that hour; the floor at
@@ -80,7 +87,9 @@ export function schedule(day: Day, n: number, stack = true): { rows: Row[]; fini
   // planned before now, so the time since the last one finished shows as idle and a task is only
   // missed once the day runs out (the stacking pass below). Fixed items and buffers keep their
   // times; a task that no longer fits before one goes after it (actions.letThrough()).
-  const follow = started && day.dayEnded == null;
+  // A day nobody ended stays as planned once it's over (it isn't Today any more).
+  const past = isOver(day, n);
+  const follow = started && day.dayEnded == null && !past;
   let cur = started ? day.dayStarted! : day.dayStart;
   // Tasks left in front of everything that has happened were missed before the day started
   // (and kept as missed when another task was started): they stay where the plan had them.
@@ -114,13 +123,14 @@ export function schedule(day: Day, n: number, stack = true): { rows: Row[]; fini
     } else if (s === 'running') {
       start = it.startedAt!;
       gap = idle(start);
-      end = Math.max(n, start + it.min + it.pausedFor);
+      // Left running on a day that's over: up to when its time was up.
+      end = Math.max(past ? 0 : n, start + it.min + it.pausedFor);
       cur = end;
       timing = true;
     } else if (s === 'paused') {
       start = it.startedAt!;
       gap = idle(start);
-      end = n + Math.max(0, it.min - (it.pausedAt! - start - it.pausedFor));
+      end = (past ? it.pausedAt! : n) + Math.max(0, it.min - (it.pausedAt! - start - it.pausedFor));
       cur = end;
       timing = true;
     } else if (follow && it.kind === 'buffer' && it.heldAt != null) {
@@ -209,7 +219,8 @@ export function schedule(day: Day, n: number, stack = true): { rows: Row[]; fini
     const open = !ended && !untimed(r.it.kind) && !['done', 'skipped', 'postponed'].includes(r.it.status);
     if (open && r.it.kind !== 'fixed') {
       const f = rows.slice(i + 1).find((x) => x.it.kind === 'fixed' && x.it.status === 'todo');
-      if (f && r.end > f.start + 0.5 && r.start < f.end) r.runsInto = true;
+      // (Not one that's over already.)
+      if (f && f.end > n && r.end > f.start + 0.5 && r.start < f.end) r.runsInto = true;
     }
     if (open && r.end > day.wrap + 0.5) r.pastEnd = true;
   });
@@ -237,6 +248,7 @@ export interface DayStats {
 
 /** What a day adds up to. Skipped items and ones moved to another day don't count. */
 export function dayStats(day: Day, n: number): DayStats {
+  n = countTo(day, n);
   const counts = (i: Item) => i.status !== 'skipped' && !(i.status === 'postponed' && !isPartial(i));
   const tasks = day.items.filter(countsAsTask);
   const checks = day.items.filter((i) => i.kind === 'check' && counts(i));

@@ -276,6 +276,49 @@ describe('Planner', () => {
     expect(q.elsewhere).toBeNull();
   });
 
+  it('opens Today when midnight passes with a timer left on, and asks about the day nobody ended', async () => {
+    vi.setSystemTime(new Date(2026, 8, 25, 16, 30));
+    const p = await boot();
+    add(p, 'Late', 30);
+    add(p, 'Not reached', 45);
+    p.startItem(byTitle(p, 'Late').id);
+    expect(p.leftDay).toBeNull();
+    vi.setSystemTime(new Date(2026, 8, 26, 9, 0));
+    p.tick();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(p.viewKey).toBe(TOMORROW);
+    expect(p.leftDay?.key).toBe(TODAY);
+    const id = p.leftDay!.items.find((i) => i.title === 'Not reached')!.id;
+    await p.endLeftDay(TODAY, [id], TOMORROW);
+    const was = p.dayAt(TODAY)!;
+    expect(was.items.map((i) => [i.title, i.status])).toEqual([
+      ['Late', 'done'],
+      ['Not reached', 'postponed'],
+    ]);
+    // Finished when its time was up, not this morning, and the day ended then.
+    expect(was.items[0].endedAt).toBeCloseTo(16 * 60 + 60, 0);
+    expect(was.dayEnded).toBeCloseTo(16 * 60 + 60, 0);
+    expect(p.day.items.map((i) => i.title)).toEqual(['Not reached']);
+    expect(p.leftDay).toBeNull();
+  });
+
+  it("offers 'It was done' when a task that had used its time gives way to another", async () => {
+    const p = await boot();
+    add(p, 'Lunch', 30);
+    add(p, 'Call', 30);
+    p.startDay();
+    vi.setSystemTime(new Date(2026, 8, 25, 10, 50));
+    p.tick();
+    p.startItem(byTitle(p, 'Call').id);
+    expect(p.day.items.map((i) => i.title)).toEqual(['Lunch', 'Call', 'Lunch']);
+    expect(p.nudge?.label).toBe('It was done');
+    p.nudge!.undo!();
+    expect(p.day.items.map((i) => [i.title, i.status])).toEqual([
+      ['Lunch', 'done'],
+      ['Call', 'running'],
+    ]);
+  });
+
   it('can make a new task repeat from the start', async () => {
     const p = await boot();
     p.addTask({ title: 'Stretch', min: 10, kind: 'task', hue: 'lime', fixedAt: null, repeat: 'Every day' });

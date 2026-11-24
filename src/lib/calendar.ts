@@ -2,7 +2,7 @@
 // much is planned and logged, and how its checks and habits went. Pure, from schedule().
 
 import { habitMet, isHabit } from './habits';
-import { isActive, isMissed, isPartial, schedule, worked } from './schedule';
+import { countTo, isActive, isMissed, isPartial, schedule, worked } from './schedule';
 import type { Day, Item } from './types';
 import { untimed } from './types';
 
@@ -35,7 +35,7 @@ export function calendarRows(plan: Day, n: number): CalRow[] {
           ? 'done'
           : isPartial(r.it)
             ? 'partial'
-            : isMissed(r, n) && plan.dayEnded == null
+            : isMissed(r, n) && (plan.dayStarted != null || n >= 1440) && plan.dayEnded == null
               ? 'missed'
               : 'todo',
     }));
@@ -72,6 +72,7 @@ export function lanes(rows: CalRow[]): Map<string, { lane: number; of: number }>
 
 /** Minutes planned (timed tasks, not buffers) and logged on the day. */
 export function dayTotals(day: Day, n: number): { planned: number; logged: number } {
+  n = countTo(day, n);
   let planned = 0,
     logged = 0;
   for (const it of day.items) {

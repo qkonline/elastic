@@ -25,7 +25,15 @@
   // bar whichever tab it's in. Display and Alerts choices are `prefs` (shown in place of the saved
   // ones), notifications `notifyDraft` (turning them on asks the browser, from the Save tap).
   type Pref =
-    'themePref' | 'clock24' | 'showTimes' | 'checklistLayout' | 'habitsPlace' | 'alertOn' | 'fixedLead' | 'defLength';
+    | 'themePref'
+    | 'clock24'
+    | 'showTimes'
+    | 'checklistLayout'
+    | 'habitsPlace'
+    | 'alertOn'
+    | 'fixedLead'
+    | 'endRemind'
+    | 'defLength';
   const DISPLAY: Pref[] = ['themePref', 'clock24', 'showTimes', 'checklistLayout', 'habitsPlace'];
   const DAY: Pref[] = ['defLength'];
   let prefs = $state<Partial<Pick<Settings, Pref>>>({});
@@ -364,6 +372,16 @@
               {#each FIXED_LEADS as m (m)}
                 <button class="chip" aria-pressed={V.fixedLead === m} onclick={() => pick('fixedLead', m)}
                   >{m ? `${m} min` : 'None'}</button
+                >
+              {/each}
+            </div>
+          </div>
+          <div class="setting">
+            <span class="ol">Reminder to end your day, at the wrap-up</span>
+            <div class="row">
+              {#each [true, false] as on (on)}
+                <button class="chip" aria-pressed={V.endRemind === on} onclick={() => pick('endRemind', on)}
+                  >{on ? 'On' : 'None'}</button
                 >
               {/each}
             </div>

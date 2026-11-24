@@ -1,6 +1,16 @@
 // Timeline view models: what each row of the day looks like at time `n`.
 
-import { countsAsTask, isActive, isMissed, isPartial, pausedTotal, worked, type Row } from './schedule';
+import {
+  countsAsTask,
+  countTo,
+  isActive,
+  isMissed,
+  isOver as dayOver,
+  isPartial,
+  pausedTotal,
+  worked,
+  type Row,
+} from './schedule';
 import { apOf, cd, dL, fT, fTs, keyDate, shortDate } from './time';
 import type { Day, Item, Status } from './types';
 import { hueColor, SOMEDAY, untimed } from './types';
@@ -30,6 +40,8 @@ export interface ItemVM {
   pausedTot: number;
   isOver: boolean;
   active: boolean;
+  /** Under way on a day that's over: left running, its clock no longer shown. */
+  stale: boolean;
   missed: boolean;
   start: number;
   end: number;
@@ -107,16 +119,19 @@ export function itemVM(r: Row, c: Ctx): ItemVM {
     n = c.n;
   // An ended day is only for looking at: nothing on it is missed, started or restored.
   const ended = c.day.dayEnded != null;
-  const missedAny = c.isToday && !ended && isMissed(r, n);
+  // Nor before the day starts: Start my day plans everything from then.
+  const missedAny = c.isToday && !ended && c.day.dayStarted != null && isMissed(r, n);
+  // Left running (or paused) on a day that's over.
+  const stale = isActive(it) && dayOver(c.day, n);
   const missed = missedAny && it.kind !== 'buffer';
   const pBuf = missedAny && it.kind === 'buffer';
-  const w = worked(it, n);
+  const w = worked(it, countTo(c.day, n));
   // A Boardo card has no length (min 0): no share of it done to show.
   const frac = it.min > 0 ? Math.max(0, Math.min(1, w / it.min)) : 0;
   const p = Math.round(frac * 100);
   const active = isActive(it);
   // Work on a Boardo card has no length: it counts up and is never over time.
-  const isOver = active && !it.card && w >= it.min;
+  const isOver = active && !stale && !it.card && w >= it.min;
   const pausedTot = pausedTotal(it, n);
   const h = capHeight(it.min);
 
@@ -143,7 +158,7 @@ export function itemVM(r: Row, c: Ctx): ItemVM {
   if (s === 'postponed') {
     const to = !it.movedKey ? 'tomorrow' : it.movedKey === SOMEDAY ? 'Someday' : shortDate(keyDate(it.movedKey));
     sub = isPartial(it)
-      ? `worked ${dL(w)} · rest ${it.laterCopy ? 'later today' : 'moved to ' + to}`
+      ? `worked ${dL(w)} · ${it.laterCopy ? (ended ? 'set aside' : 'rest later today') : 'rest moved to ' + to}`
       : 'Moved to ' + to;
   }
   if (it.card && s === 'postponed') sub = `worked ${dL(w)} · set aside`;
@@ -193,9 +208,16 @@ export function itemVM(r: Row, c: Ctx): ItemVM {
     mutedT: ['done', 'skipped', 'postponed'].includes(s) || it.kind === 'buffer',
     sub,
     subTone,
-    count: active ? (it.card ? cd(w * 60) : leftS >= 0 ? cd(leftS) : '+' + cd(-leftS)) : null,
+    stale,
+    count: active && !stale ? (it.card ? cd(w * 60) : leftS >= 0 ? cd(leftS) : '+' + cd(-leftS)) : null,
     countColor: s === 'paused' ? 'var(--muted)' : isOver ? 'var(--redT)' : RUN_T,
-    countSub: s === 'paused' ? 'Paused ' + (pl < 1 ? Math.floor(pl * 60) + 's' : dL(pl)) : it.card ? 'so far' : null,
+    countSub: stale
+      ? `left ${s}`
+      : s === 'paused'
+        ? 'Paused ' + (pl < 1 ? Math.floor(pl * 60) + 's' : dL(pl))
+        : it.card
+          ? 'so far'
+          : null,
     flags,
     badges,
     t1: t ? fTs(r.start, c.clock24) : null,

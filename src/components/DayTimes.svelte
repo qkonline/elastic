@@ -1,6 +1,6 @@
 <script lang="ts">
   import { planner as P } from '../lib/planner.svelte';
-  import { likelyBy, isActive, isMissed, isPartial, worked, type Row } from '../lib/schedule';
+  import { countTo, likelyBy, isActive, isMissed, isPartial, worked, type Row } from '../lib/schedule';
   import { dL, fNZ } from '../lib/time';
   import { hueColor, untimed } from '../lib/types';
 
@@ -29,7 +29,7 @@
     const ends = d.items.map((i) => i.endedAt).filter((x): x is number => x != null);
     return ends.length ? Math.max(...ends) : null;
   });
-  const doneMin = $derived(rows.reduce((s, r) => s + (r.it.kind === 'buffer' ? 0 : worked(r.it, n)), 0));
+  const doneMin = $derived(rows.reduce((s, r) => s + (r.it.kind === 'buffer' ? 0 : worked(r.it, countTo(d, n))), 0));
   const leftMin = $derived(live && open ? Math.max(0, likely - Math.max(n, from)) : 0);
   const over = $derived(live && open && started ? Math.round(likely - d.wrap) : 0);
 
@@ -98,7 +98,10 @@
     const it = r.it;
     if (it.status === 'done') return it.marked ? 'Marked done' : `Done, took ${dL(Math.max(1, worked(it, n)))}`;
     if (it.status === 'paused') return `Paused, ${dL(worked(it, n))} worked`;
-    if (it.status === 'running') return `On now, ${dL(worked(it, n))} worked`;
+    if (it.status === 'running')
+      return countTo(d, n) === n
+        ? `On now, ${dL(worked(it, n))} worked`
+        : `Left running, ${dL(worked(it, countTo(d, n)))} counted`;
     if (isPartial(it)) return `Partly done, ${dL(worked(it, n))} worked`;
     if (live && started && isMissed(r, n)) return 'Missed';
     return it.kind === 'buffer' ? 'Kept free' : 'Still to do';

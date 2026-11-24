@@ -14,7 +14,7 @@
 {#if n}
   <div class="nudge" transition:fly={{ y: 14, duration: reducedMotion.current ? 0 : 220, easing: cubicOut }}>
     <span>{n.text}</span>
-    {#if n.undo}<button class="undo" onclick={n.undo}>Undo</button>{/if}
+    {#if n.undo}<button class="undo" onclick={n.undo}>{n.label ?? 'Undo'}</button>{/if}
   </div>
 {/if}
 

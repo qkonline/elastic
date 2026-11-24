@@ -120,12 +120,14 @@
         <div class="timer" style:border={ring}>
           <div class="trow">
             <div class="tcol">
-              <span class="count" style:color={v.countColor}>{v.count}</span>
+              {#if v.count}<span class="count" style:color={v.countColor}>{v.count}</span>{/if}
               <span class="tsub">
-                {v.s === 'paused'
-                  ? `${v.countSub} · worked ${dL(v.w)}${it.card ? '' : ` of ${dL(it.min)}`}`
-                  : `worked ${dL(v.w)}${it.card ? '' : ` of ${dL(it.min)}`}` +
-                    (v.pausedTot >= 0.5 ? ` · paused ${dL(v.pausedTot)}` : '')}
+                {v.stale
+                  ? `Left ${v.s}, ${dL(v.w)} counted`
+                  : v.s === 'paused'
+                    ? `${v.countSub} · worked ${dL(v.w)}${it.card ? '' : ` of ${dL(it.min)}`}`
+                    : `worked ${dL(v.w)}${it.card ? '' : ` of ${dL(it.min)}`}` +
+                      (v.pausedTot >= 0.5 ? ` · paused ${dL(v.pausedTot)}` : '')}
               </span>
             </div>
             <span class="badge"
@@ -133,9 +135,11 @@
                 ? 'Catching up…'
                 : v.s === 'paused'
                   ? '‖ Paused'
-                  : v.isOver
-                    ? 'Over time'
-                    : 'Running'}</span
+                  : v.stale
+                    ? 'Left running'
+                    : v.isOver
+                      ? 'Over time'
+                      : 'Running'}</span
             >
           </div>
           <div class="bar"><div style:width="{v.isOver ? 100 : v.p}%" style:background={barBg}></div></div>

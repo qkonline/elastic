@@ -152,6 +152,8 @@ export interface Settings {
   /** When the weekly review comes up: a weekday (0 = Sunday) and minutes into that day. */
   reviewDay: number;
   reviewAt: number;
+  /** A notification at the wrap-up of a day under way, to end it. */
+  endRemind: boolean;
   /** The length New task starts with, in minutes (0 = No time, which makes a check). */
   defLength: number;
 }
@@ -327,6 +329,7 @@ export const DEFAULT_SETTINGS: Settings = {
   checklistLayout: 'list',
   reviewDay: 0,
   reviewAt: 18 * 60,
+  endRemind: false,
   defLength: 0,
 };
 

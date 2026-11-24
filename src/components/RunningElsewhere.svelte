@@ -1,11 +1,15 @@
 <script lang="ts">
   import { planner as P } from '../lib/planner.svelte';
-  import { worked } from '../lib/schedule';
+  import { isOver, worked } from '../lib/schedule';
   import { cd, dayDiff, keyDate, minutesInto, shortDate } from '../lib/time';
 
   // A timer left running (or paused) on another day, e.g. started last night.
   const e = $derived(P.screen.type === 'today' ? P.elsewhere : P.activeAnywhere);
   const w = $derived(e ? worked(e.it, minutesInto(e.key, P.clock)) : 0);
+  // Left going on a day that's over: how long that says is no use. Today's card (UnfinishedDay)
+  // asks what to do with it, so there it isn't said twice.
+  const stale = $derived(!!e && !!P.days[e.key] && isOver(P.days[e.key], minutesInto(e.key, P.clock)));
+  const asked = $derived(stale && P.screen.type === 'today' && P.view === 'day' && P.leftDay?.key === e?.key);
   // Work on a Boardo card counts up; anything else counts down to its time's up.
   const left = $derived(e ? (e.it.card ? w * 60 : (e.it.min - w) * 60) : 0);
   // Planning another day while today's timer runs, or a timer left going on an earlier day.
@@ -18,13 +22,13 @@
   });
 </script>
 
-{#if e}
-  <div class="banner" class:paused={e.it.status === 'paused'} class:over={left < 0} role="status">
+{#if e && !asked}
+  <div class="banner" class:paused={e.it.status === 'paused'} class:over={left < 0 && !stale} role="status">
     <div class="text">
       <span class="t">{e.it.title}</span>
       <span class="s">{status}</span>
     </div>
-    <span class="count">{left >= 0 ? cd(left) : '+' + cd(-left)}</span>
+    {#if !stale}<span class="count">{left >= 0 ? cd(left) : '+' + cd(-left)}</span>{/if}
     <button
       class="go"
       onclick={() => {

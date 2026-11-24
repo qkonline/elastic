@@ -148,7 +148,7 @@
     >
     {#if v.active}
       <div class="clock">
-        <span class="count" style:color={v.countColor}>{v.count}</span>
+        {#if v.count}<span class="count" style:color={v.countColor}>{v.count}</span>{/if}
         <!-- Maybe out of date until caught up with the account (P.catchingUp). -->
         <span class="cl">{P.catchingUp ? 'catching up…' : (v.countSub ?? (v.isOver ? 'over' : 'left'))}</span>
       </div>

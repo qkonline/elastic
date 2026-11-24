@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { leftAtEnd, planner as P } from '../lib/planner.svelte';
+  import { ASK_FINISH_OVER, leftAtEnd, planner as P } from '../lib/planner.svelte';
   import { dayStats, worked } from '../lib/schedule';
   import { dL, fNZ } from '../lib/time';
 
@@ -18,6 +18,10 @@
   const isCard = $derived(!!act?.card);
   const w = $derived(act ? Math.max(0, worked(act, P.n)) : 0);
   let finish = $state(untrack(() => !P.active || worked(P.active, P.n) >= P.active.min));
+  // Well over its time: it may have been finished a while ago, so say when, as Done asks.
+  const upAt = $derived(act && !isCard && act.min > 0 && w - act.min >= ASK_FINISH_OVER ? P.timeUpAt(act.id) : null);
+  let atTimeUp = $state(true);
+  const finished = $derived(finish && upAt != null && atTimeUp ? upAt : finish);
 
   const left = $derived(items.filter(leftAtEnd));
   const passed = (i: (typeof items)[number]) => i.kind === 'fixed' && i.fixedAt != null && i.fixedAt + i.min <= P.n;
@@ -40,6 +44,7 @@
 
   function meta(i: (typeof items)[number]): string {
     if (i.id === act?.id) return `the ${dL(Math.max(5, Math.round(i.min - w)))} left`;
+    if (i.continued) return `the rest of it, ${dL(i.min)}`;
     if (i.kind === 'check') return 'check';
     if (i.kind === 'fixed' && i.fixedAt != null)
       return `${dL(i.min)}, fixed at ${clock(i.fixedAt)}${passed(i) ? ', time passed' : ''}`;
@@ -76,6 +81,16 @@
           >Set it aside</button
         >
       </div>
+      {#if finish && upAt != null}
+        <div class="seg" role="radiogroup" aria-label="When you finished {act.title}">
+          <button role="radio" aria-checked={atTimeUp} class:on={atTimeUp} onclick={() => (atTimeUp = true)}
+            >When time was up, {clock(upAt)}</button
+          >
+          <button role="radio" aria-checked={!atTimeUp} class:on={!atTimeUp} onclick={() => (atTimeUp = false)}
+            >Just now</button
+          >
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -119,7 +134,7 @@
 </div>
 
 <div class="foot">
-  <button class="pri" onclick={() => P.endDay(chosen, finish)}>
+  <button class="pri" onclick={() => P.endDay(chosen, finished)}>
     {chosen.length ? `End and move ${chosen.length} to tomorrow` : 'End my day'}
   </button>
   <button class="cancel" onclick={() => P.closeSheet()}>Not yet</button>
