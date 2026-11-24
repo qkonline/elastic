@@ -44,6 +44,7 @@
   const logged = $derived(
     !!it && it.startedAt != null && (it.status === 'done' || (it.status === 'postponed' && !v?.active)),
   );
+  const place = $derived(P.placeOf(id));
   const delArmed = $derived(P.armed('delete', id));
   const isCheck = $derived(it?.kind === 'check');
   // Deleting asks about later days only while the task's series still has days after this one.
@@ -325,11 +326,11 @@
             <dd>{habit.title}</dd>
           </div>
         {/if}
-        {#if !isCheck}
+        {#if place && place.of > 1}
           <div class="pos">
-            <dt>In the plan</dt>
+            <dt>{isCheck ? 'On the checklist' : 'In the plan'}</dt>
             <dd>
-              {v.idx + 1} of {P.day.items.length}
+              {place.nth} of {place.of}
               {#if !P.locked}
                 <button class="pb" onclick={() => P.move(id, -1)}>↑ Earlier</button>
                 <button class="pb" onclick={() => P.move(id, 1)}>↓ Later</button>

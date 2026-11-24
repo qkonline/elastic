@@ -160,7 +160,7 @@
     border: none;
     border-radius: var(--r-sm);
     background: transparent;
-    color: var(--accent);
+    color: var(--accentT);
     font: 500 13px/1 var(--font);
     cursor: pointer;
   }

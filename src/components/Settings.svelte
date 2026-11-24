@@ -1,10 +1,11 @@
 <script lang="ts" module>
-  type Tab = 'account' | 'display' | 'day' | 'alerts' | 'projects' | 'data';
+  type Tab = 'account' | 'display' | 'day' | 'alerts' | 'projects' | 'data' | 'help';
   /** The tab last open, kept while the app is open. */
   let last: Tab | null = null;
 </script>
 
 <script lang="ts">
+  import Help from './Help.svelte';
   import { accountsAvailable } from '../lib/account';
   import { boardoAvailable } from '../lib/boardo.svelte';
   import { install } from '../lib/install.svelte';
@@ -132,6 +133,7 @@
     { id: 'alerts', label: 'Alerts' },
     ...(boardoAvailable() && P.session ? [{ id: 'projects', label: 'Projects' }] : []),
     { id: 'data', label: 'Your data' },
+    { id: 'help', label: 'Help' },
   ] as { id: Tab; label: string }[]);
   // svelte-ignore state_referenced_locally
   let picked = $state<Tab | null>(last);
@@ -443,6 +445,8 @@
             {/if}
           </section>
         {/if}
+      {:else if tab === 'help'}
+        <Help />
       {:else}
         <section class="card g12" aria-label="Your data">
           <span class="muted"
@@ -552,6 +556,10 @@
         rx="1"
         class="a"
       /><rect x="14" y="3.5" width="3" height="5" rx="1" class="b" />
+    {:else if id === 'help'}<circle cx="10" cy="10" r="7" class="a" /><path
+        d="M8 8.2a2 2 0 1 1 2.8 1.9c-.6.3-.8.7-.8 1.4M10 13.8v.1"
+        class="b"
+      />
     {:else}<path d="M10 3v9M6.5 8.5 10 12l3.5-3.5" class="a" /><path d="M4 15.5h12" class="b" />{/if}
   </svg>
 {/snippet}

@@ -135,7 +135,7 @@
     border: none;
     background: none;
     padding: 0 4px;
-    color: var(--accent);
+    color: var(--accentT);
     font: inherit;
     cursor: pointer;
   }

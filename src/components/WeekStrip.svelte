@@ -48,8 +48,9 @@
     padding: 12px calc(var(--px) - 6px) 2px;
   }
   .arrow {
-    width: 26px;
-    height: 44px;
+    width: 34px;
+    height: 56px;
+    margin: 0 -8px;
     border: none;
     background: transparent;
     color: var(--faint);

@@ -80,6 +80,11 @@
   // Not when this tap is the end of a press-and-hold drag.
   const open = () => !justDragged() && P.openSheet({ type: 'task', id });
   const capKey = (e: KeyboardEvent) => {
+    if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      e.preventDefault();
+      P.move(id, e.key === 'ArrowUp' ? -1 : 1);
+      return;
+    }
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       open();
@@ -95,7 +100,8 @@
   class:active={v.active}
   class:hovered={hovered && !v.active}
   class:lifted
-  style:opacity={lifted || finishArmed ? 1 : v.op}
+  class:faded={v.faded}
+  class:gone={v.s === 'skipped'}
   style:transform={lifted ? `translateY(${P.drag!.dy}px) scale(1.02)` : shift ? `translateY(${shift}px)` : undefined}
   style:min-height="{v.h + 8}px"
   style:--box-ring={boxRing}
@@ -116,7 +122,7 @@
       role="button"
       tabindex="0"
       data-no-swipe
-      aria-label="{it.title}. Tap to edit, hold to reorder"
+      aria-label="{it.title}. Opens it. Alt with the up or down arrow moves it."
       class="cap"
       class:buffer={it.kind === 'buffer'}
       style:height="{v.h}px"
@@ -130,7 +136,14 @@
     </span>
   </div>
 
-  <div class="content" {@attach holdToDrag}>
+  <!-- The whole of the text opens the task, for a thumb that lands beside the words (its buttons
+       are there for the keyboard). -->
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+  <div
+    class="content"
+    onclick={(e) => !(e.target as HTMLElement).closest('button, a, input') && open()}
+    {@attach holdToDrag}
+  >
     <div class="meta">
       <button class="dur hit" style:--hit-x="4px" style:--hit-y="12px" onclick={open}
         >{it.card ? 'Project' : dL(it.min)}</button
@@ -176,7 +189,9 @@
         {/if}
         {#if v.aStart}
           <button
-            class="start"
+            class="start hit"
+            style:--hit-x="2px"
+            data-focus={dayStarted ? '' : undefined}
             aria-label="Start {it.title}"
             aria-disabled={!dayStarted}
             onclick={(e) => {
@@ -219,8 +234,11 @@
   {#if controls}
     <div class="wide ctls">
       {#each controls as c, i (i)}
-        <button class="ctl {c.k ?? ''}" aria-label="{c.l} {it.title}" onclick={c.on}
-          ><span class="g">{c.g}</span>{c.l}</button
+        <button
+          class="ctl {c.k ?? ''}"
+          data-focus={c.k === 'done' ? '' : undefined}
+          aria-label="{c.l} {it.title}"
+          onclick={c.on}><span class="g">{c.g}</span>{c.l}</button
         >
       {/each}
     </div>
@@ -391,6 +409,7 @@
   }
 
   .content {
+    cursor: pointer;
     padding: 8px 0 12px 10px;
     display: flex;
     flex-direction: column;
@@ -459,6 +478,14 @@
     text-wrap: pretty;
     cursor: pointer;
     overflow-wrap: anywhere;
+  }
+  /* Done, set aside or passed: quieter, and still read without effort. */
+  .faded .cap::before {
+    opacity: 0.45;
+  }
+  .faded .t1,
+  .gone .title {
+    color: var(--faint);
   }
   .title.muted {
     color: var(--muted);

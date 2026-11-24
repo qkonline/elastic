@@ -242,7 +242,7 @@
     padding: 0 4px;
     border: none;
     background: transparent;
-    color: var(--accent);
+    color: var(--accentT);
     font: 400 13px/1 var(--font);
     cursor: pointer;
   }

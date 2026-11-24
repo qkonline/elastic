@@ -96,6 +96,7 @@
   {@const moved = it.status === 'postponed'}
   {@const waiting = P.waiting && it.status === 'todo'}
   {@const off = waiting || P.locked}
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <li
     class:done={it.kind === 'check' && it.status === 'done'}
     class:moved
@@ -105,6 +106,11 @@
     inert={hidden}
     style:transform={lifted(it) ? `${along(P.drag!.dy)} scale(1.02)` : shifts[it.id] ? along(shifts[it.id]) : undefined}
     onpointerdown={(e) => grab(e, it.id)}
+    onkeydown={(e) => {
+      if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || it.status !== 'todo') return;
+      e.preventDefault();
+      P.move(it.id, e.key === 'ArrowUp' ? -1 : 1);
+    }}
   >
     {#if isHabit(it)}
       <HabitRow {it} wide={!row} />
@@ -217,7 +223,8 @@
     height: 22px;
     flex: none;
     border-radius: 5px;
-    border: 1.5px solid var(--c);
+    /* The colour alone can be too pale to see on the page. */
+    border: 1.5px solid color-mix(in oklab, var(--c) 60%, var(--text));
     background: color-mix(in oklab, var(--c) 14%, transparent);
     color: var(--ink);
     font: 400 13px/1 var(--font);
@@ -297,6 +304,8 @@
   .title {
     all: unset;
     min-width: 0;
+    padding: 10px 0;
+    margin: -10px 0;
     font: 400 15px/1.3 var(--font);
     color: var(--text);
     cursor: pointer;

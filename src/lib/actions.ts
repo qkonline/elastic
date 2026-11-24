@@ -413,12 +413,21 @@ export function remove(day: Day, id: string): Day {
 /** A buffer moved by hand takes the time of its new place (letThrough() gives it one). */
 const unheld = (it: Item): Item => (it.kind === 'buffer' && it.heldAt != null ? { ...it, heldAt: null } : it);
 
-/** Swap with the neighbour: the task sheet's ↑ Earlier / ↓ Later. */
+/** Whether two entries are in the same list: the timeline's, or the checklist's checks and habits. */
+export const listedWith = (a: Item, b: Item): boolean =>
+  untimed(a.kind) === untimed(b.kind) && (a.id === b.id || !untimed(a.kind) || a.status !== 'skipped');
+
+/**
+ * Swap with the neighbour in its list: the task sheet's ↑ Earlier / ↓ Later. A check isn't in the
+ * timeline, so a task never trades places with one.
+ */
 export function move(day: Day, id: string, d: -1 | 1): Day {
   const a = [...day.items];
-  const i = a.findIndex((x) => x.id === id),
-    j = i + d;
-  if (i < 0 || j < 0 || j >= a.length) return day;
+  const i = a.findIndex((x) => x.id === id);
+  if (i < 0) return day;
+  let j = i + d;
+  while (a[j] && !listedWith(a[j], a[i])) j += d;
+  if (j < 0 || j >= a.length) return day;
   [a[i], a[j]] = [unheld(a[j]), unheld(a[i])];
   return { ...day, items: a };
 }

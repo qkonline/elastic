@@ -2,11 +2,13 @@ import { mount } from 'svelte';
 import './app.css';
 import App from './App.svelte';
 import { install } from './lib/install.svelte';
+import { keepFocus } from './lib/focus';
 import { trackKeyboard } from './lib/viewport';
 
 // Listen before mounting: browsers offer the install prompt shortly after the page loads.
 install.listen();
 trackKeyboard();
+keepFocus();
 
 const app = mount(App, { target: document.getElementById('app')! });
 

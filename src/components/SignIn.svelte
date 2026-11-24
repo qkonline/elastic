@@ -1,4 +1,11 @@
 <script lang="ts">
+  // A morning, to show what it does: what, how long (minutes), its colour, when it works out to.
+  const SHOW: [string, number, string, string][] = [
+    ['Plan the day', 40, '#f43f5e', '9:00'],
+    ['Write the proposal', 110, '#818cf8', '9:15'],
+    ['Call with Sam', 60, '#22d3ee', '10:30'],
+    ['Lunch', 70, '#84cc16', '11:00'],
+  ];
   import { WebAuthnAbortService } from '@simplewebauthn/browser';
   import { onMount } from 'svelte';
   import { accountsAvailable, authConfig, passkeysAvailable } from '../lib/account';
@@ -234,7 +241,10 @@
       </div>
       {#if resent}<p class="ok" role="status">A new code is on its way.</p>{/if}
     {:else}
-      <p class="lede">Plan the day you actually have. Sign in with your email, and we'll send you a code.</p>
+      <p class="lede">
+        List what you want to do and how long each thing takes. Elastic works out when, and when something runs long,
+        the rest of your day moves with it.
+      </p>
       <form onsubmit={(e) => (e.preventDefault(), send())}>
         <label class="lbl" for="si-email">Email</label>
         <input
@@ -249,6 +259,7 @@
           bind:value={email}
         />
         <button class="key ink" disabled={P.accountBusy || !okEmail}>{@render mail()} Send me a code</button>
+        <p class="note">New or returning, it's the same: we email you a six-digit code. No password.</p>
         <button type="button" class="quiet mid" disabled={P.accountBusy} onclick={haveCode}
           >I already have a code</button
         >
@@ -262,7 +273,15 @@
         >
         <p class="note">Face ID, Touch ID or your device's screen lock, once you've added a passkey to your account.</p>
       {/if}
-      <p class="note">New here? The same code makes your account. Your plan syncs across your devices.</p>
+      <div class="day" role="img" aria-label="A day in Elastic: tasks one after another, each as long as it takes">
+        {#each SHOW as [t, l, c, at] (t)}
+          <span class="dr"><span class="da">{at}</span><i style:height="{l * 0.5}px" style:background={c}></i>{t}</span>
+        {/each}
+      </div>
+      <p class="note">
+        How your data is kept: <a href="/privacy" target="_blank">privacy</a>. Stuck?
+        <a href="mailto:kaiser@kaiserkhan.com">Write to us</a>.
+      </p>
     {/if}
     {#if siteKey && !S && !P.handoffAsk}
       <div class="human" bind:this={humanBox}></div>
@@ -275,6 +294,35 @@
 </div>
 
 <style>
+  .note a {
+    color: inherit;
+  }
+  .day {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 16px;
+    margin-top: 6px;
+    border-radius: var(--r-card);
+    background: var(--raised);
+    border: 1px solid var(--border);
+    font: 400 14px/1.2 var(--font);
+  }
+  .dr {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .dr i {
+    width: 8px;
+    border-radius: var(--r-bar);
+  }
+  .da {
+    width: 44px;
+    text-align: right;
+    color: var(--muted);
+    font-size: 13px;
+  }
   .human:empty {
     display: none;
   }

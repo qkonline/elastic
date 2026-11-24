@@ -90,7 +90,7 @@
   .track,
   .seg {
     fill: none;
-    stroke: color-mix(in oklab, var(--c) 22%, var(--line));
+    stroke: color-mix(in oklab, color-mix(in oklab, var(--c) 60%, var(--text)) 62%, var(--bg));
     stroke-width: 2.4;
   }
   .seg {

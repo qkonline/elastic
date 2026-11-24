@@ -69,7 +69,14 @@
   {/snippet}
   <div class="views" role="tablist" aria-label="Show">
     {#each VIEWS as [v, l] (v)}
-      <button role="tab" class="seg" aria-selected={P.view === v} onclick={() => P.setView(v)}>{l}</button>
+      <button
+        role="tab"
+        class="seg hit"
+        style:--hit-x="0px"
+        style:--hit-y="5px"
+        aria-selected={P.view === v}
+        onclick={() => P.setView(v)}>{l}</button
+      >
     {/each}
   </div>
 </ScreenHeader>

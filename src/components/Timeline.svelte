@@ -61,7 +61,7 @@
         <span class="gline"><span></span></span>
         <span class="gtext"><span>{r.pause}</span> paused</span>
         <span></span>
-        <span class="pbar" style:--bar={r.bar} style:opacity={r.op}><span></span></span>
+        <span class="pbar" style:--bar={r.bar} style:opacity={r.faded ? 0.45 : 1}><span></span></span>
         <span class="ptext">{r.then}</span>
       </li>
     {:else if r.type === 'wrap'}

@@ -12,7 +12,17 @@
 </script>
 
 {#if n}
-  <div class="nudge" transition:fly={{ y: 14, duration: reducedMotion.current ? 0 : 220, easing: cubicOut }}>
+  <div
+    class="nudge"
+    role="group"
+    aria-label="Message"
+    onpointerenter={(e) => e.pointerType === 'mouse' && (P.holdNudge = true)}
+    onpointerleave={() => (P.holdNudge = false)}
+    onfocusin={() => (P.holdNudge = true)}
+    onfocusout={() => (P.holdNudge = false)}
+    {@attach () => () => (P.holdNudge = false)}
+    transition:fly={{ y: 14, duration: reducedMotion.current ? 0 : 220, easing: cubicOut }}
+  >
     <span>{n.text}</span>
     {#if n.undo}<button class="undo" onclick={n.undo}>{n.label ?? 'Undo'}</button>{/if}
   </div>

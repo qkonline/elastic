@@ -387,6 +387,9 @@ export class Planner {
   /** First visit: show the welcome until it's been completed or skipped. */
   showWelcome = $derived(this.ready && !this.settings.onboarded);
   celebrate = $state<Celebration | null>(null);
+  /** Being read: the armed confirm, and the message, don't time out meanwhile. */
+  holdConfirm = false;
+  holdNudge = false;
   /** The + was tapped on Goals: Goals opens a new goal (counts up, so each tap is heard). */
   goalAsked = $state(0);
   active = $derived(this.day.items.find(isActive) ?? null);
@@ -752,8 +755,13 @@ export class Planner {
     const tk = activeDayKey(todayKey(), this.days, this.clock);
     if (tk !== this.today) this.rollover(tk);
     // Clearing a day waits for an answer; the other confirms give up after a while.
-    if (this.confirm && !UNTIMED_CONFIRMS.includes(this.confirm.type) && Date.now() - this.confirm.at > CONFIRM_MS)
+    // Not while the pointer or keyboard is on it: they start over once that leaves.
+    if (this.confirm && this.holdConfirm) this.confirm.at = Date.now();
+    if (this.nudge && this.holdNudge) this.nudge.at = Date.now();
+    if (this.confirm && !UNTIMED_CONFIRMS.includes(this.confirm.type) && Date.now() - this.confirm.at > CONFIRM_MS) {
       this.confirm = null;
+      this.say('Cancelled, nothing changed');
+    }
     if (this.nudge && Date.now() - this.nudge.at > (this.nudge.ms ?? NUDGE_MS)) this.nudge = null;
     if (this.clock - this.followedAt >= 1000) this.followNow();
     if (Date.now() - this.updateCheckedAt > UPDATE_EVERY_MS) void this.checkForUpdate(false);
@@ -2229,9 +2237,18 @@ export class Planner {
 
   move(id: string, dir: -1 | 1): void {
     const it = this.item(id);
-    const to = this.day.items.findIndex((i) => i.id === id) + dir;
-    if (!it || to < 0 || to >= this.day.items.length) return;
-    this.update((d) => A.move(d, id, dir), `Moved ${it.title} to position ${to + 1}`);
+    if (!it) return;
+    const place = this.placeOf(id)!;
+    if (place.nth + dir < 1 || place.nth + dir > place.of) return;
+    this.update((d) => A.move(d, id, dir), `Moved ${it.title} to ${place.nth + dir} of ${place.of}`);
+  }
+
+  /** Where an entry is among those it's listed with: the timeline's, or the checklist's. */
+  placeOf(id: string): { nth: number; of: number } | null {
+    const it = this.item(id);
+    if (!it) return null;
+    const list = this.day.items.filter((i) => A.listedWith(i, it));
+    return { nth: list.findIndex((i) => i.id === id) + 1, of: list.length };
   }
 
   remove(id: string): void {

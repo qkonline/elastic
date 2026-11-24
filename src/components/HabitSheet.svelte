@@ -17,6 +17,7 @@
   // later days too.
   let { id: idProp }: { id: string } = $props();
   const id = untrack(() => idProp);
+  const place = $derived(P.placeOf(id));
 
   const it = $derived.by(() => {
     const x = P.item(id);
@@ -139,6 +140,16 @@
       {/if}
 
       <dl class="card facts">
+        {#if place && place.of > 1 && !P.locked}
+          <div class="pos">
+            <dt>On the checklist</dt>
+            <dd>
+              {place.nth} of {place.of}
+              <button class="pb" onclick={() => P.move(id, -1)}>↑ Earlier</button>
+              <button class="pb" onclick={() => P.move(id, 1)}>↓ Later</button>
+            </dd>
+          </div>
+        {/if}
         <div>
           <dt>Colour</dt>
           <dd><i class="sw" style:background={hueColor(it.hue)}></i>{hueName(it.hue)}</dd>
@@ -362,6 +373,16 @@
     gap: 16px;
     min-height: 46px;
     border-top: 1px solid var(--border);
+  }
+  .pb {
+    height: 36px;
+    padding: 0 10px;
+    border-radius: var(--r-ctl);
+    border: 1px solid var(--border);
+    background: var(--raised);
+    color: var(--text);
+    font: 400 13px/1 var(--font);
+    cursor: pointer;
   }
   .facts > div:first-child {
     border-top: none;

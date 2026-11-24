@@ -99,7 +99,7 @@
   }
   .go {
     font: 500 14px/1 var(--font);
-    color: var(--accent);
+    color: var(--accentT);
   }
   .all {
     padding: 0 16px 16px;

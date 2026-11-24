@@ -48,7 +48,8 @@ export interface ItemVM {
   h: number;
   capBg: string;
   capBorder: string;
-  op: number;
+  /** Behind you: its bar and times are quieter. */
+  faded: boolean;
   mutedT: boolean;
   sub: string | null;
   subTone: string;
@@ -83,7 +84,7 @@ export interface PauseRow {
   key: string;
   pause: string;
   bar: string;
-  op: number;
+  faded: boolean;
   then: string;
 }
 
@@ -204,7 +205,7 @@ export function itemVM(r: Row, c: Ctx): ItemVM {
     h,
     capBg,
     capBorder,
-    op: pBuf || s === 'done' || s === 'postponed' ? 0.45 : s === 'skipped' ? 0.3 : 1,
+    faded: pBuf || s === 'done' || s === 'postponed' || s === 'skipped',
     mutedT: ['done', 'skipped', 'postponed'].includes(s) || it.kind === 'buffer',
     sub,
     subTone,
@@ -250,7 +251,7 @@ function pauseRow(v: ItemVM, it: Item, c: Ctx): PauseRow | null {
     key: 'p' + v.id,
     pause: dL(it.pausedFor),
     bar: v.capBg,
-    op: v.op,
+    faded: v.faded,
     then: c.showTimes ? `${then} at ${fT(it.endedAt, c.clock24)}` : then,
   };
 }

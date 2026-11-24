@@ -115,7 +115,7 @@
   }
   .icons {
     display: flex;
-    margin-right: -6px;
+    margin: -2px -13px -2px 0;
   }
   /* iPads and computers have the theme switch and Settings in the sidebar. */
   @media (min-width: 768px) {
@@ -124,8 +124,8 @@
     }
   }
   .icon {
-    width: 34px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
     padding: 0;
     border: none;
     border-radius: var(--r-ctl);

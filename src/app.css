@@ -16,13 +16,15 @@
   --faint: #6a707d;
   --orT: #be123c;
   --grT: #15803d;
-  --redT: #dc2626;
+  --redT: #c81e1e;
   --yelT: #854d0e;
   --scrim: rgba(22, 24, 29, 0.38);
   --pfill: rgba(107, 114, 128, 0.24);
   --now: #f43f5e;
   --nowT: #be123c;
   --accent: #6366f1;
+  /* The accent as text. */
+  --accentT: #4f46e5;
   /* The inner edge of the open tab for the screen you're on. */
   --tab-in: #e4e6eb;
   /* Stripes along the top of Start my day and around Add task (soft), and End my day (evening).
@@ -78,6 +80,7 @@
     --now: #fb7185;
     --nowT: #fda4af;
     --accent: #a5b4fc;
+    --accentT: #a5b4fc;
     --tab-in: #08090b;
     color-scheme: dark;
   }
@@ -101,6 +104,7 @@
   --now: #fb7185;
   --nowT: #fda4af;
   --accent: #a5b4fc;
+  --accentT: #a5b4fc;
   --tab-in: #08090b;
   color-scheme: dark;
 }
