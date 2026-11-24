@@ -10,6 +10,7 @@ interface TurnstileApi {
 }
 
 const SCRIPT = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+const WAIT_MS = 90_000;
 let loading: Promise<TurnstileApi> | null = null;
 
 function load(): Promise<TurnstileApi> {
@@ -44,6 +45,10 @@ export class HumanCheck {
         callback: (token: string) => this.settle(token),
         'error-callback': () => this.settle(null),
         'expired-callback': () => this.settle(null),
+        'timeout-callback': () => this.settle(null),
+        'unsupported-callback': () => this.settle(null),
+        // A box to tick: bring it into view (it's below the form).
+        'before-interactive-callback': () => el.scrollIntoView({ block: 'center' }),
       });
       return t;
     });
@@ -65,7 +70,10 @@ export class HumanCheck {
     const id = this.id!;
     this.settle(null);
     return new Promise<string>((resolve, reject) => {
-      this.waiting = { resolve, reject };
+      const mine = { resolve, reject };
+      this.waiting = mine;
+      // Never waits for ever, with the sign-in page held up.
+      setTimeout(() => this.waiting === mine && this.settle(null), WAIT_MS);
       t.reset(id);
       t.execute(id);
     });

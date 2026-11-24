@@ -2946,7 +2946,7 @@ export class Planner {
    * Email a code, to sign in or to make an account (the same either way). `human`: gets a
    * Turnstile token, where the server asks for one.
    */
-  sendSignInCode(email: string, human?: () => Promise<string>): Promise<boolean> {
+  sendSignInCode(email: string, human?: () => Promise<string | undefined>): Promise<boolean> {
     return this.accountAction(async () => api.sendCode(email, undefined, human ? await human() : undefined));
   }
 

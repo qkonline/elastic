@@ -30,6 +30,8 @@ VAPID_SUBJECT = "https://elastic.kaiserkhan.com/"
 ALLOWED_ORIGINS = "https://elastic.kaiserkhan.com,https://kaiserkhan.com,https://www.kaiserkhan.com"
 EMAIL_FROM = "Elastic <elastic@kaiserkhan.com>"
 EMAIL_REPLY_TO = "kaiser@kaiserkhan.com"
+# Turnstile, asked for before a code is emailed to someone signed out (public; its secret is TURNSTILE_SECRET).
+TURNSTILE_SITE_KEY = "0x4AAAAAAGRZd7zSM8KjvSdi"
 # Passkeys belong to kaiserkhan.com, so the ones made at kaiserkhan.com/planner/ keep working here.
 RP_ID = "kaiserkhan.com"
 
@@ -71,7 +73,7 @@ migrations_dir = "migrations"
 # Email (sign-in codes) goes through Resend, like Boardo's, from the kaiserkhan.com domain verified
 # there. The key is a secret: `npx wrangler secret put RESEND_API_KEY` (run it in a terminal, it
 # asks for the key). For `wrangler dev`, put DEV_MAIL=1 in .dev.vars to keep codes at /dev/mail.
-# Turnstile before a code is emailed is off until both TURNSTILE_SITE_KEY (a var, here) and the
+# Turnstile before a code is emailed is on while both TURNSTILE_SITE_KEY (a var, above) and the
 # TURNSTILE_SECRET secret are set.
 
 # Boardo's Worker, for the account's link to it (src/boardo.ts). Boardo calls back through its

@@ -7,7 +7,7 @@
     ['Lunch', 70, '#84cc16', '11:00'],
   ];
   import { WebAuthnAbortService } from '@simplewebauthn/browser';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { accountsAvailable, authConfig, passkeysAvailable } from '../lib/account';
   import { planner as P } from '../lib/planner.svelte';
   import { HumanCheck } from '../lib/turnstile';
@@ -50,15 +50,22 @@
       if (check === c) check = null;
     };
   });
-  const human = () => (siteKey && check ? () => check!.token() : undefined);
+  // Whether it's asked for is known once the server has said (asked again if it couldn't be reached).
+  let config: Promise<void> | null = null;
+  const askConfig = () =>
+    (config ??= authConfig()
+      .then((c) => void (siteKey = c.turnstile ?? null))
+      .catch(() => void (config = null)));
+  const human = () => async () => {
+    await askConfig();
+    await tick(); // its box is drawn once there's a key
+    return check?.token();
+  };
 
   onMount(() => {
     // Passkeys made for Elastic are offered in the email field's suggestions too, where the browser can.
     if (!P.session) void P.passkeyFromAutofill();
-    if (accountsAvailable())
-      void authConfig()
-        .then((c) => (siteKey = c.turnstile ?? null))
-        .catch(() => {});
+    if (accountsAvailable()) void askConfig();
     return () => {
       P.holdUpdates = false;
       WebAuthnAbortService.cancelCeremony();
