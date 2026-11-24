@@ -28,7 +28,7 @@
     const s = c.stats;
     const parts = [
       s.tasks ? `${s.tasksDone} of ${s.tasks} tasks done` : null,
-      s.logged >= 1 ? `${dL(s.logged)} logged` : null,
+      s.logged >= 1 ? `${dL(s.logged)} worked` : null,
     ];
     const line = parts.filter(Boolean).join(', ');
     return (line ? line + '.' : 'Rest well.') + (c.moved ? ` ${c.moved} moved to tomorrow.` : '');

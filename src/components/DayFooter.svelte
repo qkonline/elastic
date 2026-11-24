@@ -4,7 +4,18 @@
   import { dL, keyDate, shortDate } from '../lib/time';
 
   const count = $derived(P.day.items.length);
-  const tasks = $derived(`${count} task${count === 1 ? '' : 's'}`);
+  // "8 tasks, 2 buffers, 1 check and 3 habits"
+  const tasks = $derived.by(() => {
+    const of = (one: string, n: number) => (n ? [`${n} ${one}${n === 1 ? '' : 's'}`] : []);
+    const n = (k: string[]) => P.day.items.filter((i) => k.includes(i.kind)).length;
+    const parts = [
+      ...of('task', n(['task', 'fixed'])),
+      ...of('buffer', n(['buffer'])),
+      ...of('check', n(['check'])),
+      ...of('habit', n(['habit'])),
+    ];
+    return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : (parts[0] ?? '');
+  });
   const dateLabel = $derived(shortDate(keyDate(P.viewKey)));
   const armed = $derived(P.armed('clear', 'day'));
   const started = $derived(P.isToday && P.day.dayStarted != null);
@@ -14,7 +25,7 @@
 {#if started}
   <div class="end">
     <div class="tiles">
-      <div class="tile"><span class="big">{st.logged >= 1 ? dL(st.logged) : '0m'}</span><span>logged</span></div>
+      <div class="tile"><span class="big">{st.logged >= 1 ? dL(st.logged) : '0m'}</span><span>worked</span></div>
       <div class="tile"><span class="big">{st.tasksDone} of {st.tasks}</span><span>tasks done</span></div>
       {#if st.checks}
         <div class="tile"><span class="big">{st.checksDone} of {st.checks}</span><span>checks</span></div>
@@ -42,9 +53,7 @@
   <div class="clear">
     {#if armed}
       <div class="armed" role="group" aria-label="Confirm clear">
-        <span class="q"
-          >Remove all {tasks} from {P.isToday ? 'today' : dateLabel}? <span>This can't be undone.</span></span
-        >
+        <span class="q">Remove {tasks} from {P.isToday ? 'today' : dateLabel}?</span>
         <button class="yes" onclick={() => P.clearDay()} {@attach (el) => el.focus()}>Clear</button>
         <button class="no" onclick={() => P.disarm()}>Cancel</button>
       </div>
@@ -58,7 +67,7 @@
         Clear this day
       </button>
       <span class="hint"
-        >Removes all {tasks} from {dateLabel} and resets its timers. Other days and your settings stay.</span
+        >Removes {tasks} from {dateLabel} and resets its timers. Other days and your settings stay.</span
       >
     {/if}
   </div>
@@ -232,9 +241,6 @@
   .q {
     flex: 1 1 100%;
     font: 400 14px/1.4 var(--font);
-  }
-  .q span {
-    color: var(--muted);
   }
   .yes,
   .no {

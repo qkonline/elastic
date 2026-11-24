@@ -6,7 +6,7 @@
   import { planner as P } from '../lib/planner.svelte';
   import { isActive } from '../lib/schedule';
   import { pastedSteps } from '../lib/steps';
-  import { clockToDay, hhmm, hm } from '../lib/time';
+  import { clockToDay, dL, hhmm, hm } from '../lib/time';
   import { type Ends, endsOf } from '../lib/repeat';
   import type { Item, Kind } from '../lib/types';
   import { reducedMotion } from '../lib/ui.svelte';
@@ -124,6 +124,8 @@
       icon: k === 'check' ? icon : (it.icon ?? null),
     };
   });
+  // How long it has been taking, when that's not what it's given.
+  const usual = untrack(() => P.usual(it));
   const ok = $derived(!!form.title);
   // Only something changed is worth saving.
   const changed = $derived.by(() => {
@@ -177,6 +179,11 @@
   <div class="group">
     <Fields field="duration" label="Length" none={kind === 'task' && !running} {min} onMin={pickMin} />
     <p class="lnote">{lengthNote}</p>
+    {#if usual && min !== usual && timed}
+      <button type="button" class="btn-plain" style="align-self: flex-start" onclick={() => pickMin(usual)}
+        >Usually takes {dL(usual)}. Use that</button
+      >
+    {/if}
   </div>
 
   {#if kind !== 'buffer'}

@@ -183,6 +183,7 @@ export function itemVM(r: Row, c: Ctx): ItemVM {
   }
   if (it.subtasks.length) badges.push(`☑ ${it.subtasks.filter((x) => x.d).length}/${it.subtasks.length}`);
   if (it.note) badges.push('✎ note');
+  if ((it.moves ?? 0) > 1 && s === 'todo') badges.push(`moved ${it.moves} times`);
   if (it.continued) badges.push('↷ continued');
 
   const t = c.showTimes;

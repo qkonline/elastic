@@ -3,6 +3,7 @@
   import { cubicOut } from 'svelte/easing';
   import { slide } from 'svelte/transition';
   import { planner as P } from '../lib/planner.svelte';
+  import { type Item, untimed } from '../lib/types';
   import { fT } from '../lib/time';
   import { reducedMotion } from '../lib/ui.svelte';
 
@@ -10,6 +11,8 @@
   // checklist stay off until then (so a day of only checks needs it too), and the plan below is
   // dimmed (still editable). Once pressed, the button folds away and the plan comes up to colour.
   const show = $derived(P.startPending);
+  const timed = (i: Item) => i.status === 'todo' && i.kind !== 'buffer' && !untimed(i.kind);
+  const first = $derived(P.day.items.find((i) => timed(i) && i.kind === 'task') ?? P.day.items.find(timed));
   // Opened late: the plan was for earlier, and starting plans it from now.
   const late = $derived(!P.settings.flexStart && P.n >= P.day.dayStart + 15);
   const fold = () => ({ duration: reducedMotion.current ? 0 : 280, easing: cubicOut });
@@ -60,6 +63,7 @@
         <span class="word">Start my day</span>
       </span>
     </button>
+    {#if first}<p class="late">Starts with {first.title}</p>{/if}
     {#if late}
       <p class="late">
         Planned from {fT(P.day.dayStart, P.settings.clock24)}. Starting plans the rest of your day from now.

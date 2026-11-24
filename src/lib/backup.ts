@@ -108,6 +108,7 @@ export function normalizeItem(raw: unknown): Item {
       : {}),
     movedKey: typeof r.movedKey === 'string' && DAY_KEY.test(r.movedKey) ? r.movedKey : null,
     movedId: typeof r.movedId === 'string' ? r.movedId : null,
+    ...(typeof r.moves === 'number' && r.moves > 0 ? { moves: Math.min(999, Math.round(r.moves)) } : {}),
     ...(kind === 'habit' ? { habit, progress: Math.max(0, num(r.progress, 0)!) } : {}),
     ...(typeof r.habitId === 'string' && r.habitId ? { habitId: r.habitId } : {}),
     ...(typeof r.goalId === 'string' && r.goalId ? { goalId: r.goalId } : {}),

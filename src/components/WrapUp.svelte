@@ -2,7 +2,8 @@
   import { untrack } from 'svelte';
   import { ASK_FINISH_OVER, leftAtEnd, planner as P } from '../lib/planner.svelte';
   import { dayStats, worked } from '../lib/schedule';
-  import { dL, fNZ } from '../lib/time';
+  import { dayTotals } from '../lib/calendar';
+  import { addDays, dL, fNZ } from '../lib/time';
 
   // "End my day": what got done, and what to do with the rest. The running task can be marked
   // done or set aside with its time kept (picked for you: done once it has had its time). Each
@@ -36,6 +37,11 @@
       return out;
     }),
   );
+  // What's on tomorrow already, before anything moves there.
+  const next = $derived(addDays(P.viewKey, 1));
+  $effect(() => void P.ensureDay(next));
+  const load = $derived(P.days[next] ? dayTotals(P.days[next], 0).planned : 0);
+  const room = $derived(P.settings.dayLength);
   const chosen = $derived(rows.filter((i) => picked[i.id]).map((i) => i.id));
   const allOn = $derived(rows.length > 0 && chosen.length === rows.length);
   const repeating = $derived(
@@ -62,7 +68,7 @@
 
   <div class="stats">
     <div class="stat"><span class="num">{st.tasksDone}/{st.tasks}</span><span class="what">tasks done</span></div>
-    <div class="stat"><span class="num">{dL(st.logged)}</span><span class="what">logged</span></div>
+    <div class="stat"><span class="num">{dL(st.logged)}</span><span class="what">worked</span></div>
     {#if st.checks}
       <div class="stat"><span class="num">{st.checksDone}/{st.checks}</span><span class="what">checks</span></div>
     {/if}
@@ -123,6 +129,9 @@
         {/each}
       </ul>
     </div>
+  {/if}
+  {#if rows.length && load >= 1}
+    <p class="note pad">Tomorrow already has {dL(load)} planned{room > 0 ? ` of a ${dL(room)} day` : ''}.</p>
   {/if}
   {#if repeating}
     <p class="note pad">

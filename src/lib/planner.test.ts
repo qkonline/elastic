@@ -319,6 +319,51 @@ describe('Planner', () => {
     ]);
   });
 
+  it('takes a tap back: a start, a Done, a postpone, a delete and Clear', async () => {
+    const p = await boot();
+    for (const t of ['One', 'Two', 'Three']) add(p, t, 30);
+    p.startDay();
+    vi.setSystemTime(new Date(2026, 8, 25, 10, 10));
+    p.tick();
+    const shape = () => p.day.items.map((i) => `${i.title} ${i.status}`).join();
+    const was = shape();
+    p.startItem(byTitle(p, 'Three').id); // a slip: it was meant for something else
+    expect(shape()).not.toBe(was);
+    p.nudge!.undo!();
+    expect(shape()).toBe(was);
+    expect(byTitle(p, 'One').startedAt).toBeCloseTo(600, 0);
+    p.done(byTitle(p, 'One').id);
+    expect(p.upNext?.id).toBe(byTitle(p, 'Two').id);
+    p.nudge!.undo!();
+    expect(shape()).toBe(was);
+    await p.postpone(byTitle(p, 'Two').id, 'tomorrow');
+    expect(p.days[TOMORROW].items).toHaveLength(1);
+    p.nudge!.undo!();
+    expect(shape()).toBe(was);
+    expect(p.days[TOMORROW].items).toHaveLength(0);
+    p.remove(byTitle(p, 'Two').id);
+    add(p, 'Four', 15); // done meanwhile: it stays
+    p.nudge!.undo!();
+    expect(shape()).toBe(was + ',Four todo');
+    p.clearDay();
+    expect(p.day.items).toEqual([]);
+    p.nudge!.undo!();
+    expect(shape()).toBe(was + ',Four todo');
+    expect(p.day.dayStarted).not.toBeNull();
+  });
+
+  it('leaves what has changed since when a tap is taken back', async () => {
+    const p = await boot();
+    add(p, 'One', 30);
+    add(p, 'Two', 30);
+    p.startDay();
+    p.skip(byTitle(p, 'Two').id);
+    const undo = p.nudge!.undo!;
+    p.edit(byTitle(p, 'Two').id, { note: 'changed on another device' });
+    undo();
+    expect(byTitle(p, 'Two')).toMatchObject({ status: 'skipped', note: 'changed on another device' });
+  });
+
   it('can make a new task repeat from the start', async () => {
     const p = await boot();
     p.addTask({ title: 'Stretch', min: 10, kind: 'task', hue: 'lime', fixedAt: null, repeat: 'Every day' });

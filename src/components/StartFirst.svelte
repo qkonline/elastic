@@ -25,6 +25,7 @@
   >
     <span>{n.text}</span>
     {#if n.undo}<button class="undo" onclick={n.undo}>{n.label ?? 'Undo'}</button>{/if}
+    {#if n.also}<button class="undo" onclick={n.also.on}>{n.also.label}</button>{/if}
   </div>
 {/if}
 
@@ -34,7 +35,7 @@
     z-index: 6;
     left: 16px;
     right: 16px;
-    bottom: calc(var(--bar-h) + 40px + env(safe-area-inset-bottom) - var(--stuck, 0px));
+    bottom: calc(var(--bar-h) + 40px + var(--nowbar, 0px) + env(safe-area-inset-bottom) - var(--stuck, 0px));
     width: fit-content;
     max-width: 460px;
     margin: 0 auto;

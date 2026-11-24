@@ -31,7 +31,16 @@
   });
   const doneMin = $derived(rows.reduce((s, r) => s + (r.it.kind === 'buffer' ? 0 : worked(r.it, countTo(d, n))), 0));
   const leftMin = $derived(live && open ? Math.max(0, likely - Math.max(n, from)) : 0);
-  const over = $derived(live && open && started ? Math.round(likely - d.wrap) : 0);
+  // Before it starts, a set day's plan is held against its wrap-up too.
+  const over = $derived(
+    live && open && started
+      ? Math.round(likely - d.wrap)
+      : P.isToday && !started && open && !P.settings.flexStart
+        ? Math.round(likelyBy(to) - d.wrap)
+        : !P.isToday && !started && P.viewKey > P.today && open
+          ? Math.round(likelyBy(to) - d.wrap)
+          : 0,
+  );
 
   // The ribbon: from the start (or the first task) to the end of the day.
   const rFrom = $derived(
@@ -50,8 +59,12 @@
   }
   const segs = $derived.by((): Seg[] => {
     const out: Seg[] = [];
+    let prev = 0;
     for (const r of rows) {
-      if (started && r.gap >= 1) out.push({ key: r.it.id + '-gap', min: r.gap, kind: 'gap' });
+      // Before the day starts, the holes in the plan (before a fixed time, say).
+      const hole = started ? r.gap : out.length ? r.start - prev : 0;
+      if (hole >= 1) out.push({ key: r.it.id + '-gap', min: hole, kind: 'gap' });
+      prev = Math.max(prev, r.end);
       const len = Math.max(1, r.end - r.start);
       if (r.it.kind === 'buffer') out.push({ key: r.it.id, min: len, kind: 'buffer', row: r });
       else
@@ -112,10 +125,12 @@
   const view = $derived.by((): { cells: Cell[]; left: string; right: string } => {
     if (!started) {
       if (!P.timesShown) return { cells: [['Planned day', dL(to - from)]], left: '', right: '' };
+      // With a start that varies, only a guess: the plan from now.
+      const guess = P.isToday && P.settings.flexStart;
       return {
         cells: [
-          ['Planned start', t(from)],
-          ['Planned finish', t(to)],
+          [guess ? 'If you start now' : 'Planned start', t(from)],
+          [guess ? 'Done by' : 'Planned finish', t(to)],
         ],
         left: `${dL(to - from)} start to finish`,
         right: '',

@@ -1,6 +1,7 @@
 // App state and every user action. Days are immutable values: each action computes a new Day
 // with the pure functions in actions.ts, then `commit` swaps it in and queues a write.
 
+import { usualLength } from './usual';
 import * as A from './actions';
 import * as api from './account';
 import { arrival, MOVED_TO, moveUrl, reachable } from './move';
@@ -140,6 +141,8 @@ export const CONFIRM_MS = 10_000;
 export const UNTIMED_CONFIRMS: ConfirmType[] = ['clear', 'postpone', 'finish'];
 /** How long the "start your day first" message stays up. */
 export const NUDGE_MS = 6000;
+/** How long what's up next is offered after a task is done. */
+const UP_NEXT_MS = 10 * 60_000;
 /** How long a timer tap waits for this device to catch up with the account before going ahead. */
 export const CATCH_UP_MS = 5000;
 const CATCHING_UP = 'Catching up with your other devices…';
@@ -345,6 +348,8 @@ export class Planner {
     undo?: () => void;
     /** The button's word, when it isn't Undo. */
     label?: string;
+    /** A second button. */
+    also?: { label: string; on: () => void };
     /** How long it stays, when not NUDGE_MS. */
     ms?: number;
   } | null>(null);
@@ -387,9 +392,13 @@ export class Planner {
   /** First visit: show the welcome until it's been completed or skipped. */
   showWelcome = $derived(this.ready && !this.settings.onboarded);
   celebrate = $state<Celebration | null>(null);
+  /** After one is done: what to start next (NowBar.svelte), for a while. */
+  upNext = $state<{ id: string; at: number } | null>(null);
   /** Being read: the armed confirm, and the message, don't time out meanwhile. */
   holdConfirm = false;
   holdNudge = false;
+  /** When it was last being read (its `at` stays: a new one calls out Start my day again). */
+  private nudgeRead = 0;
   /** The + was tapped on Goals: Goals opens a new goal (counts up, so each tap is heard). */
   goalAsked = $state(0);
   active = $derived(this.day.items.find(isActive) ?? null);
@@ -757,12 +766,14 @@ export class Planner {
     // Clearing a day waits for an answer; the other confirms give up after a while.
     // Not while the pointer or keyboard is on it: they start over once that leaves.
     if (this.confirm && this.holdConfirm) this.confirm.at = Date.now();
-    if (this.nudge && this.holdNudge) this.nudge.at = Date.now();
+    if (this.holdNudge) this.nudgeRead = Date.now();
     if (this.confirm && !UNTIMED_CONFIRMS.includes(this.confirm.type) && Date.now() - this.confirm.at > CONFIRM_MS) {
       this.confirm = null;
       this.say('Cancelled, nothing changed');
     }
-    if (this.nudge && Date.now() - this.nudge.at > (this.nudge.ms ?? NUDGE_MS)) this.nudge = null;
+    if (this.nudge && Date.now() - Math.max(this.nudge.at, this.nudgeRead) > (this.nudge.ms ?? NUDGE_MS))
+      this.nudge = null;
+    if (this.upNext && Date.now() - this.upNext.at > UP_NEXT_MS) this.upNext = null;
     if (this.clock - this.followedAt >= 1000) this.followNow();
     if (Date.now() - this.updateCheckedAt > UPDATE_EVERY_MS) void this.checkForUpdate(false);
     if (this.accountAlerts && this.clock - this.alertsCheckedAt > ALERTS_EVERY_MS) {
@@ -1367,6 +1378,37 @@ export class Planner {
     if (msg) this.say(msg);
   }
 
+  /**
+   * Say what a change did, with a way back for a few seconds: what it did to these days is undone
+   * entry by entry in them as they are then (A.takeBack), as an ordinary later change.
+   */
+  private undoable(text: string, was: Day[], also?: { label: string; on: () => void }): void {
+    const did = was.map((d) => this.days[d.key]);
+    if (did.every((d, i) => d === was[i])) return;
+    const undo = () => {
+      this.nudge = null;
+      if (this.whenCurrent(text, () => '', undo)) return;
+      was.forEach((before, i) => {
+        const now = this.days[before.key];
+        if (!now || now.dayEnded != null) return;
+        const next = A.takeBack(before, did[i], now);
+        if (next !== now) this.put(next);
+      });
+      this.say('Undone');
+    };
+    this.nudge = also
+      ? {
+          text,
+          at: Date.now(),
+          quiet: true,
+          ms: CONFIRM_MS,
+          label: also.label,
+          undo: also.on,
+          also: { label: 'Undo', on: undo },
+        }
+      : { text, at: Date.now(), quiet: true, ms: CONFIRM_MS, undo };
+  }
+
   /** update() on another loaded day (or Someday). An ended day stays as it is. */
   private updateOn(key: string, fn: (d: Day) => Day, msg?: string): void {
     if (key === this.viewKey) return this.update(fn, msg);
@@ -1800,6 +1842,8 @@ export class Planner {
     this.nudge = null;
     this.finishElsewhere();
     const n = this.n;
+    this.upNext = null;
+    const was = this.day;
     // What gives way to it having used up its time may well be done rather than paused.
     const left = this.active && !this.active.card && worked(this.active, n) >= this.active.min ? this.active : null;
     const had = new Set(this.day.items.map((i) => i.id));
@@ -1810,18 +1854,21 @@ export class Planner {
       return A.startItem({ ...this.planDay, ...this.opening(d, n) }, id, n);
     }, `${it.title} started`);
     const rest = this.day.items.find((i) => i.continued && !had.has(i.id));
-    if (left && rest)
-      this.nudge = {
-        text: `${left.title} was set aside.`,
-        at: Date.now(),
-        quiet: true,
-        ms: CONFIRM_MS,
-        label: 'It was done',
-        undo: () => {
-          this.nudge = null;
-          this.update((d) => A.doneInstead(d, left.id, rest.id), `${left.title} done`);
-        },
-      };
+    // (Work on a card has no place in the plan to go back to.)
+    if (!it.card)
+      this.undoable(
+        left && rest ? `${left.title} was set aside.` : `${it.title} started`,
+        [was],
+        left && rest
+          ? {
+              label: 'It was done',
+              on: () => {
+                this.nudge = null;
+                this.update((d) => A.doneInstead(d, left.id, rest.id), `${left.title} done`);
+              },
+            }
+          : undefined,
+      );
     this.offerNotifications();
   }
 
@@ -1880,10 +1927,18 @@ export class Planner {
     this.update((d) => A.resume(d, id, this.n), `${this.item(id)?.title} resumed`);
   }
 
-  finish(id: string): void {
+  finish(id: string, ask = false): void {
     this.confirm = null;
-    if (this.whenTaskCurrent(id, () => this.finish(id))) return;
+    if (this.whenTaskCurrent(id, () => this.finish(id, ask))) return;
+    const was = this.day;
     this.update((d) => A.finish(d, id, this.n), `${this.item(id)?.title} done`);
+    // Asked when it was finished, that has its own way back.
+    if (!ask) this.undoable(`${this.item(id)?.title} done`, [was]);
+    // What's next, skipping what isn't due yet.
+    const next = this.isToday
+      ? this.day.items.find((i) => i.status === 'todo' && i.kind === 'task' && !i.card)
+      : undefined;
+    this.upNext = next ? { id: next.id, at: Date.now() } : null;
   }
 
   /**
@@ -1898,7 +1953,7 @@ export class Planner {
     const up = this.timeUpAt(id);
     // Left running on a day that's over: when its time was up is far likelier than now.
     const stale = ask && up != null && isOver(this.day, this.n);
-    this.finish(id);
+    this.finish(id, ask);
     if (stale) this.update((d) => A.retime(d, id, { end: up }, this.n, this.n));
     if (ask && this.item(id)?.status === 'done') this.arm('finish', id);
   }
@@ -1955,7 +2010,9 @@ export class Planner {
 
   markDone(id: string, start: number, end: number): void {
     this.resched = null;
+    const was = this.day;
     this.update((d) => A.markDone(d, id, start, end), `${this.item(id)?.title} marked done`);
+    this.undoable(`${this.item(id)?.title} marked done`, [was]);
   }
 
   /** Done without its timer: a task still to come, logged as just finished (A.markDoneNow). */
@@ -1964,7 +2021,9 @@ export class Planner {
     if (this.whenTaskCurrent(id, () => this.markDoneNow(id))) return;
     this.resched = null;
     this.confirm = null;
+    const was = this.day;
     this.update((d) => A.markDoneNow(d, id, this.n), `${this.item(id)?.title} marked done`);
+    this.undoable(`${this.item(id)?.title} marked done`, [was]);
   }
 
   reopen(id: string): void {
@@ -1977,10 +2036,13 @@ export class Planner {
   }
 
   skip(id: string): void {
+    this.resched = null;
     const it = this.item(id);
     // One of a repeat that ends: ask whether to add a day at the end or keep the end date.
     if (it?.status === 'todo' && this.limitedSeries(it) && !this.locked) return this.openSheet({ type: 'skip', id });
+    const was = this.day;
     this.update((d) => A.skip(d, id), `${it?.title} skipped`);
+    this.undoable(`${it?.title} skipped`, [was]);
   }
 
   /** The series of a task that repeats a number of times or until a date, if it has one. */
@@ -2025,6 +2087,13 @@ export class Planner {
   }
   private counts = new Map<string, string | null>();
 
+  /** How long a repeating task usually takes, when that isn't what it's given (lib/usual.ts). */
+  usual(it: Item): number | null {
+    if (!it.seriesId || untimed(it.kind) || it.kind === 'buffer' || it.card) return null;
+    const m = usualLength(this.dayAt, it.seriesId, this.today);
+    return m != null && Math.abs(m - it.min) >= 5 ? m : null;
+  }
+
   /** Restore a skipped item, or undo a move (removing the untouched copy from the other day). */
   async restore(id: string): Promise<void> {
     if (this.locked) return;
@@ -2067,7 +2136,9 @@ export class Planner {
     // A timer left running on an earlier day: "later today" means today, not that day.
     if (this.viewKey !== this.today && isActive(it))
       return this.moveToDay(id, this.today, `${it.title} moved to later today`);
+    const was = this.day;
     this.update((d) => A.postponeLater(d, id, this.n), `${it.title} moved to later today`);
+    this.undoable(`${it.title} moved to later today`, [was]);
   }
 
   openResched(id: string): void {
@@ -2107,13 +2178,15 @@ export class Planner {
     if (!res) return;
     this.resched = null;
     this.confirm = null;
+    const from = this.day;
     this.put(res.day);
     const target = await this.ensureDay(key);
     // Someday has no times: a fixed time keeps its time but isn't placed by it.
     if (key === SOMEDAY) this.put({ ...target, items: [...target.items, res.copy] });
     else this.put(A.addItem(target, res.copy, minutesInto(key, this.clock)));
     if (this.viewKey !== src) return;
-    this.say(msg ?? `${res.copy.title} moved to ${shortDate(keyDate(key))}`);
+    this.undoable(msg ?? `${res.copy.title} moved to ${this.dayWords(key)}`, [from, target]);
+    this.say(msg ?? `${res.copy.title} moved to ${this.dayWords(key)}`);
   }
 
   // ---------- editing ----------
@@ -2129,8 +2202,10 @@ export class Planner {
     habit?: Habit;
     /** Another day's key, or SOMEDAY (no day yet), rather than the day on screen. */
     on?: string;
+    /** More to add: New task stays open. */
+    more?: boolean;
   }): Promise<void> {
-    const { repeat: asked, habit, ends, on, ...fields } = o;
+    const { repeat: asked, habit, ends, on, more, ...fields } = o;
     // A habit always repeats: on its days, or every day for one due a number of times a week.
     const repeat =
       o.kind === 'habit' ? (habit?.per === 'day' && asked && asked !== 'Once' ? asked : 'Every day') : asked;
@@ -2140,7 +2215,7 @@ export class Planner {
       fixedAt: o.kind === 'fixed' ? o.fixedAt : null,
       ...(o.kind === 'habit' && habit ? { habit, progress: 0 } : {}),
     });
-    this.sheet = null;
+    if (!more) this.sheet = null;
     if (on && on !== this.viewKey && o.kind !== 'habit') return this.addOnDay(on, it, repeat, ends ?? null);
     this.update((d) => A.addItem(d, it, this.n), `Added ${it.title}`);
     // A repeating task becomes a series straight away, like choosing a repeat in the task sheet.
@@ -2256,7 +2331,10 @@ export class Planner {
     if (this.sheet?.type === 'task' && this.sheet.id === id) this.sheet = null;
     if (this.sheet?.type === 'someday' && this.sheet.id === id) this.sheet = null;
     this.confirm = null;
-    this.updateOn(this.keyOf(id), (d) => A.remove(d, id), it ? `Deleted ${it.title}` : undefined);
+    const key = this.keyOf(id);
+    const was = this.days[key];
+    this.updateOn(key, (d) => A.remove(d, id), it ? `Deleted ${it.title}` : undefined);
+    if (it && was) this.undoable(`Deleted ${it.title}`, [was]);
   }
 
   /** Delete a repeating task from this day and every later day: its series ends the day before. */
@@ -2489,10 +2567,12 @@ export class Planner {
     let to = d.over;
     if (to > from) to--;
     if (to === from) return;
+    const was = this.day;
     this.update((day) => A.reorder(day, d.id, d.over!), it ? `Moved ${it.title} to position ${to + 1}` : undefined);
     // Only a drag asks about later days; starting a timer or rescheduling changes this day alone.
     const ask = this.reorderQuestion(d.id, to > from ? 'down' : 'up');
     if (ask) this.sheet = ask;
+    else if (it) this.undoable(`Moved ${it.title}`, [was]);
   }
 
   // ---------- day ----------
@@ -2518,7 +2598,9 @@ export class Planner {
 
   clearDay(): void {
     this.confirm = null;
+    const was = this.day;
     this.update((d) => A.clearDay(d), 'Day cleared');
+    this.undoable('Day cleared', [was]);
   }
 
   /** Replace the viewed day with the sample, planned from now (today) or the day's start. */
@@ -2527,7 +2609,12 @@ export class Planner {
     this.sheet = null;
     const d = this.day;
     const start = this.isToday ? Math.max(d.dayStart, Math.ceil(this.n / 15) * 15) : d.dayStart;
-    this.put({ ...d, dayStart: start, dayStarted: null, items: sampleItems(start) });
+    this.put({
+      ...d,
+      dayStart: start,
+      dayStarted: null,
+      items: sampleItems(start),
+    });
     this.say('Sample day loaded');
   }
 

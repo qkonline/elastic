@@ -33,7 +33,7 @@
       {#if empty}
         <span class="none">{past ? 'Nothing was planned' : 'Nothing planned yet'}</span>
       {:else if past && totals.logged >= 1}
-        {dL(Math.round(totals.logged))} logged
+        {dL(Math.round(totals.logged))} worked
       {:else if totals.planned >= 1}
         {dL(Math.round(totals.planned))} of tasks
       {/if}
@@ -175,7 +175,7 @@
     text-decoration-color: var(--faint);
   }
   .missed .meta {
-    color: var(--redT);
+    color: var(--yelT);
   }
   .running .meta {
     color: var(--orT);

@@ -190,7 +190,9 @@
     {#snippet children(shut)}
       {#each shown as { it, idx }, i (it.id)}
         {#if i === firstDone}
-          <li class="done-head" inert={shut && i >= 3}>{P.isToday ? 'Done today' : 'Done'}</li>
+          <li class="done-head" inert={shut && i >= 3}>
+            {entries.some((e) => e.it.status === 'postponed') ? 'Done or moved' : P.isToday ? 'Done today' : 'Done'}
+          </li>
         {/if}
         {@render entry(it, idx, shut && i >= (firstDone >= 0 && i >= firstDone ? 2 : 3))}
       {/each}

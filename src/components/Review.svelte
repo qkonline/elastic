@@ -189,7 +189,7 @@
               <div
                 class="dbar"
                 class:ahead={d.ahead}
-                title={d.ahead ? '' : `${dL(d.logged) || '0m'} logged, ${d.done} of ${d.tasks} tasks done`}
+                title={d.ahead ? '' : `${dL(d.logged) || '0m'} worked, ${d.done} of ${d.tasks} tasks done`}
               >
                 <span class="fill"><i style:height="{d.ahead ? 0 : Math.max(3, (d.logged / dayMax) * 100)}%"></i></span>
                 <span class="dn" class:today={d.key === P.today}>{weekdayShort(keyDate(d.key)).slice(0, 1)}</span>
@@ -202,7 +202,7 @@
                 longest.logged,
               )}.
             {:else}
-              Nothing logged yet this week. Time from your timers adds up here as the week goes.
+              Nothing timed yet this week. Time from your timers adds up here as the week goes.
             {/if}
           </p>
         </div>

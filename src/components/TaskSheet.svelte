@@ -44,6 +44,7 @@
   const logged = $derived(
     !!it && it.startedAt != null && (it.status === 'done' || (it.status === 'postponed' && !v?.active)),
   );
+  const usual = $derived(it ? P.usual(it) : null);
   const place = $derived(P.placeOf(id));
   const delArmed = $derived(P.armed('delete', id));
   const isCheck = $derived(it?.kind === 'check');
@@ -324,6 +325,12 @@
           <div>
             <dt>Habit</dt>
             <dd>{habit.title}</dd>
+          </div>
+        {/if}
+        {#if usual}
+          <div>
+            <dt>Usually takes</dt>
+            <dd>{dL(usual)}</dd>
           </div>
         {/if}
         {#if place && place.of > 1}

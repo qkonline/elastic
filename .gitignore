@@ -7,3 +7,4 @@ dist-old
 .deploy.env
 worker/.dev.vars
 worker/.wrangler
+dist-e2e

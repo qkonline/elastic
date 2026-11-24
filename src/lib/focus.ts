@@ -29,6 +29,11 @@ export function keepFocus(): void {
   let around: Element[] = [];
   addEventListener('focusin', (e) => {
     last = e.target as HTMLElement;
+    // A sheet or the welcome hands focus back by itself.
+    if (last.matches('[role="dialog"]')) {
+      last = null;
+      return;
+    }
     around = [];
     for (let p = last.parentElement; p && p !== document.body; p = p.parentElement) around.push(p);
   });

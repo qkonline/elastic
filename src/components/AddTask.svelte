@@ -3,10 +3,11 @@
   import { cubicOut } from 'svelte/easing';
   import { slide } from 'svelte/transition';
   import { planner as P } from '../lib/planner.svelte';
-  import { addDays, clockToDay, fT, hhmm, hm, keyDate, shortDate } from '../lib/time';
+  import { addDays, clockToDay, dL, fT, hhmm, hm, keyDate, shortDate } from '../lib/time';
   import { habitDefaults } from '../lib/habits';
   import { stripSegs } from '../lib/rows';
   import { isPartial } from '../lib/schedule';
+  import { pastedSteps } from '../lib/steps';
   import type { Ends } from '../lib/repeat';
   import type { Habit, Hue, Kind } from '../lib/types';
   import { hueColor, SOMEDAY, untimed } from '../lib/types';
@@ -84,7 +85,8 @@
     target === P.today ? 'today' : target === tomorrow ? 'tomorrow' : shortDate(keyDate(target)),
   );
 
-  const ok = $derived(!!title.trim());
+  let lines = $state<string[]>([]);
+  const ok = $derived(!!title.trim() || lines.length > 0);
   // A timed task or buffer goes on the end of the day: show the day's strip with it added, and
   // when the day would then end.
   const preview = $derived.by(() => {
@@ -96,6 +98,7 @@
     const segs = stripSegs(P.sch.rows, P.planDay.dayStarted != null);
     return { segs, end: Math.max(P.sch.finish, ...rows.map((r) => r.end)) + min };
   });
+  const past = $derived(preview ? Math.round(preview.end - P.planDay.wrap) : 0);
   const sel = $derived(hue ?? (kind === 'fixed' ? 'indigo' : kind === 'habit' ? 'lime' : 'cyan'));
   const placeholder = $derived(
     when === 'someday'
@@ -114,16 +117,40 @@
   // On another day (or Someday) a time is simply that time of day.
   const fixedAtPicked = $derived(fixedStr ? (elsewhere ? hm(fixedStr) : clockToDay(hm(fixedStr), late)) : defaultFixed);
 
-  function add() {
+  // Several lines pasted in: one task each, all set as below.
+  function paste(e: ClipboardEvent) {
+    const got = pastedSteps(e);
+    if (!got) return;
+    if (got.length > 1 && kind !== 'habit') lines = got;
+    title = got.length > 1 && kind !== 'habit' ? '' : (got[0] ?? '');
+  }
+  let field: HTMLInputElement | null = $state(null);
+  let added = $state(0);
+  /** Add this one and stay for the next. */
+  function another() {
     if (!ok) return;
+    const n = lines.length || 1;
+    addAll(true);
+    added += n;
+    title = '';
+    lines = [];
+    field?.focus();
+  }
+  function addAll(more: boolean) {
+    const names = lines.length ? lines : [title.trim()];
+    names.forEach((t, i) => addOne(t, more || i < names.length - 1));
+  }
+  const add = () => ok && addAll(false);
+  function addOne(title: string, more: boolean) {
     if (kind === 'habit') {
-      void P.addTask({ title: title.trim(), min: 0, kind, hue: sel, fixedAt: null, repeat: habitRepeat, habit });
+      void P.addTask({ title, min: 0, kind, hue: sel, fixedAt: null, repeat: habitRepeat, habit, more });
       return;
     }
     const k = timed ? kind : 'check';
     const fixedAt = k === 'fixed' ? fixedAtPicked : null;
     void P.addTask({
-      title: title.trim(),
+      title,
+      more,
       min: timed ? Math.max(1, min) : 0,
       kind: k,
       hue: sel,
@@ -144,11 +171,23 @@
   <input
     class="name large-text"
     data-autofocus
+    bind:this={field}
     bind:value={title}
     onkeydown={enter}
+    onpaste={paste}
     {placeholder}
     aria-label="Task name"
   />
+
+  {#if lines.length}
+    <div class="lines">
+      <span class="lnote">{lines.length} tasks, one for each line</span>
+      <ul>
+        {#each lines as l, i (i)}<li>{l}</li>{/each}
+      </ul>
+      <button class="btn-plain" onclick={() => (lines = [])}>Clear them</button>
+    </div>
+  {/if}
 
   <div class="group">
     <KindChips {kind} {hue} habit onpick={pickKind} />
@@ -230,36 +269,66 @@
           {/each}
           <span class="new" style:flex-grow={min} style:--c={kind === 'buffer' ? 'var(--line)' : hueColor(sel)}></span>
         </div>
-        <span>Your day would end at <b>{fT(preview.end, P.settings.clock24)}</b>.</span>
+        <span
+          >Your day would end at <b>{fT(preview.end, P.settings.clock24)}</b>{#if past > 0}<span class="past"
+              >, {dL(past)} past your wrap-up</span
+            >{/if}.</span
+        >
       </div>
     {/if}
   {/if}
 </div>
 <div class="foot">
-  <span class="note">
-    {kind === 'habit'
-      ? P.settings.habitsPlace === 'separate'
-        ? 'Goes in your Habits, on each day it is due.'
-        : 'Goes on your checklist, on each day it is due.'
-      : when === 'someday'
-        ? 'Goes to Someday, at the foot of Today.'
-        : elsewhere
-          ? !timed
-            ? `Goes on the checklist ${target === tomorrow ? 'tomorrow' : `on ${dayName}`}.`
-            : kind === 'fixed'
-              ? `Goes in the plan ${target === tomorrow ? 'tomorrow' : `on ${dayName}`} at ${fT(fixedAtPicked, P.settings.clock24)}.`
-              : `Goes to the end of ${target === tomorrow ? 'tomorrow' : dayName}.`
-          : !timed
-            ? 'Goes on your checklist, above the timeline.'
-            : kind === 'fixed'
-              ? `Goes in the plan at ${fT(fixedAtPicked, P.settings.clock24)}.`
-              : 'Goes to the end of the day. Drag it to reorder.'}
+  <span class="note" role="status">
+    {added && !title && !lines.length
+      ? `${added} added.`
+      : kind === 'habit'
+        ? P.settings.habitsPlace === 'separate'
+          ? 'Goes in your Habits, on each day it is due.'
+          : 'Goes on your checklist, on each day it is due.'
+        : when === 'someday'
+          ? 'Goes to Someday, at the foot of Today.'
+          : elsewhere
+            ? !timed
+              ? `Goes on the checklist ${target === tomorrow ? 'tomorrow' : `on ${dayName}`}.`
+              : kind === 'fixed'
+                ? `Goes in the plan ${target === tomorrow ? 'tomorrow' : `on ${dayName}`} at ${fT(fixedAtPicked, P.settings.clock24)}.`
+                : `Goes to the end of ${target === tomorrow ? 'tomorrow' : dayName}.`
+            : !timed
+              ? 'Goes on your checklist, above the timeline.'
+              : kind === 'fixed'
+                ? `Goes in the plan at ${fT(fixedAtPicked, P.settings.clock24)}.`
+                : 'Goes to the end of the day. Drag it to reorder.'}
   </span>
-  <button class="cancel" onclick={() => P.closeSheet()}>Cancel</button>
-  <button class="add" class:ok disabled={!ok} onclick={add}>{kind === 'habit' ? 'Add habit' : 'Add task'}</button>
+  <button class="cancel" onclick={() => P.closeSheet()}>{added ? 'Done' : 'Cancel'}</button>
+  {#if kind !== 'habit' && !preset}
+    <button class="cancel" disabled={!ok} onclick={another}>Add another</button>
+  {/if}
+  <button class="add" class:ok disabled={!ok} onclick={add}
+    >{kind === 'habit' ? 'Add habit' : lines.length ? `Add ${lines.length} tasks` : 'Add task'}</button
+  >
 </div>
 
 <style>
+  .past {
+    color: var(--redT);
+  }
+  .lines {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .lines ul {
+    margin: 0;
+    padding-left: 18px;
+    max-height: 160px;
+    overflow-y: auto;
+    font: 400 15px/1.5 var(--font);
+  }
+  .cancel:disabled {
+    opacity: 0.45;
+  }
   .head {
     display: flex;
     align-items: center;

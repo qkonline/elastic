@@ -88,6 +88,8 @@ export interface Item {
   /** Day this item was moved to, and the id of the copy there (for Undo). */
   movedKey?: string | null;
   movedId?: string | null;
+  /** How many times it has been moved to another day. */
+  moves?: number;
   /** A habit: what it asks for (kind 'habit'). */
   habit?: Habit;
   /** A habit's progress today: an amount, minutes added by hand, or 1 = slipped (quit). */
@@ -314,7 +316,7 @@ export const sharedSettings = (s: Partial<Settings>) =>
 export const DEFAULT_SETTINGS: Settings = {
   themePref: 'match',
   clock24: false,
-  showTimes: 'started',
+  showTimes: 'always',
   alertOn: true,
   notify: false,
   notifyAsk: 'ask',

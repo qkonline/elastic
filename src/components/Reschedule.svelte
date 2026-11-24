@@ -2,6 +2,7 @@
   import { planner as P } from '../lib/planner.svelte';
   import type { ItemVM } from '../lib/rows';
   import { addDays, fT, hm, keyDate, shortDate } from '../lib/time';
+  import { SOMEDAY } from '../lib/types';
   import { intoView } from '../lib/ui.svelte';
 
   // Start it now, or pick where it goes (later today, tomorrow or another day) and Move it there:
@@ -9,11 +10,12 @@
   let { v }: { v: ItemVM } = $props();
   const c24 = $derived(P.settings.clock24);
   const tomorrow = $derived(addDays(P.today, 1));
-  let where = $state<'later' | 'tomorrow' | 'day'>('later');
+  let where = $state<'later' | 'tomorrow' | 'day' | 'someday'>('later');
   const WHERE = [
     ['later', 'Later'],
     ['tomorrow', 'Tomorrow'],
     ['day', 'Another day'],
+    ['someday', 'Someday'],
   ] as const;
   function pick(w: typeof where) {
     where = w;
@@ -22,7 +24,8 @@
       P.resched.date = addDays(tomorrow, 1);
   }
   const ready = $derived(
-    !!P.resched && (where === 'tomorrow' || (where === 'later' ? !!P.resched.time : !!P.resched.date)),
+    !!P.resched &&
+      (where === 'tomorrow' || where === 'someday' || (where === 'later' ? !!P.resched.time : !!P.resched.date)),
   );
   const moveLabel = $derived(
     !P.resched || !ready
@@ -31,12 +34,14 @@
         ? `Move to ${fT(hm(P.resched.time), c24)}`
         : where === 'tomorrow'
           ? 'Move to tomorrow'
-          : `Move to ${shortDate(keyDate(P.resched.date))}`,
+          : where === 'someday'
+            ? 'Move to Someday'
+            : `Move to ${shortDate(keyDate(P.resched.date))}`,
   );
   function move() {
     if (!ready || !P.resched) return;
     if (where === 'later') P.reschedLater(v.id);
-    else void P.moveToDay(v.id, where === 'tomorrow' ? tomorrow : P.resched.date);
+    else void P.moveToDay(v.id, where === 'tomorrow' ? tomorrow : where === 'someday' ? SOMEDAY : P.resched.date);
   }
 </script>
 
@@ -64,6 +69,7 @@
       {/if}
     </div>
     <div class="foot">
+      <button class="cancel" onclick={() => P.skip(v.id)}>Skip</button>
       <button class="cancel" onclick={() => (P.resched = null)}>Cancel</button>
       <button class="b" disabled={!ready} onclick={move}>{moveLabel}</button>
     </div>

@@ -18,6 +18,8 @@
     ),
   );
   const colour = (h: Hue | null) => (h ? hueColor(h) : 'var(--line)');
+  // Once isn't a pattern.
+  const moved = $derived(x.postponed.filter((m) => m.times > 1));
   const weekMax = $derived(Math.max(1, ...(x.weeks ?? []).map((w) => w.logged)));
   const best = $derived(x.weeks?.length ? x.weeks.reduce((a, b) => (b.logged > a.logged ? b : a)) : null);
   const dayMonth = (k: string) => keyDate(k).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
@@ -27,7 +29,7 @@
   <div class="stats">
     <div class="stat">
       <span class="big">{x.logged >= 1 ? dL(x.logged) : '0m'}</span>
-      <span class="small">logged</span>
+      <span class="small">worked</span>
     </div>
     <div class="stat">
       <span class="big">{x.tasksDone}<span class="of">/{x.tasks}</span></span>
@@ -78,18 +80,18 @@
         {/each}
       </div>
       {#if best && best.logged > 0}
-        <span class="note">Busiest week: from {dayMonth(best.from)}, {dL(best.logged)} logged.</span>
+        <span class="note">Busiest week: from {dayMonth(best.from)}, {dL(best.logged)} worked.</span>
       {/if}
     </div>
   {/if}
 
-  {#if x.postponed.length || x.longDays}
+  {#if moved.length || x.longDays}
     <div class="part">
-      {#if x.postponed.length}
-        <span class="lbl">Moved to another day most</span>
+      {#if moved.length}
+        <span class="lbl">Kept getting moved</span>
         <ul class="moved">
-          {#each x.postponed as m (m.title)}
-            <li><span>{m.title}</span><span class="v">{m.times === 1 ? 'once' : `${m.times} times`}</span></li>
+          {#each moved as m (m.title)}
+            <li><span>{m.title}</span><span class="v">{m.times} times</span></li>
           {/each}
         </ul>
       {/if}

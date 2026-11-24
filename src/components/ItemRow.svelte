@@ -4,7 +4,7 @@
   import type { ItemVM } from '../lib/rows';
   import { dL } from '../lib/time';
   import { hueColor, inkOn } from '../lib/types';
-  import { desktop } from '../lib/ui.svelte';
+  import { desktop, dockable } from '../lib/ui.svelte';
   import NowLine from './NowLine.svelte';
   import FinishChooser from './FinishChooser.svelte';
   import PostponeChooser from './PostponeChooser.svelte';
@@ -98,6 +98,8 @@
   data-drag-idx={v.idx}
   class="row"
   class:active={v.active}
+  class:open={dockable.current && P.sheet?.type === 'task' && P.sheet.id === id}
+  aria-current={P.sheet?.type === 'task' && P.sheet.id === id ? 'true' : undefined}
   class:hovered={hovered && !v.active}
   class:lifted
   class:faded={v.faded}
@@ -296,6 +298,7 @@
     user-select: none;
     -webkit-touch-callout: none;
   }
+  .row.open,
   .row.hovered {
     background: var(--sunk);
   }

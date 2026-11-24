@@ -1,7 +1,7 @@
 <script lang="ts">
   import { planner as P } from '../lib/planner.svelte';
   import { dragShifts, timelineRows } from '../lib/rows';
-  import { untimed } from '../lib/types';
+  import { dayStats } from '../lib/schedule';
   import ItemRow from './ItemRow.svelte';
   import NowLine from './NowLine.svelte';
   import SectionHead from './SectionHead.svelte';
@@ -24,18 +24,13 @@
   );
   // While a task is dragged, the rows between its old and new place slide to open a gap.
   const shifts = $derived(dragShifts(rows, P.drag, P.day.items.length));
-  // The title bar's count: the day's timed tasks (not buffers, nor ones skipped or moved off).
-  const tasks = $derived(
-    P.day.items.filter(
-      (i) => !untimed(i.kind) && i.kind !== 'buffer' && i.status !== 'skipped' && i.status !== 'postponed',
-    ),
-  );
-  const done = $derived(tasks.filter((i) => i.status === 'done').length);
+  // The title bar's count, as everywhere else: a task counts once, and is done once all of it is.
+  const st = $derived(dayStats(P.day, P.n));
   const moved = (key: string) => (shifts[key] ? `translateY(${shifts[key]}px)` : undefined);
 </script>
 
 <div class="thead">
-  <SectionHead icon="timed" title="Timed tasks" tally={tasks.length ? `${done}/${tasks.length}` : ''} />
+  <SectionHead icon="timed" title="Timeline" tally={st.tasks ? `${st.tasksDone}/${st.tasks}` : ''} />
 </div>
 <ol
   class="timeline"

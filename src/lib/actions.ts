@@ -44,6 +44,7 @@ export function freshCopy(it: Item, extra: Partial<Item> = {}): Item {
     ...(it.habitId ? { habitId: it.habitId } : {}),
     ...(it.goalId ? { goalId: it.goalId } : {}),
     ...(it.icon ? { icon: it.icon } : {}),
+    ...(it.moves ? { moves: it.moves } : {}),
     ...extra,
   });
 }
@@ -410,6 +411,38 @@ export function remove(day: Day, id: string): Day {
   return { ...day, items: day.items.filter((i) => i.id !== id) };
 }
 
+/** An entry as a person sees it: not what syncing keeps about its timer. */
+const seen = ({ run: _r, fix: _f, card, ...it }: Item) => JSON.stringify([it, card?.id]);
+
+/**
+ * Take one change back: what it did to a day (`before` to `after`), undone in the day as it is
+ * now, entry by entry. What has been changed again since, here or on another device, stays.
+ */
+export function takeBack(before: Day, after: Day, now: Day): Day {
+  const was = new Map(before.items.map((i) => [i.id, i]));
+  const did = new Map(after.items.map((i) => [i.id, i]));
+  // As the change left it, entry by entry (what's added to the plan elsewhere doesn't matter).
+  const asLeft = (i: Item) => did.has(i.id) && seen(did.get(i.id)!) === seen(i);
+  let items = now.items
+    .filter((i) => was.has(i.id) || !asLeft(i))
+    .map((i) => (was.has(i.id) && asLeft(i) ? { ...was.get(i.id)! } : i));
+  const here = new Set(now.items.map((i) => i.id));
+  before.items.forEach((i, k) => {
+    if (!did.has(i.id) && !here.has(i.id)) items.splice(Math.min(k, items.length), 0, i);
+  });
+  // The order too, unless it has changed again.
+  const common = (list: Item[]) => list.filter((i) => did.has(i.id)).map((i) => i.id);
+  if (common(now.items).join() === common(after.items.filter((i) => here.has(i.id))).join()) {
+    const order = new Map(before.items.map((i, k) => [i.id, k]));
+    const mine = items.filter((i) => order.has(i.id)).sort((a, b) => order.get(a.id)! - order.get(b.id)!);
+    items = items.map((i) => (order.has(i.id) ? mine.shift()! : i));
+  }
+  // Another timer has been started meanwhile: one goes at a time.
+  if (items.filter(isActive).length > 1) return now;
+  const back = <K extends 'dayStarted' | 'dayStart' | 'wrap'>(k: K) => (now[k] === after[k] ? before[k] : now[k]);
+  return { ...now, items, dayStarted: back('dayStarted'), dayStart: back('dayStart'), wrap: back('wrap') };
+}
+
 /** A buffer moved by hand takes the time of its new place (letThrough() gives it one). */
 const unheld = (it: Item): Item => (it.kind === 'buffer' && it.heldAt != null ? { ...it, heldAt: null } : it);
 
@@ -586,6 +619,7 @@ export function moveOut(day: Day, id: string, toKey: string, n: number): { day: 
       min: remainder(it, w),
       kind: it.kind === 'fixed' ? 'task' : it.kind,
       continued: true,
+      moves: (it.moves ?? 0) + 1,
     });
     copy.subtasks = it.subtasks.map((x) => ({ ...x }));
     return {
@@ -600,7 +634,7 @@ export function moveOut(day: Day, id: string, toKey: string, n: number): { day: 
       copy,
     };
   }
-  const copy = freshCopy(it);
+  const copy = freshCopy(it, { moves: (it.moves ?? 0) + 1 });
   return {
     day: mapItem(day, id, () => ({
       status: 'postponed',

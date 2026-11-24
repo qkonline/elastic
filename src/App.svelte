@@ -36,6 +36,7 @@
   import ProjectCard from './components/ProjectCard.svelte';
   import Timeline from './components/Timeline.svelte';
   import WeekStrip from './components/WeekStrip.svelte';
+  import NowBar from './components/NowBar.svelte';
   import UnfinishedDay from './components/UnfinishedDay.svelte';
   import Welcome from './components/Welcome.svelte';
   import BottomBar from './components/BottomBar.svelte';
@@ -281,6 +282,7 @@
     </div>
     <PullIndicator />
     <StartFirst />
+    <NowBar />
 
     <div inert={covered}>
       <BottomBar /><SideNav />
