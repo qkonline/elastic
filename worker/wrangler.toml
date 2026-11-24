@@ -29,6 +29,7 @@ VAPID_SUBJECT = "https://elastic.kaiserkhan.com/"
 # `wrangler dev` (see README.md), so production never accepts them.
 ALLOWED_ORIGINS = "https://elastic.kaiserkhan.com,https://kaiserkhan.com,https://www.kaiserkhan.com"
 EMAIL_FROM = "Elastic <elastic@kaiserkhan.com>"
+EMAIL_REPLY_TO = "kaiser@kaiserkhan.com"
 # Passkeys belong to kaiserkhan.com, so the ones made at kaiserkhan.com/planner/ keep working here.
 RP_ID = "kaiserkhan.com"
 

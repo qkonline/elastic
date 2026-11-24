@@ -20,7 +20,17 @@
     if (then === 'sample') P.loadSample();
   }
 
-  onMount(() => panel?.focus({ preventScroll: true }));
+  // Everything was just erased here: the account still has the plan as it was.
+  let erased = $state<{ id: number; at: number } | null>(null);
+  onMount(() => {
+    panel?.focus({ preventScroll: true });
+    if (!P.session) return;
+    const t = setTimeout(async () => {
+      const [last] = await P.snapshots();
+      if (last && Date.now() - last.at < 3_600_000) erased = last;
+    }, 1500);
+    return () => clearTimeout(t);
+  });
 </script>
 
 <div
@@ -45,6 +55,9 @@
           <div class="actions">
             <button class="pri" onclick={() => (step = 1)}>Get started</button>
             <button class="text" onclick={() => finish()}>Skip for now</button>
+            {#if erased}
+              <button class="text" onclick={() => P.bringBack(erased!.id)}>Bring back the plan I erased</button>
+            {/if}
           </div>
         {:else if step === 1}
           <p class="count">1 of 2</p>

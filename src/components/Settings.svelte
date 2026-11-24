@@ -100,7 +100,9 @@
           ? "On. You're offline, so changes will sync when you're back."
           : P.syncStatus === 'full'
             ? 'On, but your account is full, so some new changes stay on this device.'
-            : 'On. Your plan is the same on every device you sign in on.',
+            : P.syncStatus === 'refused'
+              ? "On, but some changes couldn't sync. They're only on this device."
+              : 'On. Your plan is the same on every device you sign in on.',
   );
 
   const THEMES: [ThemePref, string][] = [
@@ -134,6 +136,23 @@
   // svelte-ignore state_referenced_locally
   let picked = $state<Tab | null>(last);
   const tab = $derived(tabs.find((t) => t.id === picked)?.id ?? tabs[0].id);
+
+  // Plans the account kept from before Erase everything or Import, to bring back.
+  let snaps = $state<{ id: number; at: number; records: number }[]>([]);
+  $effect(() => {
+    if (tab !== 'data') return;
+    void P.importMsg;
+    // After an erase or an import the account needs a moment to have it.
+    const t = setTimeout(() => void P.snapshots().then((s) => (snaps = s)), P.importMsg ? 1500 : 0);
+    return () => clearTimeout(t);
+  });
+  const when = (ms: number) => {
+    const d = new Date(ms);
+    return `${shortDate(d)}, ${fT(d.getHours() * 60 + d.getMinutes(), S.clock24)}`;
+  };
+  async function bringBack(id: number) {
+    await P.bringBack(id);
+  }
 
   const unsaved = $derived([
     ...(changed.some((k) => DISPLAY.includes(k)) ? ['Display'] : []),
@@ -457,10 +476,31 @@
           {#if P.importMsg}
             <span class="msg" class:err={P.importMsg.err}>{P.importMsg.t}</span>
           {/if}
+          {#if snaps.length}
+            <div class="setting">
+              <span class="ol">Your plan before it was replaced, kept for 30 days</span>
+              {#each snaps as s (s.id)}
+                {#if P.armed('bringback', String(s.id))}
+                  <span class="confirm">
+                    Put the plan from {when(s.at)} back, here and on your other devices? What you have now is replaced.
+                    <button class="btn-yes" onclick={() => bringBack(s.id)} {@attach (el) => el.focus()}
+                      >Bring it back</button
+                    >
+                    <button class="btn-no" onclick={() => P.disarm()}>Cancel</button>
+                    <DisarmBar />
+                  </span>
+                {:else}
+                  <button class="btn-plain self" onclick={() => P.arm('bringback', String(s.id))}
+                    >Bring back {when(s.at)}</button
+                  >
+                {/if}
+              {/each}
+            </div>
+          {/if}
           {#if P.armed('erase', 'all')}
             <span class="confirm">
               {P.session
-                ? 'Erase every day and setting, here and on your other devices?'
+                ? 'Erase every day and setting, here and on your other devices? You can bring it back for 30 days.'
                 : 'Erase every day and setting?'}
               <button class="btn-yes" onclick={() => P.eraseAll()} {@attach (el) => el.focus()}>Erase</button>
               <button class="btn-no" onclick={() => P.disarm()}>Cancel</button>

@@ -9,6 +9,8 @@ export interface MailEnv {
   RESEND_API_KEY?: string;
   /** Who the mail comes from, e.g. "Elastic <elastic@kaiserkhan.com>". */
   EMAIL_FROM?: string;
+  /** Where replies go: someone reads them. */
+  EMAIL_REPLY_TO?: string;
   /** Local development: keep mail for /dev/mail rather than sending it. */
   DEV_MAIL?: string;
 }
@@ -44,6 +46,7 @@ export async function sendMail(env: MailEnv, mail: Mail): Promise<void> {
       body: JSON.stringify({
         from: env.EMAIL_FROM,
         to: [mail.to],
+        ...(env.EMAIL_REPLY_TO ? { reply_to: env.EMAIL_REPLY_TO } : {}),
         subject: mail.subject,
         text: mail.text,
         html: mail.html,

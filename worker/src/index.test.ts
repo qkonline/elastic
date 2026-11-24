@@ -85,10 +85,15 @@ const SIGNED_IN = [
   '/account',
   '/account/delete',
   '/account/handoff',
+  '/auth/proved',
+  '/auth/prove/send',
+  '/auth/prove',
   '/sync/beacon',
   '/alerts/due',
 ];
 const SET_UP = [
+  '/account/snapshots',
+  '/account/snapshot',
   '/boardo',
   '/boardo/link',
   '/boardo/connect',

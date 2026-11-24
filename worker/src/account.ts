@@ -15,7 +15,7 @@
 // `dueAlerts()` what to show.
 
 import { DurableObject } from 'cloudflare:workers';
-import { fromPaths, merge, newer, type Paths, toPaths, ZERO } from '../../shared/lww';
+import { deletions, fromPaths, merge, newer, type Paths, toPaths, ZERO } from '../../shared/lww';
 import { liveSessions } from './auth';
 import { type AlertGroup, alertGroups, isPushEndpoint, patches, type RecordKind } from './checks';
 import { sendPush } from './push';
@@ -75,6 +75,13 @@ const ROW_BYTES = 100;
 export const PUTS_A_MINUTE = 600;
 /** A connection's session is checked again before anything goes out to it once this old. */
 const SESSION_CHECK_MS = 60_000;
+/** How long the plan is kept from before it was replaced (Erase everything, Import), and how many times. */
+export const SNAPSHOT_MS = 30 * 24 * 3600_000;
+const SNAPSHOTS = 3;
+/** One replacement arrives as several puts: those this close to the last belong to it. */
+const SNAPSHOT_GAP_MS = 10 * 60_000;
+/** Tasks that may be deleted in an hour without it being meant. */
+const TASKS_AN_HOUR = 200;
 /** A device the account hasn't heard from in this long is forgotten. */
 const DEVICE_IDLE_MS = 90 * 24 * 3600_000;
 
@@ -114,6 +121,9 @@ export class Account extends DurableObject<AccountEnv> {
         PRIMARY KEY (kind, key));
       CREATE INDEX IF NOT EXISTS records_rev ON records (rev);
       CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, endpoint TEXT, seen INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS snapshots (id INTEGER PRIMARY KEY, at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS snapshot_records (snap INTEGER NOT NULL, kind TEXT NOT NULL, key TEXT NOT NULL,
+        data TEXT NOT NULL, PRIMARY KEY (snap, kind, key));
       CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
     `);
     // Since 24 Oct 2026: each record's paths (`data` is the record built from them).
@@ -222,7 +232,8 @@ export class Account extends DurableObject<AccountEnv> {
         size = 0;
       }
     }
-    ws.send(JSON.stringify({ t: 'changes', recs, rev, done: true }));
+    // With the time here, for a device whose clock is off (shared/lww.ts Hlc).
+    ws.send(JSON.stringify({ t: 'changes', recs, rev, done: true, now: Date.now() }));
   }
 
   private async broadcast(recs: Rec[], except: WebSocket | null): Promise<void> {
@@ -270,6 +281,7 @@ export class Account extends DurableObject<AccountEnv> {
     const list = patches(raw);
     if (!list) return null;
     if (!bulk && !this.deletionsAllowed(list)) return null;
+    if (bulk) this.keepSnapshot();
     const changed: Rec[] = [];
     const full: { kind: RecordKind; key: string }[] = [];
     let rev = this.rev();
@@ -327,7 +339,7 @@ export class Account extends DurableObject<AccountEnv> {
    * (Erase everything, Import): on 23 Oct 2026 a device signing in again sent its whole plan as
    * deletions and wiped the account. Deletions of records the account has, counted over an hour,
    * may reach 10 or a fifth of what it holds, whichever is more. A refused put is sent again one
-   * record at a time and each refused deletion dropped (sync.ts), so the account keeps its copy.
+   * record at a time and each refused deletion left on the device (sync.ts), so the account keeps its copy.
    */
   private deletionsAllowed(list: { kind: string; key: string; paths: Paths }[]): boolean {
     const now = Date.now();
@@ -337,6 +349,7 @@ export class Account extends DurableObject<AccountEnv> {
         this.sql.exec('SELECT 1 FROM records WHERE kind = ? AND key = ? AND data IS NOT NULL', c.kind, c.key).toArray()
           .length,
     ).length;
+    if (!this.taskDeletionsAllowed(list, now)) return false;
     if (!dels) return true;
     const row = this.sql.exec<{ v: string }>("SELECT v FROM kv WHERE k = 'deletes'").toArray()[0];
     let win = row ? (JSON.parse(row.v) as { n: number; since: number }) : { n: 0, since: now };
@@ -348,6 +361,76 @@ export class Account extends DurableObject<AccountEnv> {
       JSON.stringify({ n: win.n + dels, since: win.since }),
     );
     return true;
+  }
+
+  /** The same for tasks: a day emptied keeps its record, so its tasks are counted too. */
+  private taskDeletionsAllowed(list: { paths: Paths }[], now: number): boolean {
+    const dels = list.reduce((n, c) => n + (c.paths._?.[0] === null ? 0 : deletions(c.paths)), 0);
+    if (!dels) return true;
+    const row = this.sql.exec<{ v: string }>("SELECT v FROM kv WHERE k = 'taskdeletes'").toArray()[0];
+    let win = row ? (JSON.parse(row.v) as { n: number; since: number }) : { n: 0, since: now };
+    if (now - win.since > 3_600_000) win = { n: 0, since: now };
+    if (win.n + dels > TASKS_AN_HOUR) return false;
+    this.sql.exec(
+      "INSERT OR REPLACE INTO kv (k, v) VALUES ('taskdeletes', ?)",
+      JSON.stringify({ n: win.n + dels, since: win.since }),
+    );
+    return true;
+  }
+
+  // ---------- the plan before it was replaced ----------
+
+  /** The plan is about to be replaced: keep it as it is now. */
+  private keepSnapshot(): void {
+    const now = Date.now();
+    this.dropOldSnapshots(now);
+    const last = this.sql.exec<{ at: number }>('SELECT at FROM snapshots ORDER BY at DESC LIMIT 1').toArray()[0];
+    if (last && now - last.at < SNAPSHOT_GAP_MS) return;
+    if (!this.sql.exec('SELECT 1 FROM records WHERE data IS NOT NULL LIMIT 1').toArray().length) return;
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec('INSERT INTO snapshots (at) VALUES (?)', now);
+      const id = this.sql.exec<{ id: number }>('SELECT MAX(id) AS id FROM snapshots').one().id;
+      this.sql.exec(
+        'INSERT INTO snapshot_records (snap, kind, key, data) SELECT ?, kind, key, data FROM records WHERE data IS NOT NULL',
+        id,
+      );
+      // The oldest stays (replacing things over and over mustn't push out the plan from before),
+      // with the newest.
+      const all = this.sql.exec<{ id: number }>('SELECT id FROM snapshots ORDER BY at DESC, id DESC').toArray();
+      for (const s of all.slice(SNAPSHOTS - 1, -1)) this.dropSnapshot(s.id);
+    });
+  }
+
+  private dropSnapshot(id: number): void {
+    this.sql.exec('DELETE FROM snapshot_records WHERE snap = ?', id);
+    this.sql.exec('DELETE FROM snapshots WHERE id = ?', id);
+  }
+
+  private dropOldSnapshots(now: number): void {
+    const old = this.sql.exec<{ id: number }>('SELECT id FROM snapshots WHERE at < ?', now - SNAPSHOT_MS).toArray();
+    for (const s of old) this.dropSnapshot(s.id);
+  }
+
+  /** What's kept, newest first. */
+  async snapshots(): Promise<{ id: number; at: number; records: number }[]> {
+    this.dropOldSnapshots(Date.now());
+    return this.sql
+      .exec<{ id: number; at: number; records: number }>(
+        'SELECT s.id, s.at, (SELECT COUNT(*) FROM snapshot_records r WHERE r.snap = s.id) AS records FROM snapshots s ORDER BY s.at DESC',
+      )
+      .toArray();
+  }
+
+  /** One of them, as records. The app puts it back like an import, so every device follows. */
+  async snapshot(id: number): Promise<{ kind: string; key: string; data: unknown }[]> {
+    if (!Number.isInteger(id)) return [];
+    return this.sql
+      .exec<{ kind: string; key: string; data: string }>(
+        'SELECT kind, key, data FROM snapshot_records WHERE snap = ?',
+        id,
+      )
+      .toArray()
+      .map((r) => ({ ...r, data: JSON.parse(r.data) }));
   }
 
   // ---------- sessions ----------

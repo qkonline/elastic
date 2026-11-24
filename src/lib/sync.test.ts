@@ -18,6 +18,7 @@ interface Rec {
 class FakeAccount {
   records = new Map<string, Rec>();
   rev = 0;
+  refuse: (c: Rec) => boolean = () => false;
   sockets = new Set<FakeSocket>();
   /** While set, messages from devices wait (to make two devices change things at once). */
   held: (() => void)[] | null = null;
@@ -30,6 +31,8 @@ class FakeAccount {
       ws.deliver(JSON.stringify({ t: 'changes', recs, rev: this.rev, done: true }));
     }
     if (m.t === 'put') {
+      if (m.recs.some((c: Rec) => this.refuse(c)))
+        return ws.deliver(JSON.stringify({ t: 'ack', id: m.id, error: 'bad' }));
       const changed: Rec[] = [];
       for (const c of m.recs) {
         const id = `${c.kind}:${c.key}`;
@@ -212,6 +215,46 @@ describe('sync', () => {
       'from the phone',
       'from the laptop',
     ]);
+  });
+
+  it('keeps a change the account refuses, says so, and can take the account copy instead', async () => {
+    const a = await device({ fresh: true });
+    add(a.p, 'Write');
+    await settle();
+    server.refuse = (c) => c.kind === 'day';
+    a.p.edit(a.p.day.items[0].id, { note: 'only here' });
+    await settle();
+    expect(a.p.syncStatus).toBe('refused');
+    expect(Object.keys(await a.db.getPending())).toEqual([`day:${TODAY}`]);
+    expect(a.p.day.items[0].note).toBe('only here');
+    await a.p.takeAccounts();
+    await settle();
+    expect(titles(a.p)).toEqual(['Write']);
+    expect(a.p.day.items[0].note).toBe('');
+    expect(await a.db.getPending()).toEqual({});
+  });
+
+  it('wins over what it has seen, reopened with its clock behind', async () => {
+    const a = await device({ fresh: true });
+    add(a.p, 'Write');
+    await settle();
+    // From a device an hour ahead.
+    const b = await device();
+    vi.setSystemTime(new Date(Date.now() + 3_600_000));
+    b.p.edit(b.p.day.items[0].id, { note: 'ahead' });
+    await settle();
+    vi.setSystemTime(new Date(Date.now() - 3_600_000));
+    // The first one opens again, its clock back where it was, and changes the same thing.
+    const { Planner } = { Planner: a.p.constructor as new () => Planner };
+    a.p.destroy();
+    const again = new Planner();
+    await again.init();
+    devices[0].p = again;
+    await settle();
+    again.edit(again.day.items[0].id, { note: 'after' });
+    await settle();
+    expect(again.day.items[0].note).toBe('after');
+    expect(b.p.day.items[0].note).toBe('after');
   });
 
   it('sets one of two clashing timers aside for good, with its rest, on both devices', async () => {

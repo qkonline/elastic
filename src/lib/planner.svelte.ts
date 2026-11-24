@@ -6,7 +6,7 @@ import * as api from './account';
 import { arrival, MOVED_TO, moveUrl, reachable } from './move';
 import { API, ApiError, cancelled, complete, passkeysAvailable, type Session, type SignedIn } from './account';
 import { chime, notifyHidden, requestNotifications, unlockAudio, unlockOnFirstGesture, vibrate } from './alert';
-import { download, normalizeDay, parseBackup } from './backup';
+import { download, normalizeDay, normalizeGoal, normalizeReview, normalizeSeries, parseBackup } from './backup';
 import {
   diff,
   fromPaths,
@@ -104,6 +104,7 @@ export type ConfirmType =
   | 'erase'
   | 'sample'
   | 'finish'
+  | 'bringback'
   | 'signout'
   | 'others'
   | 'unaccount'
@@ -464,6 +465,7 @@ export class Planner {
     endpoint: () => (this.settings.notify ? pushEndpoint() : null),
     clock: () => this.hlc.now(),
     see: (c) => this.hlc.see(c),
+    time: (ms) => this.hlc.sync(ms),
   });
 
   // ---------- lifecycle ----------
@@ -476,6 +478,8 @@ export class Planner {
         db.getGoals(),
         db.getReviews(),
       ]);
+      const seen = await db.latestClock().catch(() => undefined);
+      if (seen) this.hlc.see(seen);
       this.goals = goals;
       this.reviews = reviews;
       this.settings = s ? stored(s) : { ...DEFAULT_SETTINGS, themePref: this.settings.themePref };
@@ -556,9 +560,10 @@ export class Planner {
     this.drag = null;
     this.resched = null;
     this.updateIfQuiet();
+    const unsaved = [...this.unsent].map(([key, paths]) => ({ kind: 'day' as const, key, paths }));
     void this.flush();
     // Signed in, the account sends the alerts, to every device of the account.
-    this.sync.setVisible(false);
+    this.sync.setVisible(false, unsaved);
     if (!this.settings.notify) return;
     const plan = pushPlan(this.alerts(), Date.now());
     // Signed in, the service worker asks the account what to show, and falls back on this.
@@ -2587,6 +2592,60 @@ export class Planner {
     this.importMsg = { err: false, t: 'Imported. Everything has been replaced with the backup.' };
   }
 
+  /** The plans the account kept from before they were replaced. */
+  async snapshots(): Promise<{ id: number; at: number; records: number }[]> {
+    const s = this.session;
+    if (!s || !complete(s.user)) return [];
+    return api.snapshots(s.token).catch(() => []);
+  }
+
+  /** Bring one back: like an import, so it's the plan on every device (and what's here now is kept in turn). */
+  async bringBack(id: number): Promise<void> {
+    const s = this.session;
+    this.confirm = null;
+    if (!s) return;
+    let recs;
+    try {
+      recs = await api.snapshot(s.token, id);
+    } catch (e) {
+      this.importMsg = { err: true, t: e instanceof Error ? e.message : String(e) };
+      return;
+    }
+    const of = (kind: string) => recs.filter((r) => r.kind === kind).map((r) => r.data);
+    const shared = of('settings')[0] as Partial<Settings> | undefined;
+    this.dropPending();
+    await db.replaceAll(
+      {
+        days: of('day')
+          .map(normalizeDay)
+          .filter((x): x is Day => !!x),
+        series: of('series')
+          .map(normalizeSeries)
+          .filter((x): x is Series => !!x),
+        goals: of('goal')
+          .map(normalizeGoal)
+          .filter((x): x is Goal => !!x),
+        reviews: of('review')
+          .map(normalizeReview)
+          .filter((x): x is Review => !!x),
+        settings: { ...this.settings, ...(shared ? sharedSettings(shared) : {}), onboarded: true },
+      },
+      this.hlc.now(),
+    );
+    this.sync.kick();
+    await this.reloadAll();
+    this.post({ t: 'all' });
+    this.importMsg = { err: false, t: 'Your plan is back as it was.' };
+  }
+
+  /** The account wouldn't take some changes made here: use its copy of those instead. */
+  async takeAccounts(): Promise<void> {
+    await this.flush();
+    const ids = await this.sync.takeAccounts();
+    for (const id of ids) if (id.startsWith('day:')) this.stored.add(id.slice(4));
+    this.fromAccount(ids);
+  }
+
   async eraseAll(): Promise<void> {
     this.confirm = null;
     this.dropPending();
@@ -2603,6 +2662,10 @@ export class Planner {
     this.weekOff = 0;
     await this.reloadAll();
     this.post({ t: 'all' });
+    this.importMsg = {
+      err: false,
+      t: this.session ? 'Everything erased. You can bring it back below for 30 days.' : 'Everything erased.',
+    };
     this.say('Everything erased');
   }
 
@@ -3038,6 +3101,25 @@ export class Planner {
       if ((!was || this.syncStatus === 'paused') && complete(this.session?.user)) this.setUp();
       else this.accountMsg = { err: false, t: 'Name saved.' };
     });
+  }
+
+  /** Ask to be shown it's you: has this sign-in done so just now? */
+  async isProved(): Promise<boolean> {
+    const s = this.session;
+    return !!s && (await api.isProved(s.token).catch(() => false));
+  }
+
+  /** Show it's you: with a passkey, or a code sent to the account's email. */
+  prove(how: 'passkey' | 'send' | { code: string }): Promise<boolean> {
+    const s = this.session;
+    if (!s) return Promise.resolve(false);
+    return this.accountAction(() =>
+      how === 'passkey'
+        ? api.proveWithPasskey(s.token)
+        : how === 'send'
+          ? api.sendProof(s.token)
+          : api.proveWithCode(s.token, how.code),
+    );
   }
 
   /** Email a code to add (or change) the account's email. */

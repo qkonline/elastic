@@ -19,7 +19,8 @@ import type { AlertGroup } from './reminders';
 export { SHARED_SETTINGS } from './types';
 
 /** 'paused': the account has no name or email yet, so it doesn't sync until it has. */
-export type SyncStatus = 'off' | 'connecting' | 'live' | 'offline' | 'paused' | 'full';
+/** 'refused': the account wouldn't take some changes; they stay here until the person chooses. */
+export type SyncStatus = 'off' | 'connecting' | 'live' | 'offline' | 'paused' | 'full' | 'refused';
 
 /** The WebSocket subprotocol: since 24 Oct 2026, records travel as paths with clocks. */
 export const PROTOCOL = 'elastic-day-2';
@@ -39,6 +40,8 @@ export interface SyncHooks {
   /** A clock for changes made now (the store's), and a clock seen from another device. */
   clock(): Clock;
   see(c: Clock): void;
+  /** The account's time, at each catch-up. */
+  time?(server: number): void;
   /** The account's Boardo cards changed (or its link did): fetch them again. */
   boardo?(): void;
   /** Caught up with the account since opening or coming back (true), or not yet (false). */
@@ -80,6 +83,8 @@ export class Sync {
   private rev = 0;
   /** New records the account had no room for: not sent again until the next connection. */
   private full = new Set<string>();
+  /** Records with changes the account wouldn't take: not sent again until the next connection. */
+  private refused = new Set<string>();
   /** Waiting for the catch-up a `syncNow()` asked for. */
   private caughtUp: (() => void)[] = [];
   private tries = 0;
@@ -222,6 +227,7 @@ export class Sync {
       this.pinged = 0;
       this.solo = false;
       this.full.clear();
+      this.refused.clear();
       this.lastEndpoint = this.hooks.endpoint();
       this.hello(true);
       this.ping = setInterval(() => this.visible && this.probe(), PING_MS);
@@ -342,6 +348,7 @@ export class Sync {
       await db.putMeta('syncRev', this.rev);
       if (changed.length) this.hooks.changed(changed);
       if (m.done) {
+        if (typeof m.now === 'number') this.hooks.time?.(m.now);
         if (!this.ready) {
           this.ready = true;
           this.tries = 0;
@@ -365,11 +372,12 @@ export class Sync {
       if (!m.error) await db.ackPending(kept);
       // A change the account wouldn't take (damaged, too big, or too many deletions at once): in
       // a put of several, which one isn't said, so they go again one at a time, and a single one
-      // refused is dropped rather than sent for ever.
+      // refused stays here, and it says so (takeAccounts()), rather than being sent for ever.
       else if (Object.keys(sent).length > 1) this.solo = true;
       else {
         console.error('Sync: the account refused', Object.keys(sent));
-        await db.ackPending(sent);
+        for (const id of Object.keys(sent)) this.refused.add(id);
+        this.hooks.status('refused');
       }
       return this.sendOutbox();
     }
@@ -383,7 +391,7 @@ export class Sync {
   /** Connected, with nothing of this device's waiting to reach the account (records it has no room for aside). */
   async drained(): Promise<boolean> {
     if (!this.ready || this.inflight) return false;
-    return Object.keys(await db.getPending()).every((id) => this.full.has(id));
+    return Object.keys(await db.getPending()).every((id) => this.full.has(id) || this.refused.has(id));
   }
 
   /** Ask the account for everything changed since this device last heard (or, `first`, say who's here). */
@@ -425,7 +433,7 @@ export class Sync {
 
   private async sendOutbox(): Promise<void> {
     if (!this.ready || this.inflight || this.ws?.readyState !== 1) return;
-    const pending = Object.entries(await db.getPending()).filter(([id]) => !this.full.has(id));
+    const pending = Object.entries(await db.getPending()).filter(([id]) => !this.full.has(id) && !this.refused.has(id));
     const bulk = await db.getMeta<number>('bulk');
     if (!pending.length) {
       if (bulk) await db.deleteMeta('bulk');
@@ -448,6 +456,18 @@ export class Sync {
     if (!this.send({ t: 'put', id: this.putId, recs, ...(meant ? { bulk: true } : {}) })) this.inflight = null;
   }
 
+  /** Give up the changes the account wouldn't take, for its copy of those records. The ids. */
+  async takeAccounts(): Promise<string[]> {
+    const ids = [...this.refused];
+    if (!ids.length) return ids;
+    await db.letGo(ids);
+    this.refused.clear();
+    this.rev = 0;
+    if (this.ready) this.hello();
+    this.hooks.status(this.ready ? 'live' : 'offline');
+    return ids;
+  }
+
   /** The alerts to come may have changed: tell the account if they have. */
   alertsChanged(): void {
     if (!this.ready) return;
@@ -464,7 +484,7 @@ export class Sync {
    * the news (a WebSocket message may not make it out before the page is frozen), along with
    * the alerts to come.
    */
-  setVisible(v: boolean): void {
+  setVisible(v: boolean, unsaved: { kind: RecordKind; key: string; paths: Paths }[] = []): void {
     this.visible = v;
     if (!this.session) return;
     this.send({ t: 'state', visible: v });
@@ -494,6 +514,9 @@ export class Sync {
       // would replace the alerts they set (and they don't send theirs again unless they change).
       ...(this.ready ? { alerts: this.hooks.alerts() } : {}),
       endpoint: this.hooks.endpoint(),
+      // What was just done and isn't saved yet: the page may be frozen before it can be sent. It
+      // goes again as usual, and arriving twice changes nothing. Beacons carry 64 KB at most.
+      ...(unsaved.length && JSON.stringify(unsaved).length < 40_000 ? { recs: unsaved } : {}),
     });
     try {
       if (navigator.sendBeacon?.(this.url + '/sync/beacon', new Blob([body], { type: 'text/plain' }))) return;

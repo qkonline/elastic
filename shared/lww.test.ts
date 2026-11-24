@@ -214,3 +214,24 @@ describe("a task's timer", () => {
     );
   });
 });
+
+describe('a device clock', () => {
+  it('keeps its order past what its counter holds', () => {
+    const h = new Hlc('d');
+    let last = '';
+    for (let i = 0; i < 36 ** 3 + 5; i++) {
+      const c = h.now(1000);
+      if (c <= last) throw new Error(`out of order at ${i}`);
+      last = c;
+    }
+  });
+
+  it("goes by the account's time when its own is off by more than a minute", () => {
+    const h = new Hlc('d');
+    h.sync(10_000_000, 4_000_000);
+    expect(parseInt(h.now(4_000_000).slice(0, 9), 36)).toBe(10_000_000);
+    const near = new Hlc('d');
+    near.sync(4_030_000, 4_000_000);
+    expect(parseInt(near.now(4_000_000).slice(0, 9), 36)).toBe(4_000_000);
+  });
+});

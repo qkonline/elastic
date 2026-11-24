@@ -23,6 +23,10 @@ import {
   handoffStart,
   loginFinish,
   loginStart,
+  prove,
+  proved,
+  proveFirst,
+  proveSend,
   prune,
   Refusal,
   registerFinish,
@@ -177,7 +181,18 @@ export default {
         case '/auth/login/finish':
           return reply(200, await loginFinish(env, origin, body));
         case '/auth/email/send':
-          await emailSend(env, body, token ? await mustUser() : null, ip);
+          {
+            const s = token ? await mustSession() : null;
+            await emailSend(env, body, s?.user ?? null, ip, s?.hash);
+          }
+          return reply(204);
+        case '/auth/proved':
+          return reply(200, { proved: await proved(env, await mustSession()) });
+        case '/auth/prove/send':
+          await proveSend(env, await mustSession(), ip);
+          return reply(204);
+        case '/auth/prove':
+          await prove(env, origin, await mustSession(), body, ip);
           return reply(204);
         case '/auth/email/verify': {
           const signed = token ? await mustSession() : null;
@@ -229,13 +244,20 @@ export default {
           return reply(200, { ...info, ...(await account(id).info()) });
         }
         case '/account/delete': {
-          const id = await mustUser();
+          const s = await mustSession();
+          if (mailOn(env) && !(await proved(env, s))) throw proveFirst();
+          const id = s.user;
           // Sign-ins go first, so nothing reaches the data meanwhile.
           await deleteUser(env, id);
           await boardoForget(env, id);
           await account(id).erase();
           return reply(204);
         }
+        // The plan as it was before it was last replaced (Erase everything, Import), to bring back.
+        case '/account/snapshots':
+          return reply(200, { snapshots: await account(await mustSetUp()).snapshots() });
+        case '/account/snapshot':
+          return reply(200, { recs: await account(await mustSetUp()).snapshot(Number(body.id)) });
         case '/sync/beacon': {
           const id = await mustUser();
           if (typeof body.device !== 'string' || body.device.length > 64) return reply(400);

@@ -184,3 +184,52 @@ describe('connections', () => {
     expect(state.db.prepare('SELECT id FROM devices').all()).toEqual([{ id: 'phone' }]);
   });
 });
+
+describe('the plan before it was replaced', () => {
+  it('is kept when everything is erased, once for the lot, and for 30 days', async () => {
+    const ws = await connect();
+    await put(ws, [goal('g1', 'One'), goal('g2', 'Two')]);
+    const gone = (key: string) => ({ kind: 'goal', key, paths: { _: [null, clock()] } });
+    await put(ws, [gone('g1')], true);
+    await put(ws, [gone('g2')], true);
+    const [s, ...more] = await account.snapshots();
+    expect(more).toEqual([]);
+    expect(s.records).toBe(2);
+    expect((await account.snapshot(s.id)).map((r) => (r.data as { title: string }).title).sort()).toEqual([
+      'One',
+      'Two',
+    ]);
+    vi.useFakeTimers({ now: Date.now() + 31 * 86_400_000, toFake: ['Date'] });
+    expect(await account.snapshots()).toEqual([]);
+    vi.useRealTimers();
+  });
+
+  it('keeps the oldest however often the plan is replaced', async () => {
+    const ws = await connect();
+    await put(ws, [goal('g1', 'First')]);
+    const start = Date.now();
+    for (let i = 1; i < 7; i++) {
+      vi.useFakeTimers({ now: start + i * 3_600_000, toFake: ['Date'] });
+      await put(ws, [goal('g1', 'Again ' + i)], true);
+    }
+    const kept = await account.snapshots();
+    expect(kept).toHaveLength(3);
+    expect((await account.snapshot(kept.at(-1)!.id))[0].data).toMatchObject({ title: 'First' });
+    vi.useRealTimers();
+  });
+
+  it('refuses a burst of tasks deleted without it being meant', async () => {
+    const ws = await connect();
+    const day = (key: string, n: number) => ({
+      kind: 'day',
+      key,
+      paths: {
+        _: [true, clock()],
+        ...Object.fromEntries(Array.from({ length: n }, (_, i) => [`i.t${i}`, [null, clock()]])),
+      },
+    });
+    expect(await put(ws, [day('2026-11-01', 150)])).not.toHaveProperty('error');
+    expect(await put(ws, [day('2026-11-02', 100)])).toHaveProperty('error');
+    expect(await put(ws, [day('2026-11-02', 100)], true)).not.toHaveProperty('error');
+  });
+});

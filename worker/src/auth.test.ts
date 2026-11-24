@@ -10,6 +10,9 @@ import {
   handoffFinish,
   handoffStart,
   MAIL_A_DAY,
+  prove,
+  proved,
+  proveSend,
   prune,
   sessionOf,
   signOutOthers,
@@ -52,7 +55,7 @@ describe('email codes', () => {
   it('counts every request against the hourly limit, even at once', async () => {
     const sends = Array.from({ length: 40 }, (_, i) => emailSend(env, { email: `p${i}@example.com` }, null, '1.2.3.4'));
     const res = await Promise.allSettled(sends);
-    expect(res.filter((r) => r.status === 'fulfilled')).toHaveLength(30);
+    expect(res.filter((r) => r.status === 'fulfilled')).toHaveLength(10);
     expect(db.prepare("SELECT count FROM limits WHERE key = 'ip:1.2.3.4'").get()).toEqual({ count: 40 });
   });
 
@@ -67,7 +70,7 @@ describe('email codes', () => {
   });
 
   it("doesn't count an address against its limit when the network is over its own", async () => {
-    for (let i = 0; i < 30; i++) await emailSend(env, { email: `x${i}@example.com` }, null, '6.6.6.6');
+    for (let i = 0; i < 10; i++) await emailSend(env, { email: `x${i}@example.com` }, null, '6.6.6.6');
     for (let i = 0; i < 10; i++) await emailSend(env, { email: 'v@example.com' }, null, '6.6.6.6').catch(() => {});
     expect(db.prepare("SELECT count FROM limits WHERE key = 'email:v@example.com'").get()).toBeUndefined();
     db.prepare("DELETE FROM limits WHERE key = 'mail:day'").run(); // a new day
@@ -143,8 +146,8 @@ describe('email codes', () => {
   });
 
   it('counts an IPv6 network as its /64', async () => {
-    for (let i = 0; i < 30; i++) await emailSend(env, { email: `n${i}@example.com` }, null, `2001:db8:1:2::${i + 1}`);
-    expect(db.prepare("SELECT count FROM limits WHERE key = 'ip:2001:db8:1:2::/64'").get()).toEqual({ count: 30 });
+    for (let i = 0; i < 10; i++) await emailSend(env, { email: `n${i}@example.com` }, null, `2001:db8:1:2::${i + 1}`);
+    expect(db.prepare("SELECT count FROM limits WHERE key = 'ip:2001:db8:1:2::/64'").get()).toEqual({ count: 10 });
     db.prepare("DELETE FROM limits WHERE key = 'mail:day'").run(); // a new day
     await expect(emailSend(env, { email: 'n30@example.com' }, null, '2001:db8:1:2:ffff::1')).rejects.toThrow(
       /Too many codes/,
@@ -199,6 +202,28 @@ describe('email codes', () => {
     expect(devOutbox.at(-1)).toMatchObject({ to: 'old@example.com', subject: 'Your Elastic email was changed' });
     expect(await sessionOf(env, other.token)).toBeNull();
     expect(await sessionOf(env, me.token)).toMatchObject({ user: me.user.id });
+  });
+
+  it("asks to be shown it's you before the email changes", async () => {
+    const me = await signUp('mine@example.com');
+    const signed = (await sessionOf(env, me.token))!;
+    expect(await proved(env, signed)).toBe(true); // just signed in with a code
+    db.prepare('UPDATE sessions SET proved = proved - 3600000').run();
+    expect(await proved(env, signed)).toBe(false);
+    const ask = () => emailSend(env, { email: 'theirs@example.com' }, me.user.id, '1.1.1.1', signed.hash);
+    await expect(ask()).rejects.toThrow(/Confirm it's you/);
+    await expect(emailVerify(env, { email: 'theirs@example.com', code: '000000' }, signed)).rejects.toThrow(
+      /Confirm it's you/,
+    );
+    await proveSend(env, signed, '1.1.1.1');
+    const c = code('mine@example.com');
+    await expect(prove(env, 'https://x', signed, { code: wrongFor(c) }, '1.1.1.1')).rejects.toThrow(/isn't right/);
+    await prove(env, 'https://x', signed, { code: c }, '1.1.1.1');
+    expect(await proved(env, signed)).toBe(true);
+    await expect(ask()).resolves.toBeUndefined();
+    // Only that session: another one still has to.
+    db.prepare("INSERT INTO sessions (hash, user_id, created, used) VALUES ('h2', ?, 0, 0)").run(me.user.id);
+    expect(await proved(env, { user: me.user.id, hash: 'h2' })).toBe(false);
   });
 
   it('keeps no codes for /dev/mail where a real key is set', async () => {

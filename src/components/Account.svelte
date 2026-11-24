@@ -3,6 +3,8 @@
   import { type AccountInfo, accountsAvailable, passkeysAvailable } from '../lib/account';
   import { planner as P } from '../lib/planner.svelte';
   import AccountYou from './AccountYou.svelte';
+  import Refused from './Refused.svelte';
+  import Prove from './Prove.svelte';
   import DisarmBar from './DisarmBar.svelte';
 
   // The account on this device: whether it's syncing, its name and email, and its passkeys.
@@ -19,12 +21,20 @@
     offline: "Offline. Your changes will sync when you're back online.",
     paused: 'Not syncing yet',
     full: 'Your account is full, so some new changes stay on this device.',
+    refused: "Some changes couldn't sync. They're only on this device.",
   } as const;
 
   const refresh = () => void P.accountDetails().then((i) => (info = i));
   onMount(() => {
     if (P.session) refresh();
   });
+
+  // Deleting the account asks to be shown it's you first.
+  let proving = $state(false);
+  async function askDelete() {
+    if (await P.isProved()) P.arm('unaccount', 'me');
+    else proving = true;
+  }
 
   const day = (ms: number) => new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 </script>
@@ -47,6 +57,7 @@
         <span class="dot" class:live={P.syncStatus === 'live'} class:off={P.syncStatus === 'offline'}></span>
         <span>{STATUS[P.syncStatus] || 'Signed in'}</span>
       </div>
+      <Refused />
       <span class="muted">
         Your days, repeating tasks and day settings are the same on every device you sign in on. Theme, sound and
         notifications are set on each device.
@@ -123,7 +134,15 @@
           >Sign out other devices</button
         >
       {/if}
-      {#if P.armed('unaccount', 'me')}
+      {#if proving}
+        <Prove
+          onok={() => {
+            proving = false;
+            P.arm('unaccount', 'me');
+          }}
+          oncancel={() => (proving = false)}
+        />
+      {:else if P.armed('unaccount', 'me')}
         <span class="confirm">
           Delete your account and the plan it holds? Each device keeps the copy it has now.
           <button class="btn-yes" onclick={() => P.deleteAccount()} {@attach (el) => el.focus()}>Delete</button>
@@ -131,7 +150,7 @@
           <DisarmBar />
         </span>
       {:else}
-        <button class="erase" onclick={() => P.arm('unaccount', 'me')}>Delete account</button>
+        <button class="erase" onclick={askDelete}>Delete account</button>
       {/if}
     </section>
   {/if}

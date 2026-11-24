@@ -7,7 +7,7 @@
 // in one transaction with the record they change; what other devices did comes in with
 // `applyRemote`. Plain writes (`putDays`…, `replaceAll` without a clock) send nothing.
 
-import { type Clock, diff, fromPaths, type Kind, merge, type Paths, stamp, toPaths } from '../../shared/lww';
+import { type Clock, diff, fromPaths, type Kind, merge, type Paths, stamp, toPaths, latest } from '../../shared/lww';
 import { normalizeDay, normalizeGoal, normalizeReview, normalizeSeries } from './backup';
 import type { AlertGroup } from './reminders';
 import type { Day, Goal, Review, Series, Settings } from './types';
@@ -198,6 +198,37 @@ function built(kind: RecordKind, key: string, replica: Paths): unknown {
   return doc;
 }
 
+/** Keep the latest clock this device has seen: the next one it makes comes after it, launches apart. */
+async function noteClock(tx: IDBTransaction, patches: Paths[]): Promise<void> {
+  const c = patches.map(latest).reduce((m, x) => (x > m ? x : m), '');
+  const st = tx.objectStore('meta');
+  if (c && c > ((await ask<Clock | undefined>(st.get('clock'))) ?? '')) st.put(c, 'clock');
+}
+
+/** The latest clock seen on this device (the first time, from everything it holds). */
+export async function latestClock(): Promise<Clock | undefined> {
+  const kept = await getMeta<Clock>('clock');
+  if (kept) return kept;
+  const all = await done<Paths[]>((await store('replicas', 'readonly')).getAll());
+  const c = all.map(latest).reduce((m, x) => (x > m ? x : m), '');
+  if (c) await putMeta('clock', c);
+  return c || undefined;
+}
+
+/** Take the account's copy of these records instead of this device's. */
+export async function letGo(ids: string[]): Promise<void> {
+  const tx = await begin(ALL, 'readwrite');
+  const done_ = txDone(tx);
+  for (const id of ids) {
+    const [kind, key] = splitId(id);
+    tx.objectStore('pending').delete(id);
+    tx.objectStore('replicas').delete(id);
+    if (kind !== 'settings') tx.objectStore(STORE_OF[kind]).delete(key);
+  }
+  tx.objectStore('meta').delete('syncRev');
+  await done_;
+}
+
 /** One request's result, inside a transaction (awaiting it keeps the transaction open). */
 const ask = <T>(r: IDBRequest<T>) => done(r);
 
@@ -251,6 +282,10 @@ export async function commit(changes: Change[], send: boolean): Promise<Map<stri
       tx.objectStore('pending').put(plain(merge(p, c.patch)), id);
     }
   }
+  await noteClock(
+    tx,
+    changes.map((c) => c.patch),
+  );
   await done_;
   return out;
 }
@@ -276,6 +311,10 @@ export async function applyRemote(recs: Change[]): Promise<string[]> {
     await putBuilt(tx, r.kind, r.key, doc);
     changed.push(id);
   }
+  await noteClock(
+    tx,
+    recs.map((r) => r.patch),
+  );
   await done_;
   return changed;
 }

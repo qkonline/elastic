@@ -26,6 +26,9 @@ export type Paths = Record<string, [unknown, Clock]>;
 export type Values = Record<string, unknown>;
 export type Kind = 'day' | 'series' | 'settings' | 'goal' | 'review';
 
+/** How high the three-character counter goes. */
+const COUNT = 36 ** 3;
+
 /**
  * A hybrid logical clock: the wall clock, but never going back, and past every clock seen from
  * another device, so a change made after seeing another always sorts after it.
@@ -33,17 +36,29 @@ export type Kind = 'day' | 'series' | 'settings' | 'goal' | 'review';
 export class Hlc {
   private ms = 0;
   private n = 0;
+  /** How far this device's clock is from the account's, when that's enough to matter (ms). */
+  private off = 0;
   private readonly device: string;
   constructor(device: string) {
     this.device = device;
   }
 
   now(wall = Date.now()): Clock {
+    wall += this.off;
     if (wall > this.ms) {
       this.ms = wall;
       this.n = 0;
-    } else this.n++;
+    } else if (++this.n >= COUNT) {
+      // The counter has no more room: on to the next moment.
+      this.ms++;
+      this.n = 0;
+    }
     return `${this.ms.toString(36).padStart(9, '0')}${this.n.toString(36).padStart(3, '0')}${this.device}`;
+  }
+
+  /** The account's time: a device whose clock is off by more than a minute goes by that instead. */
+  sync(server: number, wall = Date.now()): void {
+    this.off = Math.abs(server - wall) > 60_000 ? server - wall : 0;
   }
 
   /** A clock from elsewhere: the next one made here comes after it. */
@@ -214,6 +229,9 @@ export function merge(a: Paths, b: Paths): Paths {
   }
   return out;
 }
+
+/** The latest clock among these paths. */
+export const latest = (p: Paths): Clock => Object.values(p).reduce((m, [, c]) => (c > m ? c : m), ZERO);
 
 /** The paths of `b` that would change `a` (what to tell others after a merge). */
 export function newer(a: Paths, b: Paths): Paths {

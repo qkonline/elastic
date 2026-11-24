@@ -1,5 +1,6 @@
 <script lang="ts">
   import { planner as P } from '../lib/planner.svelte';
+  import Prove from './Prove.svelte';
   import SaveRow from './SaveRow.svelte';
 
   // The signed-in account's name and email, each with Change: the name is saved as it is, a new
@@ -7,7 +8,7 @@
   // say how each change went right here (the sheet says it at its top instead).
   let { notes = false }: { notes?: boolean } = $props();
 
-  let editing = $state<'name' | 'email' | 'code' | null>(null);
+  let editing = $state<'name' | 'prove' | 'email' | 'code' | null>(null);
   let name = $state('');
   let email = $state('');
   let code = $state('');
@@ -42,6 +43,11 @@
     email = '';
     editing = what;
   }
+  // The email is how the account is got back: changing it needs more than an open app.
+  async function changeEmail() {
+    start('email');
+    if (!(await P.isProved())) editing = 'prove';
+  }
 </script>
 
 {#if S}
@@ -60,7 +66,9 @@
       <button class="btn-plain" disabled={!!editing} onclick={() => start('name')}>Change</button>
     </div>
   {/if}
-  {#if editing === 'email'}
+  {#if editing === 'prove'}
+    <Prove onok={() => (editing = 'email')} oncancel={() => (editing = null)} />
+  {:else if editing === 'email'}
     <span class="muted">We'll send a code to the new address to confirm it.</span>
     <form class="col" onsubmit={(e) => (e.preventDefault(), sendCode())}>
       <input
@@ -99,7 +107,7 @@
   {:else}
     <div class="line">
       <span class="lv"><span class="ll">Email</span>{S.user.email}</span>
-      <button class="btn-plain" disabled={!!editing} onclick={() => start('email')}>Change</button>
+      <button class="btn-plain" disabled={!!editing} onclick={changeEmail}>Change</button>
     </div>
   {/if}
   {#if notes && note}

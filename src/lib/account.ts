@@ -71,6 +71,8 @@ const ONCE = new Set([
   '/auth/register/finish',
   '/account/handoff',
   '/account/delete',
+  '/auth/prove',
+  '/auth/prove/send',
   '/boardo/connect',
   '/boardo/adopt',
 ]);
@@ -178,6 +180,28 @@ export function verifyCode(email: string, code: string, token?: string, name?: s
 export const setName = (token: string, name: string) => call<{ name: string }>('/auth/name', { name }, token);
 export const removePasskey = (token: string, id: string) => call<void>('/auth/passkeys/remove', { id }, token);
 export const accountInfo = (token: string) => call<AccountInfo>('/account', {}, token);
+export const snapshots = (token: string) =>
+  call<{ snapshots: { id: number; at: number; records: number }[] }>('/account/snapshots', {}, token).then(
+    (r) => r.snapshots,
+  );
+export const snapshot = (token: string, id: number) =>
+  call<{ recs: { kind: string; key: string; data: unknown }[] }>('/account/snapshot', { id }, token).then(
+    (r) => r.recs,
+  );
+
+/** Whether this sign-in has just shown it's you (the email and the account itself ask for it). */
+export const isProved = (token: string) => call<{ proved: boolean }>('/auth/proved', {}, token).then((r) => r.proved);
+export const sendProof = (token: string) => call<void>('/auth/prove/send', {}, token);
+export const proveWithCode = (token: string, code: string) => call<void>('/auth/prove', { code }, token);
+export async function proveWithPasskey(token: string): Promise<void> {
+  const { challengeId, options } = await call<{
+    challengeId: string;
+    options: Parameters<typeof startAuthentication>[0]['optionsJSON'];
+  }>('/auth/login/start');
+  const response = await startAuthentication({ optionsJSON: options }).catch(passkeyError);
+  await call('/auth/prove', { challengeId, response }, token);
+}
+
 export const deleteAccount = (token: string) => call<void>('/account/delete', {}, token);
 
 /** A one-time code to carry this sign-in to the app's new address (src/lib/move.ts). */
